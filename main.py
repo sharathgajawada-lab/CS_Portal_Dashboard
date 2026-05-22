@@ -48,10 +48,13 @@ def cache_get(key):
     if not entry:
         return None, False
     age = time.time() - entry["ts"]
-    if age < CACHE_TTL:
+    # Session stats use 1-hour fresh TTL
+    fresh_ttl = 3600 if key.startswith("session:") else CACHE_TTL
+    stale_ttl = 7200 if key.startswith("session:") else STALE_TTL
+    if age < fresh_ttl:
         return entry["data"], True
-    if age < STALE_TTL:
-        return entry["data"], False   # stale but usable
+    if age < stale_ttl:
+        return entry["data"], False
     return None, False
 
 def cache_set(key, data):
@@ -282,6 +285,288 @@ async def _fetch_articles(n: int) -> dict:
         })
 
     return {"articles": articles, "fetched_at": datetime.utcnow().isoformat()}
+
+
+# ─── Session stats endpoint ───────────────────────────────────────────────────
+SESSION_DAYS = 30
+
+ALL_PROJECTS = [
+    "cs-portal-auth-events",
+    "cs-portal-content-events",
+    "cs-portal-feedback-events",
+    "cs-portal-items-events",
+    "cs-portal-profile-events",
+    "cs-portal-scheduling-events",
+]
+
+ACTIVITY_MAP = {
+    "auth.login":             "auth",
+    "auth.logout":            "auth",
+    "article.viewed":         "articles",
+    "video.watched":          "videos",
+    "search.performed":       "search",
+    "article.feedback":       "feedback",
+    "profile.viewed":         "profile",
+    "order_supplies.visited": "supplies",
+    "scheduling.started":     "scheduling",
+    "scheduling.completed":   "scheduling",
+    "chat.started":           "chat",
+    "chat.message_sent":      "chat",
+    "asset.download":         "content",
+    "category.viewed":        "content",
+    "returns.viewed":         "supplies",
+}
+
+ACTIVITY_LABELS = {
+    "articles":   "Articles",
+    "videos":     "Videos",
+    "search":     "Search",
+    "profile":    "Profile views",
+    "scheduling": "Scheduling",
+    "supplies":   "Supplies / Returns",
+    "feedback":   "Feedback",
+    "chat":       "Chat",
+    "content":    "Other content",
+    "auth":       "Auth",
+}
+
+# Separate semaphore for timeline calls — higher concurrency is fine
+timeline_sem = asyncio.Semaphore(30)
+
+async def _get_project_timeline(project: str, user_id: str) -> list:
+    params = {"userId": user_id, "since": f"{SESSION_DAYS}d", "limit": 500}
+    url    = f"{CMS_BASE}/{project}/query/user-timeline"
+    client = get_http_client()
+    async with timeline_sem:
+        for attempt in range(3):
+            try:
+                r = await client.get(url, params=params)
+                if r.status_code in (429, 502, 503, 504):
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                if r.status_code != 200:
+                    return []
+                text = r.text.strip()
+                if not text:
+                    return []
+                data = json.loads(text)
+                if isinstance(data, list):
+                    return data
+                return data.get("events", data.get("items", []))
+            except Exception:
+                await asyncio.sleep(2 ** attempt)
+    return []
+
+async def _fetch_user_all_projects(user_id: str) -> list:
+    """Fetch and merge events across all 6 projects for one user."""
+    results = await asyncio.gather(
+        *[_get_project_timeline(p, user_id) for p in ALL_PROJECTS],
+        return_exceptions=True
+    )
+    events = []
+    for r in results:
+        if isinstance(r, list):
+            events.extend(r)
+    return sorted(events, key=lambda e: e.get("timestamp", 0))
+
+def _compute_sessions(events: list) -> list:
+    """
+    Group events by session_id, compute duration and activity breakdown.
+    Returns list of session dicts.
+    """
+    from collections import defaultdict
+    sessions = defaultdict(list)
+    for e in events:
+        sid = e.get("session_id") or e.get("sessionId") or "unknown"
+        sessions[sid].append(e)
+
+    result = []
+    for sid, evts in sessions.items():
+        if sid == "unknown":
+            continue
+        evts_sorted = sorted(evts, key=lambda e: e.get("timestamp", 0))
+        ts_list     = [e.get("timestamp", 0) for e in evts_sorted if e.get("timestamp")]
+        if len(ts_list) < 2:
+            continue
+
+        t_start    = min(ts_list)
+        t_end      = max(ts_list)
+        duration_s = (t_end - t_start) / 1000  # ms → seconds
+
+        # Cap unrealistic sessions (> 8 hours = likely idle/forgotten tab)
+        if duration_s > 28800:
+            duration_s = 28800
+
+        has_logout = any(e.get("event_type") == "auth.logout" for e in evts)
+        date_str   = datetime.utcfromtimestamp(t_start / 1000).strftime("%Y-%m-%d")
+
+        # Time per activity — gap between consecutive events, attributed to the first event's type
+        activity_time = defaultdict(float)
+        activity_events = defaultdict(int)
+        for i in range(len(evts_sorted) - 1):
+            gap_s    = (evts_sorted[i+1].get("timestamp",0) - evts_sorted[i].get("timestamp",0)) / 1000
+            gap_s    = min(gap_s, 300)  # cap gaps at 5 min (idle time)
+            etype    = evts_sorted[i].get("event_type", "")
+            bucket   = ACTIVITY_MAP.get(etype, "other")
+            activity_time[bucket]   += gap_s
+            activity_events[bucket] += 1
+
+        # Also count last event
+        last_etype  = evts_sorted[-1].get("event_type", "")
+        last_bucket = ACTIVITY_MAP.get(last_etype, "other")
+        activity_events[last_bucket] += 1
+
+        # Extract search queries
+        search_queries = [
+            e.get("properties", {}).get("query", "")
+            for e in evts_sorted
+            if e.get("event_type") == "search.performed"
+            and isinstance(e.get("properties"), dict)
+            and e.get("properties", {}).get("query")
+        ]
+
+        result.append({
+            "session_id":     sid,
+            "date":           date_str,
+            "duration_s":     round(duration_s),
+            "has_logout":     has_logout,
+            "event_count":    len(evts_sorted),
+            "activity_time":  dict(activity_time),
+            "activity_events":dict(activity_events),
+            "search_queries": search_queries,
+        })
+
+    return result
+
+async def _compute_all_session_stats() -> dict:
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+
+    # Step 1 — get ALL real users (exclude anonymous)
+    all_users_raw = await cms_fetch_topn(
+        "cs-portal-auth-events", "auth.login",
+        group_by="userId", n=5000,
+        from_date=DATA_START_DATE, to_date=today
+    )
+    user_ids = [
+        r.get("id") or r.get("itemId") or r.get("key") or ""
+        for r in all_users_raw
+        if (r.get("id") or r.get("itemId") or r.get("key") or "") not in ("anonymous", "")
+    ]
+    print(f"Session stats: fetching timelines for {len(user_ids)} users")
+
+    # Step 2 — fetch all users in batches of 20
+    BATCH = 20
+    all_sessions = []
+    for i in range(0, len(user_ids), BATCH):
+        batch   = user_ids[i:i+BATCH]
+        results = await asyncio.gather(
+            *[_fetch_user_all_projects(uid) for uid in batch],
+            return_exceptions=True
+        )
+        for events in results:
+            if isinstance(events, list):
+                all_sessions.extend(_compute_sessions(events))
+        await asyncio.sleep(0.1)  # brief pause between batches
+
+    if not all_sessions:
+        return {
+            "total_sessions": 0, "avg_seconds": 0, "median_seconds": 0,
+            "p90_seconds": 0, "pct_with_logout": 0,
+            "activity_breakdown": [], "daily_avg": [],
+            "top_searches": [], "computed_at": datetime.utcnow().isoformat()
+        }
+
+    # Step 3 — aggregate
+    durations   = sorted([s["duration_s"] for s in all_sessions])
+    n           = len(durations)
+    avg_s       = round(sum(durations) / n)
+    median_s    = durations[n // 2]
+    p90_s       = durations[int(n * 0.9)]
+    pct_logout  = round(sum(1 for s in all_sessions if s["has_logout"]) / n * 100, 1)
+
+    # Activity breakdown — aggregate across all sessions
+    from collections import defaultdict, Counter
+    act_time_total  = defaultdict(float)
+    act_event_total = defaultdict(int)
+    act_users       = defaultdict(set)
+    search_counter  = Counter()
+
+    for s in all_sessions:
+        for bucket, t in s["activity_time"].items():
+            act_time_total[bucket]  += t
+        for bucket, cnt in s["activity_events"].items():
+            act_event_total[bucket] += cnt
+        # user identity — use session_id prefix as proxy
+        uid_proxy = s["session_id"][:8]
+        for bucket in s["activity_time"]:
+            act_users[bucket].add(uid_proxy)
+        for q in s["search_queries"]:
+            if q.strip():
+                search_counter[q.strip().lower()] += 1
+
+    total_time = sum(act_time_total.values()) or 1
+    activity_breakdown = sorted([
+        {
+            "bucket":       bucket,
+            "label":        ACTIVITY_LABELS.get(bucket, bucket.title()),
+            "avg_seconds":  round(act_time_total[bucket] / n),
+            "pct_time":     round(act_time_total[bucket] / total_time * 100, 1),
+            "unique_users": len(act_users[bucket]),
+            "avg_events":   round(act_event_total[bucket] / n, 1),
+        }
+        for bucket in act_time_total
+        if bucket != "auth"
+    ], key=lambda x: -x["avg_seconds"])
+
+    # Daily avg duration
+    from collections import defaultdict as dd2
+    daily = dd2(list)
+    for s in all_sessions:
+        daily[s["date"]].append(s["duration_s"])
+    daily_avg = [
+        {"date": d, "avg_seconds": round(sum(v)/len(v)), "count": len(v)}
+        for d, v in sorted(daily.items())
+    ]
+
+    # Top searches
+    top_searches = [
+        {"query": q, "count": c}
+        for q, c in search_counter.most_common(20)
+    ]
+
+    return {
+        "total_sessions":      n,
+        "avg_seconds":         avg_s,
+        "median_seconds":      median_s,
+        "p90_seconds":         p90_s,
+        "pct_with_logout":     pct_logout,
+        "activity_breakdown":  activity_breakdown,
+        "daily_avg":           daily_avg,
+        "top_searches":        top_searches,
+        "total_users_sampled": len(user_ids),
+        "computed_at":         datetime.utcnow().isoformat(),
+    }
+
+@app.get("/api/session-stats")
+async def session_stats():
+    cache_key = "session:stats"
+    data, fresh = cache_get(cache_key)
+    if fresh:
+        return data
+    if data is not None and not fresh:
+        asyncio.create_task(_refresh_session_stats())
+        return data
+    # First call — compute synchronously
+    result = await _compute_all_session_stats()
+    cache_set(cache_key, result)
+    return result
+
+async def _refresh_session_stats():
+    try:
+        result = await _compute_all_session_stats()
+        cache_set("session:stats", result)
+    except Exception as e:
+        print(f"Session stats refresh error: {e}")
 
 # ─── Domo endpoint ────────────────────────────────────────────────────────────
 @app.get("/domo/{event_key}")

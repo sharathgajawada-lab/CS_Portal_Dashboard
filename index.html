@@ -348,28 +348,100 @@ canvas{cursor:pointer}
     </div>
   </div>
 
-  <!-- FULL TABLE -->
-  <div class="chart-card">
+  <!-- SESSION STATS -->
+  <div class="chart-card" id="sessionStatsCard">
     <div class="chart-header">
-      <div class="chart-title">Full event breakdown</div>
-      <div class="chart-subtitle" id="tableSubtitle"></div>
+      <div>
+        <div class="chart-title">Session analytics</div>
+        <div class="chart-subtitle" id="sessionStatsSubtitle">Loading — this may take 10–15 seconds on first load…</div>
+      </div>
     </div>
+
+    <!-- Session KPI cards -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.5rem" id="sessionKpiRow">
+      <div class="kpi" style="--kpi-c:#1a4fdb"><div class="kpi-label">Avg session</div><div class="kpi-value" id="sAvg">—</div><div class="kpi-avg">duration</div></div>
+      <div class="kpi" style="--kpi-c:#0e6e45"><div class="kpi-label">Median session</div><div class="kpi-value" id="sMedian">—</div><div class="kpi-avg">duration</div></div>
+      <div class="kpi" style="--kpi-c:#5b3fbf"><div class="kpi-label">P90 session</div><div class="kpi-value" id="sP90">—</div><div class="kpi-avg">90th percentile</div></div>
+      <div class="kpi" style="--kpi-c:#c47a0a"><div class="kpi-label">Sessions analysed</div><div class="kpi-value" id="sTotal">—</div><div class="kpi-avg" id="sPctLogout">—% with logout</div></div>
+    </div>
+
+    <!-- Two col: daily trend + activity stacked bar -->
+    <div class="two-col" style="margin-bottom:1rem">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Avg session duration by day</div>
+        <div style="position:relative;width:100%;height:220px">
+          <canvas id="sessionTrendChart" role="img" aria-label="Session duration trend"></canvas>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Where time is spent per session</div>
+        <div style="position:relative;width:100%;height:220px">
+          <canvas id="sessionActivityChart" role="img" aria-label="Session activity breakdown"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity breakdown table -->
     <div class="table-wrap">
-      <table>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr>
-            <th>Event</th>
-            <th>Total</th>
-            <th>Daily avg</th>
-            <th>vs prev period</th>
-            <th>WoW</th>
-            <th>Peak day</th>
-            <th>Share</th>
-            <th>Trend</th>
+            <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Activity</th>
+            <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Avg time/session</th>
+            <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">% of session</th>
+            <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Unique users</th>
+            <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Avg events/session</th>
+            <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Time share</th>
           </tr>
         </thead>
-        <tbody id="eventsTable"></tbody>
+        <tbody id="sessionActivityTable"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- TOP SEARCHES + FULL EVENT TABLE side by side -->
+  <div class="two-col">
+    <!-- Top search terms -->
+    <div class="chart-card" style="margin-bottom:0">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Top search terms</div>
+          <div class="chart-subtitle">From search.performed · properties.query</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr>
+              <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">#</th>
+              <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Query</th>
+              <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Searches</th>
+            </tr>
+          </thead>
+          <tbody id="searchTermsTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Full event breakdown (compact) -->
+    <div class="chart-card" style="margin-bottom:0">
+      <div class="chart-header">
+        <div class="chart-title">Event breakdown</div>
+        <div class="chart-subtitle" id="tableSubtitle"></div>
+      </div>
+      <div class="table-wrap">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr>
+              <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border)">Event</th>
+              <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border)">Total</th>
+              <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border)">WoW</th>
+              <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:6px 12px;border-bottom:1px solid var(--border)">Share</th>
+            </tr>
+          </thead>
+          <tbody id="eventsTable"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -504,7 +576,8 @@ async function loadAll(){
 
   try {
     document.getElementById('loadingText').textContent='Fetching metrics…';
-    const articlesPromise = loadArticles(); // fire in parallel
+    const articlesPromise = loadArticles();       // fire in parallel
+    const sessionPromise  = loadSessionStats();   // fire in parallel (slow, non-blocking)
     const r = await fetch('/api/metrics/batch');
     if(!r.ok) throw new Error(`Server returned ${r.status}`);
     rawData = await r.json();
@@ -1117,34 +1190,138 @@ function renderTable(filteredOverride, eventKeyOverride){
   const activeEvent = eventKeyOverride !== undefined ? eventKeyOverride : filters.event;
   const gt=EVENTS.reduce((s,e)=>s+(fd[e.key]?.series?.reduce((a,p)=>a+(p.count??0),0)||0),0);
   const dowLabel = filters.dow!==null ? ` · ${DOW_NAMES_FULL[filters.dow]}s only` : '';
-  document.getElementById('tableSubtitle').textContent=`${fmt(gt)} total events · ${state.days} day${state.days>1?'s':''}${dowLabel}`;
+  document.getElementById('tableSubtitle').textContent=`${fmt(gt)} total · ${state.days}d${dowLabel}`;
   document.getElementById('eventsTable').innerHTML=EVENTS.map(e=>{
     const series=fd[e.key]?.series||[];
     const total=series.reduce((s,p)=>s+(p.count??0),0);
-    const avg=state.days>0?total/state.days:0;
-    const peak=getPeak(e.key);
     const share=gt?(total/gt*100).toFixed(1):0;
-    const vs=vsPercent(e.key);
     const wow=getWoW(e.key);
-    const vsClass=vs===null?'flat':vs>5?'up':vs<-5?'down':'flat';
-    const vsLabel=vs===null?'—':(vs>0?'▲ ':'▼ ')+Math.abs(Math.round(vs))+'%';
     const wowClass=wow===null?'flat':wow>5?'up':wow<-5?'down':'flat';
     const wowLabel=wow===null?'—':(wow>0?'↑ ':'↓ ')+Math.abs(Math.round(wow))+'%';
-    const trendClass=vs===null?'flat':vs>10?'up':vs<-10?'down':'flat';
-    const trendLabel=vs===null?'—':vs>10?'Trending up':vs<-10?'Trending down':'Stable';
     const isActive=activeEvent===e.key;
     const rowStyle=activeEvent!==null?(isActive?'background:#eff3ff':'opacity:0.3'):'';
     return `<tr style="${rowStyle};cursor:pointer" onclick="setFilter('event','${e.key}')" title="Filter to ${e.label}">
       <td><span class="badge" style="${e.badge}">${e.label}</span>${isActive?' ⬅':''}</td>
-      <td class="mono">${fmt(total)}</td>
-      <td class="mono">${Math.round(avg)}/day</td>
-      <td style="font-weight:500" class="${vsClass}">${vsLabel}</td>
-      <td style="font-weight:500" class="${wowClass}">${wowLabel}</td>
-      <td class="mono" style="color:var(--text2)">${peak.date} <span style="color:var(--text3)">(${fmt(peak.val)})</span></td>
-      <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill" style="width:${share}%;background:${e.color}"></div></div><span style="font-size:11px;color:var(--text3);min-width:32px">${share}%</span></div></td>
-      <td style="font-weight:500" class="${trendClass}">${trendLabel}</td>
+      <td class="mono" style="text-align:right">${fmt(total)}</td>
+      <td style="font-weight:500;text-align:right" class="${wowClass}">${wowLabel}</td>
+      <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill" style="width:${share}%;background:${e.color}"></div></div><span style="font-size:11px;color:var(--text3);min-width:28px">${share}%</span></div></td>
     </tr>`;
   }).join('');
+}
+
+// ── Session stats rendering ──────────────────────────────────────────────────
+let sessionData = null;
+
+function fmtDuration(s){
+  if(!s || s===0) return '—';
+  if(s < 60)  return `${s}s`;
+  if(s < 3600) return `${Math.floor(s/60)}m ${s%60}s`;
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
+}
+
+async function loadSessionStats(){
+  try {
+    const r = await fetch('/api/session-stats');
+    if(!r.ok) throw new Error(r.status);
+    sessionData = await r.json();
+    renderSessionStats();
+  } catch(e) {
+    document.getElementById('sessionStatsSubtitle').textContent = 'Failed to load session data — try refreshing.';
+    console.warn('Session stats failed:', e);
+  }
+}
+
+function renderSessionStats(){
+  if(!sessionData) return;
+  const d = sessionData;
+
+  // KPI cards
+  document.getElementById('sAvg').textContent    = fmtDuration(d.avg_seconds);
+  document.getElementById('sMedian').textContent = fmtDuration(d.median_seconds);
+  document.getElementById('sP90').textContent    = fmtDuration(d.p90_seconds);
+  document.getElementById('sTotal').textContent  = fmt(d.total_sessions);
+  document.getElementById('sPctLogout').textContent = `${d.pct_with_logout}% with logout`;
+  document.getElementById('sessionStatsSubtitle').textContent =
+    `${fmt(d.total_users_sampled)} users · ${fmt(d.total_sessions)} sessions analysed · last computed ${new Date(d.computed_at).toLocaleTimeString()}`;
+
+  // Daily trend chart
+  const daily = d.daily_avg || [];
+  if(charts.sessionTrend) charts.sessionTrend.destroy();
+  charts.sessionTrend = new Chart(document.getElementById('sessionTrendChart'),{
+    type:'line',
+    data:{
+      labels: daily.map(p=>new Date(p.date).toLocaleDateString('en-US',{month:'short',day:'numeric'})),
+      datasets:[{
+        label:'Avg session (min)',
+        data: daily.map(p=>Math.round(p.avg_seconds/60*10)/10),
+        borderColor:'#1a4fdb',
+        backgroundColor:'rgba(26,79,219,0.07)',
+        fill:true, pointRadius:2, tension:.3, borderWidth:2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.raw} min avg`}}},
+      scales:{
+        x:{ticks:{color:'#9c9b97',font:{size:10},maxRotation:45,autoSkip:true,maxTicksLimit:14},grid:{color:'rgba(0,0,0,0.05)'}},
+        y:{ticks:{color:'#9c9b97',font:{size:11},callback:v=>`${v}m`},grid:{color:'rgba(0,0,0,0.05)'},beginAtZero:true}
+      }
+    }
+  });
+
+  // Activity stacked horizontal bar
+  const acts = (d.activity_breakdown||[]).slice(0,8);
+  const actColors = ['#1a4fdb','#c47a0a','#0e6e45','#5b3fbf','#c03030','#0f6e56','#888','#b45309'];
+  if(charts.sessionActivity) charts.sessionActivity.destroy();
+  charts.sessionActivity = new Chart(document.getElementById('sessionActivityChart'),{
+    type:'bar',
+    data:{
+      labels: acts.map(a=>a.label),
+      datasets:[
+        {label:'Avg time (min)', data: acts.map(a=>Math.round(a.avg_seconds/60*10)/10), backgroundColor: acts.map((_,i)=>actColors[i%actColors.length]), borderRadius:3},
+      ]
+    },
+    options:{
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>`${ctx.raw} min avg · ${acts[ctx.dataIndex]?.unique_users} users`}}
+      },
+      scales:{
+        x:{ticks:{color:'#9c9b97',font:{size:10},callback:v=>`${v}m`},grid:{color:'rgba(0,0,0,0.05)'},beginAtZero:true},
+        y:{ticks:{color:'#9c9b97',font:{size:11}},grid:{display:false}}
+      }
+    }
+  });
+
+  // Activity breakdown table
+  document.getElementById('sessionActivityTable').innerHTML = (d.activity_breakdown||[]).map((a,i)=>{
+    const color = actColors[i%actColors.length];
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:9px 12px"><span style="display:inline-flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>${a.label}</span></td>
+      <td style="padding:9px 12px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;font-weight:500">${fmtDuration(a.avg_seconds)}</td>
+      <td style="padding:9px 12px;text-align:right;font-size:12px;color:var(--text2)">${a.pct_time}%</td>
+      <td style="padding:9px 12px;text-align:right;font-family:'DM Mono',monospace;font-size:12px">${fmt(a.unique_users)}</td>
+      <td style="padding:9px 12px;text-align:right;font-size:12px;color:var(--text2)">${a.avg_events}</td>
+      <td style="padding:9px 12px;min-width:100px">
+        <div style="display:flex;align-items:center;gap:4px">
+          <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+            <div style="width:${a.pct_time}%;height:100%;background:${color};border-radius:2px"></div>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Top searches table
+  document.getElementById('searchTermsTable').innerHTML = (d.top_searches||[]).map((s,i)=>
+    `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px;color:var(--text3);font-size:12px">${i+1}</td>
+      <td style="padding:8px 12px;font-size:13px">${s.query}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;font-weight:500">${s.count}</td>
+    </tr>`
+  ).join('');
 }
 
 // highlightMetric replaced by unified filter engine (setFilter/clearAllFilters)
