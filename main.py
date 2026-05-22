@@ -574,6 +574,72 @@ async def _refresh_session_stats():
     except Exception as e:
         print(f"Session stats refresh error: {e}")
 
+# ─── Session debug endpoint ──────────────────────────────────────────────────
+@app.get("/api/session-debug")
+async def session_debug():
+    """Step-by-step debug for session stats pipeline."""
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    out   = {}
+
+    # Step 1 — fetch user IDs
+    all_users_raw = await cms_fetch_topn(
+        "cs-portal-auth-events", "auth.login",
+        group_by="userId", n=10,
+        from_date=DATA_START_DATE, to_date=today
+    )
+    out["step1_raw_type"]    = type(all_users_raw).__name__
+    out["step1_raw_sample"]  = str(all_users_raw)[:300]
+
+    if isinstance(all_users_raw, dict):
+        rows = all_users_raw.get("top", [])
+    else:
+        rows = all_users_raw or []
+    out["step1_rows_count"] = len(rows)
+    out["step1_rows_sample"] = rows[:3]
+
+    user_ids = [
+        r.get("itemId") or r.get("id") or r.get("key") or ""
+        for r in rows
+        if (r.get("itemId") or r.get("id") or r.get("key") or "") not in ("anonymous", "")
+    ]
+    out["step2_user_ids"] = user_ids[:5]
+    out["step2_user_count"] = len(user_ids)
+
+    if not user_ids:
+        out["error"] = "No user IDs found — top-n may be returning unexpected format"
+        return out
+
+    # Step 2 — fetch one user timeline
+    test_uid = user_ids[0]
+    out["step3_test_uid"] = test_uid
+
+    # Try both param names
+    for param_name in ["userId", "user_id"]:
+        params = {param_name: test_uid, "since": "30d", "limit": 5}
+        url    = f"{CMS_BASE}/cs-portal-auth-events/query/user-timeline"
+        client = get_http_client()
+        try:
+            r = await client.get(url, params=params)
+            out[f"step3_{param_name}_status"] = r.status_code
+            out[f"step3_{param_name}_sample"] = r.text[:200]
+        except Exception as e:
+            out[f"step3_{param_name}_error"] = str(e)
+
+    # Step 3 — run _fetch_user_all_projects on one user
+    events = await _fetch_user_all_projects(test_uid)
+    out["step4_events_count"] = len(events)
+    out["step4_events_sample"] = [
+        {k: v for k, v in e.items() if k in ("event_type","session_id","timestamp")}
+        for e in events[:5]
+    ]
+
+    # Step 4 — run _compute_sessions
+    sessions = _compute_sessions(events)
+    out["step5_sessions_count"] = len(sessions)
+    out["step5_sessions_sample"] = sessions[:2]
+
+    return out
+
 # ─── Domo endpoint ────────────────────────────────────────────────────────────
 @app.get("/domo/{event_key}")
 async def domo_endpoint(event_key: str):
