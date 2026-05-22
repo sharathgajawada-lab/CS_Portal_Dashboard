@@ -175,11 +175,12 @@ tbody td{padding:10px 12px}
     </div>
     <div class="date-picker-bar">
       <div class="quick-btns">
-        <button class="qbtn" onclick="setQuick(1,this)">Today</button>
+        <button class="qbtn" onclick="setQuick('today',this)">Today</button>
+        <button class="qbtn" onclick="setQuick('yesterday',this)">Yesterday</button>
         <button class="qbtn" onclick="setQuick(7,this)">7d</button>
         <button class="qbtn active" onclick="setQuick(30,this)">30d</button>
-        <button class="qbtn" onclick="setQuick(90,this)">90d</button>
-        <button class="qbtn" onclick="setQuick(180,this)">180d</button>
+        <button class="qbtn" onclick="setQuick('ytd',this)">YTD</button>
+        <button class="qbtn" onclick="setQuick('start',this)">From start</button>
       </div>
       <span class="date-sep">or custom</span>
       <input type="date" class="date-input" id="startDate">
@@ -327,6 +328,7 @@ if('serviceWorker' in navigator){
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
+const DATA_START_DATE = '2026-04-24';
 const EVENTS = [
   { key:'profile.viewed',         project:'cs-portal-profile-events',    label:'Profile views',   color:'#1a4fdb', badge:'background:#eff3ff;color:#1a4fdb' },
   { key:'auth.login',             project:'cs-portal-auth-events',        label:'Logins',          color:'#0e6e45', badge:'background:#ecfdf5;color:#0e6e45' },
@@ -399,11 +401,22 @@ function setQuick(n,btn){
   document.querySelectorAll('.qbtn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   const today=toISO(new Date());
-  const from=n===1?today:toISO(daysAgo(n));
-  state={...state,from,to:today,days:n===1?1:n};
+  let from, to=today, days;
+  if(n==='today'){
+    from=today; days=1;
+  } else if(n==='yesterday'){
+    const y=daysAgo(1); from=toISO(y); to=toISO(y); days=1;
+  } else if(n==='ytd'){
+    from=new Date().getFullYear()+'-01-01'; days=Math.round((new Date(today)-new Date(from))/86400000)+1;
+  } else if(n==='start'){
+    from=DATA_START_DATE; days=Math.round((new Date(today)-new Date(from))/86400000)+1;
+  } else {
+    from=toISO(daysAgo(n)); days=n;
+  }
+  state={...state,from,to,days};
   document.getElementById('startDate').value=from;
-  document.getElementById('endDate').value=today;
-  if(Object.keys(rawData).length) renderAll(); // instant if data loaded
+  document.getElementById('endDate').value=to;
+  if(Object.keys(rawData).length) renderAll();
   else loadAll();
 }
 
