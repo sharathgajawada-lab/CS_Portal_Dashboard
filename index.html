@@ -148,7 +148,7 @@ tbody td{padding:10px 12px}
 
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
-  <p class="loading-text">Fetching live metrics…</p>
+  <p class="loading-text" id="loadingText">Fetching live metrics…</p>
 </div>
 
 <nav class="topbar">
@@ -517,66 +517,6 @@ function vsPercent(key){
   const cur=getTotal(key,state.data);
   const prv=getTotal(key,state.prevData);
   return prv>0?((cur-prv)/prv*100):null;
-}
-
-async function loadAll(){
-  document.getElementById('loadingOverlay').classList.remove('hidden');
-  document.getElementById('loadingText').textContent = 'Fetching metrics…';
-  document.getElementById('errorBanner').classList.remove('visible');
-
-  try {
-    // Current period — sequential with small delay to avoid rate limiting
-    for(let i=0; i<EVENTS.length; i++){
-      const e=EVENTS[i];
-      document.getElementById('loadingText').textContent = `Fetching ${e.label}… (${i+1}/${EVENTS.length})`;
-      try {
-        state.data[e.key] = await fetchSeries(e.project, e.key);
-      } catch(err) {
-        state.data[e.key] = null;
-      }
-      await new Promise(r=>setTimeout(r,200)); // 200ms between requests
-    }
-
-    // Previous period — sequential
-    const prevTo=new Date(state.from); prevTo.setDate(prevTo.getDate()-1);
-    const prevFrom=new Date(prevTo); prevFrom.setDate(prevFrom.getDate()-state.days+1);
-    for(let i=0; i<EVENTS.length; i++){
-      const e=EVENTS[i];
-      try {
-        state.prevData[e.key] = await fetchSeries(e.project, e.key, toISO(prevFrom), toISO(prevTo));
-      } catch(err) {
-        state.prevData[e.key] = null;
-      }
-      await new Promise(r=>setTimeout(r,200));
-    }
-
-    const now=new Date();
-    const fl=state.from?new Date(state.from).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
-    const tl=state.to?new Date(state.to).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
-    document.getElementById('dateRangeLabel').textContent=`${fl} – ${tl} · ${state.days} day${state.days>1?'s':''}`;
-    document.getElementById('footerRange').textContent=`${fl} – ${tl}`;
-    document.getElementById('lastUpdated').textContent='Updated '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-    document.getElementById('periodCompSubtitle').textContent=`${toISO(prevFrom)} – ${toISO(prevTo)} vs ${state.from} – ${state.to}`;
-
-    renderAlerts();
-    renderKPIs();
-    renderInsights();
-    renderTrendChart();
-    renderDonut();
-    renderPeriodChart();
-    renderWoWChart();
-    renderSessionChart();
-    renderDow();
-    renderHeatmap();
-    renderTable();
-
-  } catch(err){
-    const b=document.getElementById('errorBanner');
-    b.textContent='Failed to load: '+err.message+'. Check CORS headers or API key.';
-    b.classList.add('visible');
-  } finally {
-    document.getElementById('loadingOverlay').classList.add('hidden');
-  }
 }
 
 function renderAlerts(){
