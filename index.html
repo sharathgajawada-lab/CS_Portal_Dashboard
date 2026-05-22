@@ -142,6 +142,26 @@ tbody td{padding:10px 12px}
 /* FOOTER */
 .dash-footer{margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .dash-footer p{font-size:11px;color:var(--text3)}
+
+/* ── Unified filter bar ── */
+.filter-bar{display:none;align-items:center;gap:8px;padding:10px 14px;background:#eff3ff;border-radius:var(--r-sm);font-size:13px;color:var(--blue);margin-bottom:1rem;flex-wrap:wrap}
+.filter-bar.visible{display:flex}
+.filter-chip{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #a5b4fc;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:500;color:var(--blue)}
+.filter-chip button{background:none;border:none;cursor:pointer;color:#6366f1;font-size:13px;line-height:1;padding:0 0 0 2px}
+.filter-chip button:hover{color:var(--red)}
+.filter-clear-all{font-family:'DM Sans',sans-serif;font-size:12px;color:#fff;background:var(--blue);border:none;border-radius:6px;padding:4px 12px;cursor:pointer;margin-left:auto}
+.filter-clear-all:hover{background:#1640b8}
+
+/* ── Fade non-active elements ── */
+.faded{opacity:0.25;transition:opacity .2s}
+.kpi{transition:opacity .2s,box-shadow .15s}
+.chart-dataset-fade{opacity:0.15}
+
+/* ── Clickable cursors on charts/table rows ── */
+#eventsTable tbody tr{cursor:pointer}
+#articleTable tbody tr{cursor:pointer}
+.alert-item{cursor:pointer}
+canvas{cursor:pointer}
 </style>
 </head>
 <body>
@@ -192,12 +212,13 @@ tbody td{padding:10px 12px}
 
   <div class="error-banner" id="errorBanner"></div>
   <div class="alerts-row" id="alertsRow"></div>
-  <div class="kpi-grid" id="kpiGrid"></div>
-  <div class="dow-filter-bar" id="kpiFilterBar" style="margin-bottom:1rem">
-    <span>🔍</span>
-    <span id="kpiFilterLabel">Filtering</span>
-    <button class="clear-filter-btn" onclick="clearKpiFilter()">✕ Clear filter</button>
+  <div class="filter-bar" id="unifiedFilterBar">
+    <span style="font-size:15px">🔍</span>
+    <span style="font-weight:500;color:var(--blue)">Filters active:</span>
+    <div id="filterChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <button class="filter-clear-all" onclick="clearAllFilters()">✕ Clear all</button>
   </div>
+  <div class="kpi-grid" id="kpiGrid"></div>
   <div class="insights-row" id="insightsRow"></div>
 
   <!-- TREND CHART -->
@@ -273,11 +294,7 @@ tbody td{padding:10px 12px}
       </div>
     </div>
     <div class="dow-grid" id="dowGrid"></div>
-    <div class="dow-filter-bar" id="dowFilterBar">
-      <span>📅</span>
-      <span id="dowFilterLabel">Showing all days</span>
-      <button class="clear-filter-btn" onclick="clearDowFilter()">✕ Clear filter</button>
-    </div>
+
   </div>
 
   <!-- ACTIVITY HEATMAP -->
@@ -288,6 +305,47 @@ tbody td{padding:10px 12px}
     </div>
     <div class="heatmap-grid" id="heatmapGrid"></div>
     <div class="heatmap-labels" id="heatmapLabels"></div>
+  </div>
+
+  <!-- ARTICLES BREAKDOWN -->
+  <div class="chart-card" id="articleBreakdownCard">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Top articles — views &amp; feedback</div>
+        <div class="chart-subtitle" id="articleSubtitle">Loading…</div>
+      </div>
+    </div>
+    <!-- Funnel + Bar chart side by side -->
+    <div class="two-col" style="margin-bottom:1rem">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Views by article</div>
+        <div style="position:relative;width:100%;height:240px">
+          <canvas id="articleChart" role="img" aria-label="Top articles by views"></canvas>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Scheduling funnel</div>
+        <div style="position:relative;width:100%;height:240px">
+          <canvas id="schedFunnelChart" role="img" aria-label="Scheduling funnel"></canvas>
+        </div>
+      </div>
+    </div>
+    <!-- Top articles table -->
+    <div class="table-wrap">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr>
+            <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">#</th>
+            <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Article</th>
+            <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Views</th>
+            <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Feedback</th>
+            <th style="text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Feedback rate</th>
+            <th style="text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:8px 12px;border-bottom:1px solid var(--border)">Share of views</th>
+          </tr>
+        </thead>
+        <tbody id="articleTable"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- FULL TABLE -->
@@ -446,10 +504,12 @@ async function loadAll(){
 
   try {
     document.getElementById('loadingText').textContent='Fetching metrics…';
+    const articlesPromise = loadArticles(); // fire in parallel
     const r = await fetch('/api/metrics/batch');
     if(!r.ok) throw new Error(`Server returned ${r.status}`);
     rawData = await r.json();
 
+    await articlesPromise; // ensure articles ready before render
     document.getElementById('loadingOverlay').classList.add('hidden');
 
     // Progressive render — show KPIs immediately, then charts
@@ -468,7 +528,8 @@ async function loadAll(){
     setTimeout(()=>renderSessionChart(),250);
     setTimeout(()=>renderDow(),       300);
     setTimeout(()=>renderHeatmap(),   350);
-    setTimeout(()=>renderTable(),     400);
+    setTimeout(()=>renderArticleChart(),380);
+    setTimeout(()=>renderTable(),     420);
 
   } catch(err){
     document.getElementById('loadingOverlay').classList.add('hidden');
@@ -486,7 +547,8 @@ function renderAll(){
   renderTrendChart(); renderDonut();
   renderPeriodChart();
   renderWoWChart(); renderSessionChart();
-  renderDow(); renderHeatmap(); renderTable();
+  renderDow(); renderHeatmap(); renderArticleChart();
+  applyAllFilters(); // re-applies any active filters to table + charts
 }
 
 function updateDateLabels(prevFrom, prevTo){
@@ -541,8 +603,8 @@ function renderAlerts(){
   // WoW anomalies
   EVENTS.forEach(e=>{
     const wow=getWoW(e.key);
-    if(wow!==null&&wow<-30) alerts.push({type:'bad',icon:'⚠️',msg:`${e.label} dropped ${Math.abs(Math.round(wow))}% this week vs last week — worth investigating.`});
-    if(wow!==null&&wow>50) alerts.push({type:'good',icon:'🚀',msg:`${e.label} is up ${Math.round(wow)}% this week vs last week — strong growth!`});
+    if(wow!==null&&wow<-30) alerts.push({type:'bad',icon:'⚠️',eventKey:e.key,msg:`${e.label} dropped ${Math.abs(Math.round(wow))}% this week vs last week — worth investigating.`});
+    if(wow!==null&&wow>50) alerts.push({type:'good',icon:'🚀',eventKey:e.key,msg:`${e.label} is up ${Math.round(wow)}% this week vs last week — strong growth!`});
   });
 
   // Zero activity
@@ -562,9 +624,10 @@ function renderAlerts(){
   if(!alerts.length) alerts.push({type:'info',icon:'✅',msg:'All metrics look normal for this period. No anomalies detected.'});
 
   document.getElementById('alertsRow').innerHTML=alerts.map(a=>`
-    <div class="alert-item alert-${a.type}">
+    <div class="alert-item alert-${a.type}" ${a.eventKey?`onclick="setFilter('event','${a.eventKey}')" title="Click to filter to this event" style="cursor:pointer"`:''}> 
       <span class="alert-icon">${a.icon}</span>
       <span>${a.msg}</span>
+      ${a.eventKey?`<span style="margin-left:auto;font-size:11px;opacity:0.6">click to filter →</span>`:''}
     </div>`).join('');
 }
 
@@ -578,7 +641,7 @@ function renderKPIs(){
     const wowLabel=wow===null?'—':(wow>0?'↑ ':'↓ ')+Math.abs(Math.round(wow))+'% WoW';
     const vsClass=vs===null?'flat':vs>5?'up':vs<-5?'down':'flat';
     const vsLabel=vs===null?'—':(vs>0?'▲ ':'▼ ')+Math.abs(Math.round(vs))+'% vs prev';
-    return `<div class="kpi" style="--kpi-c:${e.color}" onclick="highlightMetric(${i})">
+    return `<div class="kpi" style="--kpi-c:${e.color}" onclick="setFilter('event','${e.key}')" title="Click to filter to ${e.label}">
       <div class="kpi-label">${e.label}</div>
       <div class="kpi-value">${fmt(total)}</div>
       <div class="kpi-avg">~${Math.round(avg)}/day avg</div>
@@ -589,24 +652,24 @@ function renderKPIs(){
 }
 
 function renderInsights(){
-  const pv=getTotal('profile.viewed'),lo=getTotal('auth.login'),out=getTotal('auth.logout');
+  const lo=getTotal('auth.login'),out=getTotal('auth.logout');
   const ar=getTotal('article.viewed'),sr=getTotal('search.performed'),vi=getTotal('video.watched');
-  const gt=EVENTS.reduce((s,e)=>s+getTotal(e.key),0);
-  const ps=gt?(pv/gt*100).toFixed(0):0;
-  const lr=out?(lo/out).toFixed(1):'∞';
   const sq=lo>0?((ar+vi*2+sr)/lo).toFixed(1):'0';
   const pp=getPeak('profile.viewed'),lp=getPeak('auth.login');
+  const searchHitRate=ar>0&&sr>0?(ar/sr).toFixed(1):0;
+  const schedD=state.data['scheduling.started'],schedC=state.data['scheduling.completed'];
+  const schedStarted=getTotal('scheduling.started'),schedCompleted=getTotal('scheduling.completed');
+  const schedRate=schedStarted>0?Math.round(schedCompleted/schedStarted*100):0;
   const ins=[
-    {icon:'📊',bg:'#eff3ff',title:'Top activity',body:`Profile views = ${ps}% of all events. ${fmt(pv)} total.`},
-    {icon:'🔐',bg:'#ecfdf5',title:'Login health',body:`${fmt(lo)} logins / ${fmt(out)} logouts. ${lr}:1 ratio.`},
-    {icon:'🎯',bg:'#fffbeb',title:'Session quality',body:`${sq} content actions per login session. ${parseFloat(sq)>1?'Healthy engagement.':'Low — improve discoverability.'}`},
+    {icon:'🎯',bg:'#fffbeb',title:'Session quality',body:`${sq} content actions per login. ${parseFloat(sq)>1?'Healthy engagement.':'Low — improve discoverability.'}`},
     {icon:'📅',bg:'#f3f0ff',title:'Peak days',body:`Profiles peaked ${pp.date} (${fmt(pp.val)}). Logins peaked ${lp.date} (${fmt(lp.val)}).`},
-    {icon:'📆',bg:'#f0efe9',title:'Period',body:`${state.days} day${state.days>1?'s':''} · ${fmt(gt)} total events across 9 types.`},
+    {icon:'🔍',bg:'#eff3ff',title:'Search effectiveness',body:`${searchHitRate} articles viewed per search. ${parseFloat(searchHitRate)>1?'Users finding content.':'Search may need improvement.'}`},
+    {icon:'📆',bg:'#ecfdf5',title:'Scheduling funnel',body:`${fmt(schedStarted)} started → ${fmt(schedCompleted)} completed (${schedRate}% completion rate).`,attr:'data-insight="scheduling"'},
   ];
   document.getElementById('insightsRow').innerHTML=ins.map(i=>`
     <div class="insight-card">
       <div class="insight-icon" style="background:${i.bg}">${i.icon}</div>
-      <div><div class="insight-title">${i.title}</div><div class="insight-body">${i.body}</div></div>
+      <div><div class="insight-title">${i.title}</div><div class="insight-body" ${i.attr||''}>${i.body}</div></div>
     </div>`).join('');
 }
 
@@ -640,10 +703,21 @@ function renderDonut(){
   charts.donut=new Chart(document.getElementById('donutChart'),{
     type:'doughnut',
     data:{labels:EVENTS.slice(0,5).map(e=>e.label),datasets:[{data:vals,backgroundColor:EVENTS.slice(0,5).map(e=>e.color),borderWidth:0}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},cutout:'68%'}
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${fmt(ctx.raw)}`}}},
+      cutout:'68%',
+      onClick:(evt,els)=>{
+        if(!els.length) return;
+        const e=EVENTS[els[0].index];
+        if(e) setFilter('event',e.key);
+      }
+    }
   });
   document.getElementById('donutLegend').innerHTML=EVENTS.slice(0,5).map((e,i)=>`
-    <div class="legend-item"><div class="legend-swatch" style="background:${e.color}"></div>${e.label} ${total?(vals[i]/total*100).toFixed(0):0}%</div>`).join('');
+    <div class="legend-item" style="cursor:pointer" onclick="setFilter('event','${e.key}')">
+      <div class="legend-swatch" style="background:${e.color}"></div>${e.label} ${total?(vals[i]/total*100).toFixed(0):0}%
+    </div>`).join('');
 }
 
 function renderPeriodChart(){
@@ -657,7 +731,12 @@ function renderPeriodChart(){
       {label:'Previous period',data:prv,backgroundColor:'rgba(107,106,102,0.3)',borderRadius:3},
       {label:'Current period', data:cur,backgroundColor:EVENTS.slice(0,6).map(e=>e.color),borderRadius:3},
     ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{boxWidth:10,font:{size:11}}}},scales:{...bScale,x:{...bScale.x,ticks:{...bScale.x.ticks,maxRotation:30,maxTicksLimit:10}}}}
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,labels:{boxWidth:10,font:{size:11}}}},
+      scales:{...bScale,x:{...bScale.x,ticks:{...bScale.x.ticks,maxRotation:30,maxTicksLimit:10}}},
+      onClick:(evt,els)=>{ if(els.length) setFilter('event',EVENTS[els[0].index].key); }
+    }
   });
 }
 
@@ -672,7 +751,8 @@ function renderWoWChart(){
     options:{
       responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw>0?'+':''}${ctx.raw}%`}}},
-      scales:{...bScale,y:{...bScale.y,ticks:{...bScale.y.ticks,callback:v=>`${v>0?'+':''}${v}%`}},x:{...bScale.x,ticks:{...bScale.x.ticks,maxRotation:30}}}
+      scales:{...bScale,y:{...bScale.y,ticks:{...bScale.y.ticks,callback:v=>`${v>0?'+':''}${v}%`}},x:{...bScale.x,ticks:{...bScale.x.ticks,maxRotation:30}}},
+      onClick:(evt,els)=>{ if(els.length) setFilter('event',EVENTS[els[0].index].key); }
     }
   });
 }
@@ -697,101 +777,187 @@ function renderSessionChart(){
   });
 }
 
-let activeDow = null;
+// ══════════════════════════════════════════════════════════════════
+// UNIFIED FILTER ENGINE
+// filters = { event: 'auth.login'|null, dow: 0-6|null, article: 'slug'|null }
+// ══════════════════════════════════════════════════════════════════
+let filters = { event: null, dow: null, article: null };
 
+const DOW_NAMES_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DOW_NAMES_FULL  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// ── Filter bar rendering ──────────────────────────────────────────
+function updateFilterBar(){
+  const bar   = document.getElementById('unifiedFilterBar');
+  const chips = document.getElementById('filterChips');
+  const active = Object.entries(filters).filter(([,v])=>v!==null);
+  if(!active.length){ bar.classList.remove('visible'); chips.innerHTML=''; return; }
+  bar.classList.add('visible');
+  chips.innerHTML = active.map(([type,val])=>{
+    let label='';
+    if(type==='event'){
+      const e=EVENTS.find(e=>e.key===val);
+      label = e?e.label:val;
+    } else if(type==='dow'){
+      label = DOW_NAMES_FULL[val]+'s';
+    } else if(type==='article'){
+      label = val.replace(/-/g,' ').replace(/\w/g,c=>c.toUpperCase()).slice(0,30);
+    }
+    return `<span class="filter-chip">${label}<button onclick="clearFilter('${type}')" title="Remove">✕</button></span>`;
+  }).join('');
+}
+
+function setFilter(type, val){
+  // Toggle off if same value
+  if(filters[type]===val){ clearFilter(type); return; }
+  filters[type]=val;
+  updateFilterBar();
+  applyAllFilters();
+}
+
+function clearFilter(type){
+  filters[type]=null;
+  updateFilterBar();
+  applyAllFilters();
+}
+
+function clearAllFilters(){
+  filters={event:null,dow:null,article:null};
+  updateFilterBar();
+  applyAllFilters();
+}
+
+// ── Compute filtered dataset applying all active filters ──────────
+function getFilteredData(){
+  let filtered={};
+  EVENTS.forEach(e=>{
+    let series=(state.data[e.key]?.series||[]);
+    // DOW filter
+    if(filters.dow!==null)
+      series=series.filter(p=>new Date(p.date||0).getDay()===filters.dow);
+    filtered[e.key]={series};
+  });
+  return filtered;
+}
+
+// ── Master re-render after any filter change ──────────────────────
+function applyAllFilters(){
+  const filtered = getFilteredData();
+  const eventKey = filters.event;
+  const dowIdx   = filters.dow;
+
+  // ── KPI cards — fade non-active, update values ──
+  const kpiEls = document.querySelectorAll('.kpi');
+  kpiEls.forEach((el,i)=>{
+    const e=EVENTS[i];
+    const series=(filtered[e.key]?.series||[]);
+    const total=series.reduce((s,p)=>s+(p.count??0),0);
+    const avg=series.length>0?(total/series.length):0;
+    const wow=getWoW(e.key);
+    const vs=vsPercent(e.key);
+    const wowClass=wow===null?'flat':wow>5?'up':wow<-5?'down':'flat';
+    const wowLabel=wow===null?'—':(wow>0?'↑ ':'↓ ')+Math.abs(Math.round(wow))+'% WoW';
+    const vsClass=vs===null?'flat':vs>5?'up':vs<-5?'down':'flat';
+    const vsLabel=vs===null?'—':(vs>0?'▲ ':'▼ ')+Math.abs(Math.round(vs))+'% vs prev';
+    const avgLabel=dowIdx!==null?`~${Math.round(avg)} avg per ${DOW_NAMES_SHORT[dowIdx]}`:`~${Math.round(avg)}/day avg`;
+    el.innerHTML=`
+      <div class="kpi-label">${e.label}</div>
+      <div class="kpi-value">${fmt(total)}</div>
+      <div class="kpi-avg">${avgLabel}</div>
+      <div class="kpi-vs ${vsClass}">${vsLabel}</div>
+      <div class="kpi-wow ${wowClass}">${wowLabel}</div>`;
+    const isActive=eventKey===e.key;
+    el.classList.toggle('active-kpi', isActive);
+    el.classList.toggle('faded', eventKey!==null && !isActive);
+  });
+
+  // ── Trend chart ──
+  if(charts.trend) charts.trend.destroy();
+  if(eventKey){
+    const d=filtered[eventKey];
+    const ev=EVENTS.find(e=>e.key===eventKey);
+    const labels=buildLabels(d?.series||[]);
+    charts.trend=new Chart(document.getElementById('trendChart'),{
+      type:'line',
+      data:{labels,datasets:[{
+        label:ev.label,data:buildVals(d?.series||[]),
+        borderColor:ev.color,backgroundColor:ev.color+'18',
+        fill:true,pointRadius:2,tension:.3,borderWidth:2.5
+      }]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}},scales:bScale}
+    });
+  } else {
+    const refKey = dowIdx!==null ? 'auth.login' : 'profile.viewed';
+    const ref = filtered[refKey]?.series||[];
+    const labels = buildLabels(ref.length ? ref : (state.data['profile.viewed']?.series||[]));
+    function s(key){ const d=filtered[key]; if(!d?.series) return new Array(labels.length).fill(0); return buildVals(d.series); }
+    charts.trend=new Chart(document.getElementById('trendChart'),{
+      type: dowIdx!==null ? 'bar' : 'line',
+      data:{labels,datasets:[
+        {label:'Logins',  data:s('auth.login'),      borderColor:'#0e6e45',backgroundColor:dowIdx!==null?'#0e6e45':'transparent',pointRadius:2,tension:.3,borderWidth:2},
+        {label:'Articles',data:s('article.viewed'),  borderColor:'#c47a0a',backgroundColor:dowIdx!==null?'#c47a0a':'transparent',pointRadius:2,tension:.3,borderWidth:2,borderDash:dowIdx!==null?[]:[4,3]},
+        {label:'Searches',data:s('search.performed'),borderColor:'#5b3fbf',backgroundColor:dowIdx!==null?'#5b3fbf':'transparent',pointRadius:2,tension:.3,borderWidth:2,borderDash:dowIdx!==null?[]:[2,2]},
+        {label:'Videos',  data:s('video.watched'),   borderColor:'#c03030',backgroundColor:dowIdx!==null?'#c03030':'transparent',pointRadius:2,tension:.3,borderWidth:2},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}},scales:bScale}
+    });
+  }
+
+  // ── Donut — grey out non-active segment ──
+  if(charts.donut){
+    const eventsSlice=EVENTS.slice(0,5);
+    const vals=eventsSlice.map(e=>filtered[e.key]?.series?.reduce((s,p)=>s+(p.count??0),0)||0);
+    const colors=eventsSlice.map(e=>eventKey===null||e.key===eventKey?e.color:'rgba(156,155,151,0.3)');
+    charts.donut.data.datasets[0].data=vals;
+    charts.donut.data.datasets[0].backgroundColor=colors;
+    charts.donut.update();
+  }
+
+  // ── Period comparison — fade non-active bars ──
+  if(charts.period){
+    const eventsSlice=EVENTS.slice(0,6);
+    const cur=eventsSlice.map(e=>filtered[e.key]?.series?.reduce((s,p)=>s+(p.count??0),0)||0);
+    const prv=eventsSlice.map(e=>getTotal(e.key,state.prevData));
+    const bgColors=eventsSlice.map(e=>eventKey===null||e.key===eventKey?e.color:'rgba(156,155,151,0.2)');
+    charts.period.data.datasets[0].data=prv;
+    charts.period.data.datasets[1].data=cur;
+    charts.period.data.datasets[1].backgroundColor=bgColors;
+    charts.period.update();
+  }
+
+  // ── WoW chart — fade non-active ──
+  if(charts.wow){
+    const wows=EVENTS.map(e=>{const w=getWoW(e.key);return w!==null?Math.round(w):0;});
+    const colors=EVENTS.map((e,i)=>{
+      if(eventKey!==null&&e.key!==eventKey) return 'rgba(156,155,151,0.2)';
+      return wows[i]>0?'#0e6e45':wows[i]<0?'#c03030':'#9c9b97';
+    });
+    charts.wow.data.datasets[0].backgroundColor=colors;
+    charts.wow.update();
+  }
+
+  // ── DOW grid — highlight active cell ──
+  renderDow();
+
+  // ── Heatmap — re-render (respects DOW filter visually) ──
+  renderHeatmap();
+
+  // ── Table — highlight/fade rows ──
+  renderTable(filtered, eventKey);
+}
+
+// ── DOW grid ──────────────────────────────────────────────────────
 function renderDow(){
   const dowAvg=getDowAvg('profile.viewed');
-  const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const max=Math.max(...dowAvg,1);
-  document.getElementById('dowGrid').innerHTML=days.map((d,i)=>`
-    <div class="dow-cell ${activeDow===i?'dow-active':''}" onclick="selectDow(${i})">
+  document.getElementById('dowGrid').innerHTML=DOW_NAMES_SHORT.map((d,i)=>`
+    <div class="dow-cell ${filters.dow===i?'dow-active':''}" onclick="setFilter('dow',${i})" style="cursor:pointer">
       <div class="dow-day">${d}</div>
       <div class="dow-val">${fmt(dowAvg[i])}</div>
       <div class="dow-bar" style="width:${(dowAvg[i]/max*100).toFixed(0)}%"></div>
     </div>`).join('');
-}
-
-function selectDow(idx){
-  const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  if(activeDow===idx){ clearDowFilter(); return; }
-  activeDow=idx;
-  document.getElementById('dowFilterBar').classList.add('visible');
-  document.getElementById('dowFilterLabel').textContent=`Filtering to ${days[idx]}s only — ${state.days} day period`;
-  renderDow();
-  applyDowFilter();
-}
-
-function clearDowFilter(){
-  activeDow=null;
-  document.getElementById('dowFilterBar').classList.remove('visible');
-  renderDow();
-  // Restore all charts to full data
-  renderKPIs();
-  renderTrendChart();
-  renderTable();
-}
-
-function applyDowFilter(){
-  if(activeDow===null) return;
-  const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  // Filter each event's series to only include the selected day of week
-  const filtered={};
-  EVENTS.forEach(e=>{
-    const d=state.data[e.key];
-    if(!d?.series){ filtered[e.key]=d; return; }
-    filtered[e.key]={ ...d, series: d.series.filter(p=>new Date(p.date||0).getDay()===activeDow) };
-  });
-
-  // Update KPI cards with filtered totals
-  document.getElementById('kpiGrid').innerHTML=EVENTS.map((e,i)=>{
-    const total=filtered[e.key]?.series?.reduce((s,p)=>s+(p.count??0),0)||0;
-    const occurrences=filtered[e.key]?.series?.length||1;
-    const avg=occurrences>0?total/occurrences:0;
-    return `<div class="kpi" style="--kpi-c:${e.color}" onclick="highlightMetric(${i})">
-      <div class="kpi-label">${e.label}</div>
-      <div class="kpi-value">${fmt(total)}</div>
-      <div class="kpi-avg">~${Math.round(avg)} avg per ${days[activeDow]}</div>
-      <div class="kpi-vs flat">${days[activeDow]}s only</div>
-    </div>`;
-  }).join('');
-
-  // Update trend chart with filtered data
-  const pd=filtered['profile.viewed'];
-  const labels=pd?.series?buildLabels(pd.series):[];
-  function s(key){ const d=filtered[key]; if(!d?.series) return []; return buildVals(d.series); }
-  if(charts.trend) charts.trend.destroy();
-  charts.trend=new Chart(document.getElementById('trendChart'),{
-    type:'bar',
-    data:{labels,datasets:[
-      {label:'Logins',  data:s('auth.login'),      backgroundColor:'#0e6e45',borderRadius:3},
-      {label:'Articles',data:s('article.viewed'),  backgroundColor:'#c47a0a',borderRadius:3},
-      {label:'Searches',data:s('search.performed'),backgroundColor:'#5b3fbf',borderRadius:3},
-      {label:'Videos',  data:s('video.watched'),   backgroundColor:'#c03030',borderRadius:3},
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{boxWidth:10,font:{size:11}}},tooltip:{mode:'index',intersect:false}},scales:bScale}
-  });
-
-  // Update table with filtered data
-  const gt=EVENTS.reduce((s,e)=>s+(filtered[e.key]?.series?.reduce((a,p)=>a+(p.count??0),0)||0),0);
-  document.getElementById('tableSubtitle').textContent=`${fmt(gt)} total events on ${days[activeDow]}s · ${state.days} day period`;
-  document.getElementById('eventsTable').innerHTML=EVENTS.map(e=>{
-    const series=filtered[e.key]?.series||[];
-    const total=series.reduce((s,p)=>s+(p.count??0),0);
-    const avg=series.length>0?total/series.length:0;
-    const share=gt?(total/gt*100).toFixed(1):0;
-    const peak=series.length>0?series.reduce((a,b)=>(b.count??0)>(a.count??0)?b:a):{count:0,date:0};
-    const peakDate=peak.date?new Date(peak.date).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
-    return `<tr>
-      <td><span class="badge" style="${e.badge}">${e.label}</span></td>
-      <td class="mono">${fmt(total)}</td>
-      <td class="mono">${Math.round(avg)}/occ</td>
-      <td class="flat">—</td>
-      <td class="flat">—</td>
-      <td class="mono" style="color:var(--text2)">${peakDate} <span style="color:var(--text3)">(${fmt(peak.count??0)})</span></td>
-      <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill" style="width:${share}%;background:${e.color}"></div></div><span style="font-size:11px;color:var(--text3);min-width:32px">${share}%</span></div></td>
-      <td class="flat">${days[activeDow]}s only</td>
-    </tr>`;
-  }).join('');
 }
 
 function renderHeatmap(){
@@ -802,19 +968,161 @@ function renderHeatmap(){
   const max=Math.max(...vals,1);
   document.getElementById('heatmapGrid').innerHTML=slice.map((p,i)=>{
     const alpha=0.1+(vals[i]/max)*0.85;
-    const label=new Date(p.date||0).toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    return `<div class="heatmap-cell" style="background:rgba(26,79,219,${alpha.toFixed(2)})" data-tip="${label}: ${fmt(vals[i])} views"></div>`;
+    const dateStr=p.date||'';
+    const label=new Date(dateStr||0).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+    return `<div class="heatmap-cell" style="background:rgba(26,79,219,${alpha.toFixed(2)});cursor:pointer" data-tip="${label}: ${fmt(vals[i])} views" onclick="setHeatmapDate('${dateStr}')" title="Click to filter to ${label}"></div>`;
   }).join('');
   const first=slice[0]?new Date(slice[0].date||0).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
   const last=slice[slice.length-1]?new Date(slice[slice.length-1].date||0).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
   document.getElementById('heatmapLabels').innerHTML=`<span>${first}</span><span>${last}</span>`;
 }
 
-function renderTable(){
-  const gt=EVENTS.reduce((s,e)=>s+getTotal(e.key),0);
-  document.getElementById('tableSubtitle').textContent=`${fmt(gt)} total events · ${state.days} day${state.days>1?'s':''}`;
+function setHeatmapDate(dateStr){
+  if(!dateStr) return;
+  document.querySelectorAll('.qbtn').forEach(b=>b.classList.remove('active'));
+  state={...state,from:dateStr,to:dateStr,days:1};
+  document.getElementById('startDate').value=dateStr;
+  document.getElementById('endDate').value=dateStr;
+  renderAll();
+}
+
+// ── Articles & Scheduling ──────────────────────────────────────────────────
+let articlesData = null; // cached from /api/articles
+
+async function loadArticles(){
+  try {
+    const r = await fetch('/api/articles?n=20');
+    if(!r.ok) throw new Error(r.status);
+    const json = await r.json();
+    articlesData = json.articles || [];
+  } catch(e) {
+    articlesData = [];
+    console.warn('Articles fetch failed:', e);
+  }
+}
+
+function renderArticleChart(){
+  renderSchedulingFunnel();
+
+  // If articlesData not yet loaded, fetch then render
+  if(articlesData === null){
+    loadArticles().then(()=>renderArticleChart());
+    return;
+  }
+
+  const articles = articlesData;
+  const totalViews = articles.reduce((s,a)=>s+a.views,0);
+
+  // Update subtitle
+  document.getElementById('articleSubtitle').textContent =
+    `${fmt(totalViews)} total views across ${articles.length} articles · feedback rate = feedbacks ÷ views`;
+
+  // Horizontal bar chart — top 10 by views
+  const top10 = articles.slice(0,10);
+  const labels = top10.map(a=>a.label.length>28?a.label.slice(0,26)+'…':a.label);
+  const viewVals = top10.map(a=>a.views);
+  const fbVals   = top10.map(a=>a.feedback);
+
+  if(charts.article) charts.article.destroy();
+  charts.article = new Chart(document.getElementById('articleChart'),{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'Views',    data:viewVals, backgroundColor:'rgba(196,122,10,0.75)', borderRadius:3},
+        {label:'Feedback', data:fbVals,   backgroundColor:'rgba(14,110,69,0.75)',  borderRadius:3},
+      ]
+    },
+    options:{
+      indexAxis:'y',
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true,position:'top',labels:{boxWidth:10,font:{size:11}}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.raw)}`}}
+      },
+      scales:{
+        x:{ticks:{color:'#9c9b97',font:{size:10}},grid:{color:'rgba(0,0,0,0.05)'},beginAtZero:true},
+        y:{ticks:{color:'#9c9b97',font:{size:10}},grid:{display:false}}
+      }
+    }
+  });
+
+  // Table
+  document.getElementById('articleTable').innerHTML = articles.map((a,i)=>{
+    const share = totalViews>0?(a.views/totalViews*100).toFixed(1):0;
+    const rateClass = a.feedbackRate===0?'flat':a.feedbackRate<1?'down':a.feedbackRate>=3?'up':'flat';
+    const isActiveArt=filters.article===a.id;
+    return `<tr style="border-bottom:1px solid var(--border);cursor:pointer;${isActiveArt?'background:#eff3ff':''}" onclick="setFilter('article','${a.id}')" title="Filter to ${a.label}">
+      <td style="padding:9px 12px;color:var(--text3);font-size:12px">${i+1}${isActiveArt?' ⬅':''}</td>
+      <td style="padding:9px 12px;font-size:13px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.id}">${a.label}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;font-weight:500">${fmt(a.views)}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:'DM Mono',monospace;font-size:12px">${fmt(a.feedback)}</td>
+      <td style="padding:9px 12px;text-align:right;font-weight:500" class="${rateClass}">${a.feedbackRate}%</td>
+      <td style="padding:9px 12px;min-width:120px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;min-width:50px">
+            <div style="width:${share}%;height:100%;background:#c47a0a;border-radius:2px"></div>
+          </div>
+          <span style="font-size:11px;color:var(--text3);min-width:32px">${share}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderSchedulingFunnel(){
+  const started   = getTotal('scheduling.started');
+  const completed = getTotal('scheduling.completed');
+  const dropOff   = Math.max(0, started - completed);
+  const rate      = started>0?Math.round(completed/started*100):0;
+
+  if(charts.schedFunnel) charts.schedFunnel.destroy();
+  charts.schedFunnel = new Chart(document.getElementById('schedFunnelChart'),{
+    type:'bar',
+    data:{
+      labels:['Scheduling started','Scheduling completed'],
+      datasets:[{
+        data:[started, completed],
+        backgroundColor:['rgba(26,79,219,0.75)','rgba(14,110,69,0.75)'],
+        borderRadius:4,
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{
+          label:ctx=>{
+            const pct=started>0?Math.round(ctx.raw/started*100):0;
+            return `${fmt(ctx.raw)} (${pct}% of started)`;
+          }
+        }}
+      },
+      scales:{
+        x:{ticks:{color:'#9c9b97',font:{size:11}},grid:{display:false}},
+        y:{ticks:{color:'#9c9b97',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'},beginAtZero:true}
+      }
+    }
+  });
+
+  // Annotate completion rate below chart via subtitle — update insight card too
+  const card=document.querySelector('[data-insight="scheduling"]');
+  if(card) card.textContent=`${fmt(started)} started → ${fmt(completed)} completed · ${rate}% completion · ${fmt(dropOff)} drop-offs`;
+}
+
+function renderTable(filteredOverride, eventKeyOverride){
+  const fd = filteredOverride || getFilteredData();
+  const activeEvent = eventKeyOverride !== undefined ? eventKeyOverride : filters.event;
+  const gt=EVENTS.reduce((s,e)=>s+(fd[e.key]?.series?.reduce((a,p)=>a+(p.count??0),0)||0),0);
+  const dowLabel = filters.dow!==null ? ` · ${DOW_NAMES_FULL[filters.dow]}s only` : '';
+  document.getElementById('tableSubtitle').textContent=`${fmt(gt)} total events · ${state.days} day${state.days>1?'s':''}${dowLabel}`;
   document.getElementById('eventsTable').innerHTML=EVENTS.map(e=>{
-    const total=getTotal(e.key),avg=getAvg(e.key),peak=getPeak(e.key);
+    const series=fd[e.key]?.series||[];
+    const total=series.reduce((s,p)=>s+(p.count??0),0);
+    const avg=state.days>0?total/state.days:0;
+    const peak=getPeak(e.key);
     const share=gt?(total/gt*100).toFixed(1):0;
     const vs=vsPercent(e.key);
     const wow=getWoW(e.key);
@@ -824,8 +1132,10 @@ function renderTable(){
     const wowLabel=wow===null?'—':(wow>0?'↑ ':'↓ ')+Math.abs(Math.round(wow))+'%';
     const trendClass=vs===null?'flat':vs>10?'up':vs<-10?'down':'flat';
     const trendLabel=vs===null?'—':vs>10?'Trending up':vs<-10?'Trending down':'Stable';
-    return `<tr>
-      <td><span class="badge" style="${e.badge}">${e.label}</span></td>
+    const isActive=activeEvent===e.key;
+    const rowStyle=activeEvent!==null?(isActive?'background:#eff3ff':'opacity:0.3'):'';
+    return `<tr style="${rowStyle};cursor:pointer" onclick="setFilter('event','${e.key}')" title="Filter to ${e.label}">
+      <td><span class="badge" style="${e.badge}">${e.label}</span>${isActive?' ⬅':''}</td>
       <td class="mono">${fmt(total)}</td>
       <td class="mono">${Math.round(avg)}/day</td>
       <td style="font-weight:500" class="${vsClass}">${vsLabel}</td>
@@ -837,73 +1147,7 @@ function renderTable(){
   }).join('');
 }
 
-let activeKpi = null;
-
-function highlightMetric(idx){
-  if(activeKpi === idx){
-    // Click again — clear and restore everything
-    activeKpi = null;
-    document.querySelectorAll('.kpi').forEach(k=>k.classList.remove('active-kpi'));
-    document.getElementById('kpiFilterBar').classList.remove('visible');
-    renderKPIs();
-    renderTrendChart();
-    renderTable();
-    return;
-  }
-  activeKpi = idx;
-  document.querySelectorAll('.kpi').forEach((k,i)=>k.classList.toggle('active-kpi',i===idx));
-
-  const e=EVENTS[idx];
-  const d=state.data[e.key];
-
-  // Show filter bar
-  const bar=document.getElementById('kpiFilterBar');
-  bar.classList.add('visible');
-  document.getElementById('kpiFilterLabel').textContent=`Filtering all charts to: ${e.label}`;
-
-  // Focus trend chart on selected metric
-  if(d?.series&&charts.trend){
-    charts.trend.data.labels=buildLabels(d.series);
-    charts.trend.data.datasets=[{label:e.label,data:buildVals(d.series),borderColor:e.color,backgroundColor:e.color+'18',fill:true,pointRadius:2,tension:.3,borderWidth:2}];
-    charts.trend.update();
-  }
-
-  // Update table to highlight selected event
-  const gt=EVENTS.reduce((s,ev)=>s+getTotal(ev.key),0);
-  document.getElementById('eventsTable').innerHTML=EVENTS.map(ev=>{
-    const isActive=ev.key===e.key;
-    const total=getTotal(ev.key),avg=getAvg(ev.key),peak=getPeak(ev.key);
-    const share=gt?(total/gt*100).toFixed(1):0;
-    const vs=vsPercent(ev.key);
-    const wow=getWoW(ev.key);
-    const vsClass=vs===null?'flat':vs>5?'up':vs<-5?'down':'flat';
-    const vsLabel=vs===null?'—':(vs>0?'▲ ':'▼ ')+Math.abs(Math.round(vs))+'%';
-    const wowClass=wow===null?'flat':wow>5?'up':wow<-5?'down':'flat';
-    const wowLabel=wow===null?'—':(wow>0?'↑ ':'↓ ')+Math.abs(Math.round(wow))+'%';
-    const trendClass=vs===null?'flat':vs>10?'up':vs<-10?'down':'flat';
-    const trendLabel=vs===null?'—':vs>10?'Trending up':vs<-10?'Trending down':'Stable';
-    return `<tr style="${isActive?'background:#eff3ff;font-weight:500':'opacity:0.4'}">
-      <td><span class="badge" style="${ev.badge}">${ev.label}</span>${isActive?' ⬅':''}
-      </td>
-      <td class="mono">${fmt(total)}</td>
-      <td class="mono">${Math.round(avg)}/day</td>
-      <td style="font-weight:500" class="${vsClass}">${vsLabel}</td>
-      <td style="font-weight:500" class="${wowClass}">${wowLabel}</td>
-      <td class="mono" style="color:var(--text2)">${peak.date} <span style="color:var(--text3)">(${fmt(peak.val)})</span></td>
-      <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill" style="width:${share}%;background:${ev.color}"></div></div><span style="font-size:11px;color:var(--text3);min-width:32px">${share}%</span></div></td>
-      <td style="font-weight:500" class="${trendClass}">${trendLabel}</td>
-    </tr>`;
-  }).join('');
-}
-
-function clearKpiFilter(){
-  activeKpi=null;
-  document.querySelectorAll('.kpi').forEach(k=>k.classList.remove('active-kpi'));
-  document.getElementById('kpiFilterBar').classList.remove('visible');
-  renderKPIs();
-  renderTrendChart();
-  renderTable();
-}
+// highlightMetric replaced by unified filter engine (setFilter/clearAllFilters)
 
 loadAll();
 </script>

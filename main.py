@@ -123,6 +123,39 @@ async def cms_fetch(project: str, event: str, since: str = None,
                 await asyncio.sleep(2 ** attempt)
         return {"series": []}
 
+# ─── CMS top-n fetch ──────────────────────────────────────────────────────────
+async def cms_fetch_topn(project: str, event: str, group_by: str = "itemId",
+                         n: int = 20, from_date: str = None, to_date: str = None) -> list:
+    """Calls /query/top-n and returns [{id, count}] list."""
+    params = {"event": event, "groupBy": group_by, "n": n}
+    if from_date: params["from"] = from_date
+    if to_date:   params["to"]   = to_date
+
+    url = f"{CMS_BASE}/{project}/query/top-n"
+    client = get_http_client()
+
+    async with semaphore:
+        for attempt in range(4):
+            try:
+                r = await client.get(url, params=params)
+                if r.status_code in (429, 502, 503, 504):
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                if r.status_code != 200:
+                    return []
+                text = r.text.strip()
+                if not text:
+                    return []
+                data = json.loads(text)
+                # CMS returns either a list or {"items": [...]}
+                if isinstance(data, list):
+                    return data
+                return data.get("items", data.get("results", []))
+            except Exception:
+                await asyncio.sleep(2 ** attempt)
+    return []
+
+
 # ─── Prefetch ─────────────────────────────────────────────────────────────────
 async def prefetch_all():
     print("Prefetching all events from start date...")
@@ -186,6 +219,69 @@ async def batch_metrics(request_etag: Optional[str] = Query(None, alias="etag"))
             "Vary": "Accept-Encoding",
         },
     )
+
+# ─── Articles endpoint ───────────────────────────────────────────────────────
+@app.get("/api/articles")
+async def articles_metrics(n: int = 20):
+    """
+    Returns top articles merging views (content-events) and feedback (feedback-events).
+    [{id, label, views, feedback, feedbackRate}]
+    """
+    cache_key = f"articles:top:{n}"
+    data, fresh = cache_get(cache_key)
+    if fresh:
+        return data
+    if data is not None and not fresh:
+        asyncio.create_task(_refresh_articles(n))
+        return data
+
+    result = await _fetch_articles(n)
+    cache_set(cache_key, result)
+    return result
+
+async def _refresh_articles(n: int):
+    result = await _fetch_articles(n)
+    cache_set(f"articles:top:{n}", result)
+
+async def _fetch_articles(n: int) -> dict:
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    views_raw, feedback_raw = await asyncio.gather(
+        cms_fetch_topn("cs-portal-content-events", "article.viewed",
+                       group_by="itemId", n=n,
+                       from_date=DATA_START_DATE, to_date=today),
+        cms_fetch_topn("cs-portal-feedback-events", "article.feedback",
+                       group_by="itemId", n=n,
+                       from_date=DATA_START_DATE, to_date=today),
+    )
+
+    # Normalise: CMS may return {id/itemId/key, count/value}
+    def normalise(rows):
+        out = {}
+        for row in rows:
+            aid = row.get("id") or row.get("itemId") or row.get("key") or row.get("item_id") or ""
+            cnt = int(row.get("count") or row.get("value") or 0)
+            if aid:
+                out[aid] = cnt
+        return out
+
+    views    = normalise(views_raw)
+    feedback = normalise(feedback_raw)
+
+    # Merge — use views as the source of truth for article list
+    articles = []
+    for aid, view_count in sorted(views.items(), key=lambda x: -x[1]):
+        fb = feedback.get(aid, 0)
+        rate = round(fb / view_count * 100, 1) if view_count > 0 else 0
+        label = aid.replace("-", " ").replace("_", " ").title()
+        articles.append({
+            "id":           aid,
+            "label":        label,
+            "views":        view_count,
+            "feedback":     fb,
+            "feedbackRate": rate,
+        })
+
+    return {"articles": articles, "fetched_at": datetime.utcnow().isoformat()}
 
 # ─── Domo endpoint ────────────────────────────────────────────────────────────
 @app.get("/domo/{event_key}")
