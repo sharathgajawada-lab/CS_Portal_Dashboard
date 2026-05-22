@@ -1,81 +1,144 @@
-from fastapi import FastAPI, Query, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Query
+from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 import httpx
 import os
 import asyncio
 import time
+import json
+import gzip
 from typing import Optional
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+# ─── Config ───────────────────────────────────────────────────────────────────
+CMS_BASE   = "https://cms.audibene.net/api/metrics"
+API_KEY    = os.environ.get("CMS_API_KEY", "")
+CACHE_TTL  = 300          # 5 min fresh cache
+STALE_TTL  = 3600         # 1 hr stale-while-revalidate
+PREFETCH_INTERVAL = 300   # background refresh every 5 min
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+EVENTS = [
+    {"key": "profile.viewed",         "project": "cs-portal-profile-events"},
+    {"key": "auth.login",             "project": "cs-portal-auth-events"},
+    {"key": "article.viewed",         "project": "cs-portal-content-events"},
+    {"key": "search.performed",       "project": "cs-portal-content-events"},
+    {"key": "video.watched",          "project": "cs-portal-content-events"},
+    {"key": "article.feedback",       "project": "cs-portal-feedback-events"},
+    {"key": "order_supplies.visited", "project": "cs-portal-items-events"},
+    {"key": "auth.logout",            "project": "cs-portal-auth-events"},
+    {"key": "scheduling.started",     "project": "cs-portal-scheduling-events"},
+]
 
-CMS_BASE = "https://cms.audibene.net/api/metrics"
-API_KEY = os.environ.get("CMS_API_KEY", "")
-CACHE_TTL = 300  # 5 minutes
+# ─── In-memory cache ──────────────────────────────────────────────────────────
+cache      = {}   # key -> {"ts": float, "data": dict}
+cache_lock = asyncio.Lock()
 
-cache = {}
-request_semaphore = asyncio.Semaphore(2)  # Max 2 concurrent CMS requests
+def cache_get(key):
+    entry = cache.get(key)
+    if not entry:
+        return None, False
+    age = time.time() - entry["ts"]
+    if age < CACHE_TTL:
+        return entry["data"], True   # fresh
+    if age < STALE_TTL:
+        return entry["data"], False  # stale but usable
+    return None, False
 
-def cache_key(project, event, since, from_date, to_date):
-    return f"{project}:{event}:{since}:{from_date}:{to_date}"
+def cache_set(key, data):
+    cache[key] = {"ts": time.time(), "data": data}
 
-def get_cached(key):
-    if key in cache:
-        ts, data = cache[key]
-        if time.time() - ts < CACHE_TTL:
-            return data
-    return None
+# ─── CMS fetch with retry + exponential backoff ───────────────────────────────
+semaphore = asyncio.Semaphore(3)   # max 3 concurrent CMS requests
 
-def set_cached(key, data):
-    cache[key] = (time.time(), data)
+async def cms_fetch(project: str, event: str, since: str = "180d",
+                    from_date: str = None, to_date: str = None) -> dict:
+    params = {"event": event, "bucket": "day"}
+    if since and not from_date:
+        params["since"] = since
+    if from_date:
+        params["from"] = from_date
+    if to_date:
+        params["to"] = to_date
 
-async def fetch_with_retry(url, params, retries=3):
-    async with request_semaphore:  # Only 2 requests at a time
-        await asyncio.sleep(0.3)  # 300ms delay between requests
-        last_error = None
-        for attempt in range(retries):
+    url = f"{CMS_BASE}/{project}/query/time-series"
+
+    async with semaphore:
+        for attempt in range(4):
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
-                    r = await client.get(
-                        url,
-                        params=params,
-                        headers={"API-Key": API_KEY, "Accept": "application/json"}
-                    )
-                    print(f"CMS [{attempt+1}]: {r.status_code} for {params.get('event')}")
-
+                    r = await client.get(url, params=params,
+                                         headers={"API-Key": API_KEY,
+                                                  "Accept": "application/json"})
                     if r.status_code in (429, 502, 503, 504):
-                        wait = 2 ** attempt  # exponential backoff: 1s, 2s, 4s
-                        print(f"Retrying in {wait}s...")
+                        wait = 2 ** attempt
+                        print(f"  CMS {r.status_code} for {event}, retry in {wait}s")
                         await asyncio.sleep(wait)
-                        last_error = f"HTTP {r.status_code}"
                         continue
-
                     if r.status_code != 200:
-                        return {"series": [], "error": f"CMS returned {r.status_code}"}
-
+                        return {"series": [], "error": r.status_code}
                     text = r.text.strip()
-                    if not text:
-                        return {"series": []}
-
-                    return r.json()
-
-            except httpx.TimeoutException:
-                last_error = "timeout"
+                    return json.loads(text) if text else {"series": []}
+            except Exception as e:
                 await asyncio.sleep(2 ** attempt)
-            except httpx.RequestError as e:
-                last_error = str(e)
-                await asyncio.sleep(1)
+        return {"series": [], "error": "max retries exceeded"}
 
-        return {"series": [], "error": f"Failed after {retries} retries: {last_error}"}
+# ─── Batch prefetch ───────────────────────────────────────────────────────────
+async def prefetch_all():
+    print("Prefetching 180d batch...")
+    result = {}
+    for e in EVENTS:
+        data = await cms_fetch(e["project"], e["key"], since="180d")
+        result[e["key"]] = data
+        await asyncio.sleep(0.3)   # gentle pacing
+    async with cache_lock:
+        cache_set("batch:180d", result)
+    print(f"Batch cached — {len(result)} events")
+    return result
 
+async def background_prefetch():
+    """Background task: refresh cache every 5 minutes."""
+    await asyncio.sleep(5)          # wait for server to fully start
+    while True:
+        try:
+            await prefetch_all()
+        except Exception as e:
+            print(f"Prefetch error: {e}")
+        await asyncio.sleep(PREFETCH_INTERVAL)
 
+# ─── Lifespan (startup/shutdown) ──────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(background_prefetch())
+    yield
+    task.cancel()
+
+# ─── App ──────────────────────────────────────────────────────────────────────
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=500)   # gzip all responses >500 bytes
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
+
+# ─── Batch endpoint ───────────────────────────────────────────────────────────
+@app.get("/api/metrics/batch")
+async def batch_metrics():
+    """Returns all 9 events for 180 days in one gzipped response."""
+    data, fresh = cache_get("batch:180d")
+
+    if data is None:
+        # Cache miss — fetch now
+        print("Cache miss, fetching batch...")
+        data = await prefetch_all()
+        fresh = True
+
+    if not fresh:
+        # Stale — return stale data immediately, refresh in background
+        asyncio.create_task(prefetch_all())
+        print("Serving stale cache, refreshing in background")
+
+    return data
+
+# ─── Single metric endpoint (kept for compatibility) ──────────────────────────
 @app.get("/api/metrics/{project}/query/time-series")
 async def proxy_metrics(
     project: str,
@@ -85,47 +148,34 @@ async def proxy_metrics(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
 ):
-    key = cache_key(project, event, since, from_date, to_date)
-    cached = get_cached(key)
-    if cached is not None:
-        print(f"Cache hit: {event}")
-        return cached
+    key = f"{project}:{event}:{since}:{from_date}:{to_date}"
+    data, fresh = cache_get(key)
+    if fresh:
+        return data
 
-    params = {"event": event, "bucket": bucket}
-    if since:
-        params["since"] = since
-    if from_date:
-        params["from"] = from_date
-    if to_date:
-        params["to"] = to_date
+    result = await cms_fetch(project, event, since, from_date, to_date)
+    cache_set(key, result)
+    return result
 
-    url = f"{CMS_BASE}/{project}/query/time-series"
-    data = await fetch_with_retry(url, params)
-
-    # Cache even on success (stale cache fallback)
-    if "series" in data:
-        set_cached(key, data)
-    elif key in cache:
-        print(f"CMS failed, serving stale cache for {event}")
-        _, stale = cache[key]
-        return stale
-
-    return data
-
-
+# ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
+    batch, fresh = cache_get("batch:180d")
     return {
         "status": "ok",
         "api_key_set": bool(API_KEY),
-        "cache_entries": len(cache),
+        "batch_cached": batch is not None,
+        "batch_fresh": fresh,
+        "total_cache_entries": len(cache),
     }
 
 @app.get("/cache/clear")
 async def clear_cache():
     cache.clear()
-    return {"status": "cleared"}
+    asyncio.create_task(prefetch_all())
+    return {"status": "cleared, prefetching..."}
 
+# ─── Dashboard HTML ───────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     with open("index.html") as f:

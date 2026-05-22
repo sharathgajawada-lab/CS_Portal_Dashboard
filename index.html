@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CS Portal — Engagement Dashboard</title>
+<!-- Preconnect to speed up external resources -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<!-- Preload batch API so browser starts fetching before JS runs -->
+<link rel="preload" href="/api/metrics/batch" as="fetch" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -315,9 +321,12 @@ tbody td{padding:10px 12px}
 </div>
 
 <script>
-const API_KEY = 'API-186b82c0a37b42cc8a444a055de10549bacb351d';
-const BASE = '/api/metrics';
+// ── Service Worker registration ───────────────────────────────────────────
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
 
+// ── Constants ─────────────────────────────────────────────────────────────
 const EVENTS = [
   { key:'profile.viewed',         project:'cs-portal-profile-events',    label:'Profile views',   color:'#1a4fdb', badge:'background:#eff3ff;color:#1a4fdb' },
   { key:'auth.login',             project:'cs-portal-auth-events',        label:'Logins',          color:'#0e6e45', badge:'background:#ecfdf5;color:#0e6e45' },
@@ -330,14 +339,53 @@ const EVENTS = [
   { key:'scheduling.started',     project:'cs-portal-scheduling-events',  label:'Scheduling',      color:'#6b7280', badge:'background:#f4f4f4;color:#6b6a66' },
 ];
 
-let state = { since:'30d', from:null, to:null, data:{}, prevData:{}, days:30 };
-let charts = {};
+// ── State ─────────────────────────────────────────────────────────────────
+// rawData holds full 180d for each event key — never changes until Refresh
+let rawData  = {};   // key -> full 180d series from batch
+let state    = { from:null, to:null, data:{}, prevData:{}, days:30 };
+let charts   = {};
 
+// ── Helpers ───────────────────────────────────────────────────────────────
 function toISO(d){ return d.toISOString().split('T')[0]; }
 function daysAgo(n){ const d=new Date(); d.setDate(d.getDate()-n); return d; }
 function fmt(n){ return n===null||n===undefined?'—':Math.round(n).toLocaleString(); }
 function fmtPct(n){ return n===0?'—':(n>0?'+':'')+Math.round(n)+'%'; }
 
+// Slice a full 180d series to just the date range we need
+function sliceSeries(series, from, to){
+  if(!series||!series.length) return [];
+  return series.filter(p=>{
+    const d = (p.date||p.time||p.ts||'').slice(0,10);
+    return d >= from && d <= to;
+  });
+}
+
+// Build filtered state.data and state.prevData from rawData + current range
+function applyRange(){
+  const from = state.from;
+  const to   = state.to;
+
+  // Current period
+  EVENTS.forEach(e=>{
+    const raw = rawData[e.key];
+    if(!raw?.series){ state.data[e.key]=null; return; }
+    state.data[e.key] = { ...raw, series: sliceSeries(raw.series, from, to) };
+  });
+
+  // Previous period (same length, shifted back)
+  const prevTo  = new Date(from); prevTo.setDate(prevTo.getDate()-1);
+  const prevFrom= new Date(prevTo); prevFrom.setDate(prevFrom.getDate()-state.days+1);
+  const pFrom = toISO(prevFrom), pTo = toISO(prevTo);
+  EVENTS.forEach(e=>{
+    const raw = rawData[e.key];
+    if(!raw?.series){ state.prevData[e.key]=null; return; }
+    state.prevData[e.key] = { ...raw, series: sliceSeries(raw.series, pFrom, pTo) };
+  });
+
+  return { prevFrom: pFrom, prevTo: pTo };
+}
+
+// ── Date picker init ──────────────────────────────────────────────────────
 (function(){
   const today=new Date();
   document.getElementById('endDate').value=toISO(today);
@@ -346,15 +394,17 @@ function fmtPct(n){ return n===0?'—':(n>0?'+':'')+Math.round(n)+'%'; }
   document.getElementById('startDate').max=toISO(today);
 })();
 
+// ── Range setters — INSTANT, no API call ─────────────────────────────────
 function setQuick(n,btn){
   document.querySelectorAll('.qbtn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   const today=toISO(new Date());
   const from=n===1?today:toISO(daysAgo(n));
-  state={...state,since:n+'d',from,to:today,days:n===1?1:n};
+  state={...state,from,to:today,days:n===1?1:n};
   document.getElementById('startDate').value=from;
   document.getElementById('endDate').value=today;
-  loadAll();
+  if(Object.keys(rawData).length) renderAll(); // instant if data loaded
+  else loadAll();
 }
 
 function applyCustomRange(){
@@ -363,23 +413,78 @@ function applyCustomRange(){
   if(!f||!t){alert('Select both dates');return;}
   if(f>t){alert('Start must be before end');return;}
   document.querySelectorAll('.qbtn').forEach(b=>b.classList.remove('active'));
-  state={...state,days:Math.round((new Date(t)-new Date(f))/86400000)+1,from:f,to:t,since:null};
-  loadAll();
+  state={...state,days:Math.round((new Date(t)-new Date(f))/86400000)+1,from:f,to:t};
+  if(Object.keys(rawData).length) renderAll();
+  else loadAll();
 }
 
-;
+// ── Load — ONE batch API call ─────────────────────────────────────────────
+async function loadAll(){
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+  document.getElementById('loadingText').textContent='Loading dashboard…';
+  document.getElementById('errorBanner').classList.remove('visible');
 
-async function fetchSeries(project,event,from,to){
-  const since=state.since;
-  let url;
-  if(since&&!from){
-    url=`${BASE}/${project}/query/time-series?event=${event}&since=${since}&bucket=day`;
-  } else {
-    url=`${BASE}/${project}/query/time-series?event=${event}&from=${from||state.from}&to=${to||state.to}&bucket=day`;
+  // Set default range if not set
+  if(!state.from){
+    state.from = toISO(daysAgo(30));
+    state.to   = toISO(new Date());
+    state.days = 30;
   }
-  const r=await fetch(url);
-  if(!r.ok) throw new Error(r.status);
-  return r.json();
+
+  try {
+    document.getElementById('loadingText').textContent='Fetching metrics…';
+    const r = await fetch('/api/metrics/batch');
+    if(!r.ok) throw new Error(`Server returned ${r.status}`);
+    rawData = await r.json();
+
+    document.getElementById('loadingOverlay').classList.add('hidden');
+
+    // Progressive render — show KPIs immediately, then charts
+    const {prevFrom, prevTo} = applyRange();
+    updateDateLabels(prevFrom, prevTo);
+
+    renderKPIs();           // instant
+    renderInsights();       // instant
+
+    // Render charts progressively with small delays so browser doesn't freeze
+    setTimeout(()=>renderAlerts(),    0);
+    setTimeout(()=>renderTrendChart(),50);
+    setTimeout(()=>renderDonut(),     100);
+    setTimeout(()=>{ renderPeriodChart(); },150);
+    setTimeout(()=>renderWoWChart(),  200);
+    setTimeout(()=>renderSessionChart(),250);
+    setTimeout(()=>renderDow(),       300);
+    setTimeout(()=>renderHeatmap(),   350);
+    setTimeout(()=>renderTable(),     400);
+
+  } catch(err){
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    const b=document.getElementById('errorBanner');
+    b.textContent=`Failed to load: ${err.message}. CMS may be temporarily down — try refreshing in a moment.`;
+    b.classList.add('visible');
+  }
+}
+
+// ── Render all (used after range change — no API call) ────────────────────
+function renderAll(){
+  const {prevFrom,prevTo} = applyRange();
+  updateDateLabels(prevFrom,prevTo);
+  renderAlerts(); renderKPIs(); renderInsights();
+  renderTrendChart(); renderDonut();
+  renderPeriodChart();
+  renderWoWChart(); renderSessionChart();
+  renderDow(); renderHeatmap(); renderTable();
+}
+
+function updateDateLabels(prevFrom, prevTo){
+  const now=new Date();
+  const fl=state.from?new Date(state.from).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
+  const tl=state.to?new Date(state.to).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
+  document.getElementById('dateRangeLabel').textContent=`${fl} – ${tl} · ${state.days} day${state.days>1?'s':''}`;
+  document.getElementById('footerRange').textContent=`${fl} – ${tl}`;
+  document.getElementById('lastUpdated').textContent='Updated '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  if(document.getElementById('periodCompSubtitle'))
+    document.getElementById('periodCompSubtitle').textContent=`${prevFrom} – ${prevTo} vs ${state.from} – ${state.to}`;
 }
 
 function getTotal(key,data){ const d=(data||state.data)[key]; if(!d?.series) return 0; return d.series.reduce((s,p)=>s+(p.count??0),0); }
@@ -458,7 +563,7 @@ async function loadAll(){
     renderInsights();
     renderTrendChart();
     renderDonut();
-    renderPeriodChart(toISO(prevFrom),toISO(prevTo));
+    renderPeriodChart();
     renderWoWChart();
     renderSessionChart();
     renderDow();
