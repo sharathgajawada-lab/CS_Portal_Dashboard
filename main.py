@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 import httpx
@@ -7,16 +7,18 @@ import os
 import asyncio
 import time
 import json
-import gzip
 from typing import Optional
+from datetime import datetime, timedelta
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-CMS_BASE   = "https://cms.audibene.net/api/metrics"
-API_KEY    = os.environ.get("CMS_API_KEY", "")
-CACHE_TTL  = 300          # 5 min fresh cache
-STALE_TTL  = 3600         # 1 hr stale-while-revalidate
-PREFETCH_INTERVAL = 300   # background refresh every 5 min
+CMS_BASE          = "https://cms.audibene.net/api/metrics"
+API_KEY           = os.environ.get("CMS_API_KEY", "")
+CACHE_TTL         = 300
+STALE_TTL         = 3600
+PREFETCH_INTERVAL = 300
+DATA_START_DATE   = "2026-04-24"  # first day CMS tracking started
 
 EVENTS = [
     {"key": "profile.viewed",         "project": "cs-portal-profile-events"},
@@ -28,11 +30,16 @@ EVENTS = [
     {"key": "order_supplies.visited", "project": "cs-portal-items-events"},
     {"key": "auth.logout",            "project": "cs-portal-auth-events"},
     {"key": "scheduling.started",     "project": "cs-portal-scheduling-events"},
+    {"key": "chat.started",           "project": "cs-portal-chat-events"},
+    {"key": "chat.message_sent",      "project": "cs-portal-chat-events"},
+    {"key": "asset.download",         "project": "cs-portal-content-events"},
+    {"key": "category.viewed",        "project": "cs-portal-content-events"},
+    {"key": "returns.viewed",         "project": "cs-portal-items-events"},
+    {"key": "scheduling.completed",   "project": "cs-portal-scheduling-events"},
 ]
 
-# ─── In-memory cache ──────────────────────────────────────────────────────────
-cache      = {}   # key -> {"ts": float, "data": dict}
-cache_lock = asyncio.Lock()
+# ─── Cache ────────────────────────────────────────────────────────────────────
+cache = {}
 
 def cache_get(key):
     entry = cache.get(key)
@@ -40,21 +47,54 @@ def cache_get(key):
         return None, False
     age = time.time() - entry["ts"]
     if age < CACHE_TTL:
-        return entry["data"], True   # fresh
+        return entry["data"], True
     if age < STALE_TTL:
-        return entry["data"], False  # stale but usable
+        return entry["data"], False
     return None, False
 
 def cache_set(key, data):
     cache[key] = {"ts": time.time(), "data": data}
 
-# ─── CMS fetch with retry + exponential backoff ───────────────────────────────
-semaphore = asyncio.Semaphore(3)   # max 3 concurrent CMS requests
+# ─── Aggregation ──────────────────────────────────────────────────────────────
+def aggregate_to_daily(series: list, event_key: str = "") -> list:
+    """
+    Convert raw CMS series (ts in Unix ms OR date string) into
+    clean daily rows: [{"date": "YYYY-MM-DD", "count": N, "event": key}]
+    """
+    daily = defaultdict(int)
 
-async def cms_fetch(project: str, event: str, since: str = "180d",
+    for point in series:
+        count = int(point.get("count", 0) or 0)
+        # Unix millisecond timestamp
+        if "ts" in point:
+            try:
+                dt = datetime.utcfromtimestamp(int(point["ts"]) / 1000)
+                day_str = dt.strftime("%Y-%m-%d")
+            except:
+                continue
+        # ISO date string
+        elif "date" in point:
+            day_str = str(point["date"])[:10]
+        else:
+            continue
+        daily[day_str] += count
+
+    if not daily:
+        return []
+
+    # Sort and return clean rows
+    return [
+        {"date": d, "count": daily[d], "event": event_key}
+        for d in sorted(daily.keys())
+    ]
+
+# ─── CMS Fetch ────────────────────────────────────────────────────────────────
+semaphore = asyncio.Semaphore(3)
+
+async def cms_fetch(project: str, event: str, since: str = None,
                     from_date: str = None, to_date: str = None) -> dict:
     params = {"event": event, "bucket": "day"}
-    if since and not from_date:
+    if since:
         params["since"] = since
     if from_date:
         params["from"] = from_date
@@ -68,37 +108,38 @@ async def cms_fetch(project: str, event: str, since: str = "180d",
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
                     r = await client.get(url, params=params,
-                                         headers={"API-Key": API_KEY,
+                                         headers={"api-key": API_KEY,
                                                   "Accept": "application/json"})
                     if r.status_code in (429, 502, 503, 504):
-                        wait = 2 ** attempt
-                        print(f"  CMS {r.status_code} for {event}, retry in {wait}s")
-                        await asyncio.sleep(wait)
+                        await asyncio.sleep(2 ** attempt)
                         continue
                     if r.status_code != 200:
-                        return {"series": [], "error": r.status_code}
+                        return {"series": []}
                     text = r.text.strip()
-                    return json.loads(text) if text else {"series": []}
+                    if not text:
+                        return {"series": []}
+                    return json.loads(text)
             except Exception as e:
                 await asyncio.sleep(2 ** attempt)
-        return {"series": [], "error": "max retries exceeded"}
+        return {"series": []}
 
-# ─── Batch prefetch ───────────────────────────────────────────────────────────
+# ─── Prefetch ─────────────────────────────────────────────────────────────────
 async def prefetch_all():
-    print("Prefetching 180d batch...")
+    print("Prefetching all events from start date...")
     result = {}
+    today = datetime.utcnow().strftime("%Y-%m-%d")
     for e in EVENTS:
-        data = await cms_fetch(e["project"], e["key"], since="180d")
-        result[e["key"]] = data
-        await asyncio.sleep(0.3)   # gentle pacing
-    async with cache_lock:
-        cache_set("batch:180d", result)
+        raw = await cms_fetch(e["project"], e["key"],
+                              from_date=DATA_START_DATE, to_date=today)
+        aggregated = aggregate_to_daily(raw.get("series", []), e["key"])
+        result[e["key"]] = {"series": aggregated}
+        await asyncio.sleep(0.3)
+    cache_set("batch:all", result)
     print(f"Batch cached — {len(result)} events")
     return result
 
 async def background_prefetch():
-    """Background task: refresh cache every 5 minutes."""
-    await asyncio.sleep(5)          # wait for server to fully start
+    await asyncio.sleep(5)
     while True:
         try:
             await prefetch_all()
@@ -106,7 +147,7 @@ async def background_prefetch():
             print(f"Prefetch error: {e}")
         await asyncio.sleep(PREFETCH_INTERVAL)
 
-# ─── Lifespan (startup/shutdown) ──────────────────────────────────────────────
+# ─── Lifespan ─────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(background_prefetch())
@@ -115,30 +156,47 @@ async def lifespan(app: FastAPI):
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(GZipMiddleware, minimum_size=500)   # gzip all responses >500 bytes
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
-# ─── Batch endpoint ───────────────────────────────────────────────────────────
+# ─── Batch endpoint (for dashboard) ──────────────────────────────────────────
 @app.get("/api/metrics/batch")
 async def batch_metrics():
-    """Returns all 9 events for 180 days in one gzipped response."""
-    data, fresh = cache_get("batch:180d")
-
+    data, fresh = cache_get("batch:all")
     if data is None:
-        # Cache miss — fetch now
-        print("Cache miss, fetching batch...")
         data = await prefetch_all()
-        fresh = True
-
-    if not fresh:
-        # Stale — return stale data immediately, refresh in background
+    elif not fresh:
         asyncio.create_task(prefetch_all())
-        print("Serving stale cache, refreshing in background")
-
     return data
 
-# ─── Single metric endpoint (kept for compatibility) ──────────────────────────
+# ─── Domo endpoint — returns flat daily rows for ONE event ───────────────────
+@app.get("/domo/{event_key}")
+async def domo_endpoint(event_key: str):
+    """
+    Returns clean flat daily rows for Domo:
+    [{"date": "2026-04-24", "count": 121, "event": "profile.viewed"}, ...]
+    All data from DATA_START_DATE to today, aggregated by day.
+    """
+    cache_key = f"domo:{event_key}"
+    data, fresh = cache_get(cache_key)
+    if fresh:
+        return data
+
+    # Find event config
+    event_conf = next((e for e in EVENTS if e["key"] == event_key), None)
+    if not event_conf:
+        raise HTTPException(status_code=404, detail=f"Unknown event: {event_key}")
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    raw = await cms_fetch(event_conf["project"], event_key,
+                          from_date=DATA_START_DATE, to_date=today)
+    rows = aggregate_to_daily(raw.get("series", []), event_key)
+    result = {"rows": rows, "total": len(rows), "event": event_key}
+    cache_set(cache_key, result)
+    return result
+
+# ─── Single metric proxy (for dashboard) ─────────────────────────────────────
 @app.get("/api/metrics/{project}/query/time-series")
 async def proxy_metrics(
     project: str,
@@ -153,20 +211,29 @@ async def proxy_metrics(
     if fresh:
         return data
 
-    result = await cms_fetch(project, event, since, from_date, to_date)
+    # Always use full history for dashboard too
+    effective_from = from_date or DATA_START_DATE
+    effective_to = to_date or datetime.utcnow().strftime("%Y-%m-%d")
+
+    raw = await cms_fetch(project, event, since=since,
+                          from_date=effective_from if not since else None,
+                          to_date=effective_to if not since else None)
+    aggregated = aggregate_to_daily(raw.get("series", []), event)
+    result = {"series": [{"date": r["date"], "count": r["count"]} for r in aggregated]}
     cache_set(key, result)
     return result
 
 # ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    batch, fresh = cache_get("batch:180d")
+    data, fresh = cache_get("batch:all")
     return {
         "status": "ok",
         "api_key_set": bool(API_KEY),
-        "batch_cached": batch is not None,
+        "batch_cached": data is not None,
         "batch_fresh": fresh,
-        "total_cache_entries": len(cache),
+        "data_start_date": DATA_START_DATE,
+        "cache_entries": len(cache),
     }
 
 @app.get("/cache/clear")
@@ -175,8 +242,14 @@ async def clear_cache():
     asyncio.create_task(prefetch_all())
     return {"status": "cleared, prefetching..."}
 
-# ─── Dashboard HTML ───────────────────────────────────────────────────────────
+# ─── Dashboard ────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     with open("index.html") as f:
         return f.read()
+
+@app.get("/sw.js")
+async def service_worker():
+    with open("sw.js") as f:
+        from fastapi.responses import Response
+        return Response(content=f.read(), media_type="application/javascript")
