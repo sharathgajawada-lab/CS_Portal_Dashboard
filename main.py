@@ -586,66 +586,46 @@ async def _refresh_session_stats():
 # ─── Session debug endpoint ──────────────────────────────────────────────────
 @app.get("/api/session-debug")
 async def session_debug():
-    """Step-by-step debug for session stats pipeline."""
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    out   = {}
+    """Raw HTTP debug — bypasses all helper functions."""
+    out    = {}
+    client = get_http_client()
 
-    # Step 1 — fetch user IDs
-    all_users_raw = await cms_fetch_topn(
+    # Test 1 — raw top-n call with since=30d
+    try:
+        r = await client.get(
+            f"{CMS_BASE}/cs-portal-auth-events/query/top-n",
+            params={"event": "auth.login", "groupBy": "userId", "n": 5, "since": "30d"}
+        )
+        out["topn_status"]   = r.status_code
+        out["topn_raw"]      = r.text[:400]
+        out["topn_headers"]  = dict(r.headers)
+    except Exception as e:
+        out["topn_error"] = str(e)
+
+    # Test 2 — raw top-n call with since=180d
+    try:
+        r2 = await client.get(
+            f"{CMS_BASE}/cs-portal-auth-events/query/top-n",
+            params={"event": "auth.login", "groupBy": "userId", "n": 5, "since": "180d"}
+        )
+        out["topn180_status"] = r2.status_code
+        out["topn180_raw"]    = r2.text[:400]
+    except Exception as e:
+        out["topn180_error"] = str(e)
+
+    # Test 3 — what does cms_fetch_topn return now
+    result = await cms_fetch_topn(
         "cs-portal-auth-events", "auth.login",
-        group_by="userId", n=10,
-        from_date=DATA_START_DATE, to_date=today
+        group_by="userId", n=5,
+        from_date=DATA_START_DATE
     )
-    out["step1_raw_type"]    = type(all_users_raw).__name__
-    out["step1_raw_sample"]  = str(all_users_raw)[:300]
+    out["cms_fetch_topn_result"] = str(result)[:400]
+    out["cms_fetch_topn_type"]   = type(result).__name__
+    out["cms_fetch_topn_len"]    = len(result) if isinstance(result, list) else "not a list"
 
-    if isinstance(all_users_raw, dict):
-        rows = all_users_raw.get("top", [])
-    else:
-        rows = all_users_raw or []
-    out["step1_rows_count"] = len(rows)
-    out["step1_rows_sample"] = rows[:3]
-
-    user_ids = [
-        r.get("itemId") or r.get("id") or r.get("key") or ""
-        for r in rows
-        if (r.get("itemId") or r.get("id") or r.get("key") or "") not in ("anonymous", "")
-    ]
-    out["step2_user_ids"] = user_ids[:5]
-    out["step2_user_count"] = len(user_ids)
-
-    if not user_ids:
-        out["error"] = "No user IDs found — top-n may be returning unexpected format"
-        return out
-
-    # Step 2 — fetch one user timeline
-    test_uid = user_ids[0]
-    out["step3_test_uid"] = test_uid
-
-    # Try both param names
-    for param_name in ["userId", "user_id"]:
-        params = {param_name: test_uid, "since": "30d", "limit": 5}
-        url    = f"{CMS_BASE}/cs-portal-auth-events/query/user-timeline"
-        client = get_http_client()
-        try:
-            r = await client.get(url, params=params)
-            out[f"step3_{param_name}_status"] = r.status_code
-            out[f"step3_{param_name}_sample"] = r.text[:200]
-        except Exception as e:
-            out[f"step3_{param_name}_error"] = str(e)
-
-    # Step 3 — run _fetch_user_all_projects on one user
-    events = await _fetch_user_all_projects(test_uid)
-    out["step4_events_count"] = len(events)
-    out["step4_events_sample"] = [
-        {k: v for k, v in e.items() if k in ("event_type","session_id","timestamp")}
-        for e in events[:5]
-    ]
-
-    # Step 4 — run _compute_sessions
-    sessions = _compute_sessions(events)
-    out["step5_sessions_count"] = len(sessions)
-    out["step5_sessions_sample"] = sessions[:2]
+    # Test 4 — check API key is set
+    out["api_key_set"]    = bool(API_KEY)
+    out["api_key_prefix"] = API_KEY[:8] if API_KEY else "MISSING"
 
     return out
 
