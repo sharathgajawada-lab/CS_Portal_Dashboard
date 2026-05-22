@@ -129,12 +129,20 @@ async def cms_fetch(project: str, event: str, since: str = None,
 # ─── CMS top-n fetch ──────────────────────────────────────────────────────────
 async def cms_fetch_topn(project: str, event: str, group_by: str = "itemId",
                          n: int = 20, from_date: str = None, to_date: str = None) -> list:
-    """Calls /query/top-n and returns [{id, count}] list."""
+    """Calls /query/top-n and returns unwrapped list of {itemId, count} rows."""
     params = {"event": event, "groupBy": group_by, "n": n}
-    if from_date: params["from"] = from_date
-    if to_date:   params["to"]   = to_date
+    # top-n uses "since" not from/to — compute days since from_date
+    if from_date:
+        try:
+            from_dt  = datetime.strptime(from_date, "%Y-%m-%d")
+            days_ago = (datetime.utcnow() - from_dt).days + 1
+            params["since"] = f"{days_ago}d"
+        except Exception:
+            params["since"] = "180d"
+    else:
+        params["since"] = "180d"
 
-    url = f"{CMS_BASE}/{project}/query/top-n"
+    url    = f"{CMS_BASE}/{project}/query/top-n"
     client = get_http_client()
 
     async with semaphore:
@@ -150,13 +158,14 @@ async def cms_fetch_topn(project: str, event: str, group_by: str = "itemId",
                 if not text:
                     return []
                 data = json.loads(text)
-                # CMS returns either a list or {"items": [...]}
-                if isinstance(data, list):
-                    return data
-                return data.get("items", data.get("results", []))
+                # CMS returns {"top": [{itemId, count}]} — unwrap
+                if isinstance(data, dict):
+                    return data.get("top") or data.get("items") or data.get("results") or []
+                return data
             except Exception:
                 await asyncio.sleep(2 ** attempt)
     return []
+
 
 
 # ─── Prefetch ─────────────────────────────────────────────────────────────────
@@ -337,7 +346,7 @@ ACTIVITY_LABELS = {
 timeline_sem = asyncio.Semaphore(30)
 
 async def _get_project_timeline(project: str, user_id: str) -> list:
-    params = {"userId": user_id, "since": f"{SESSION_DAYS}d", "limit": 500}
+    params = {"userId": user_id, "since": f"{SESSION_DAYS}d", "limit": 500, "sort": "asc"}
     url    = f"{CMS_BASE}/{project}/query/user-timeline"
     client = get_http_client()
     async with timeline_sem:
