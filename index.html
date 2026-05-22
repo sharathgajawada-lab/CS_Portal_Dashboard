@@ -416,18 +416,34 @@ function vsPercent(key){
 
 async function loadAll(){
   document.getElementById('loadingOverlay').classList.remove('hidden');
+  document.getElementById('loadingText').textContent = 'Fetching metrics…';
   document.getElementById('errorBanner').classList.remove('visible');
 
   try {
-    // Current period
-    const results=await Promise.allSettled(EVENTS.map(e=>fetchSeries(e.project,e.key)));
-    results.forEach((r,i)=>{ state.data[EVENTS[i].key]=r.status==='fulfilled'?r.value:null; });
+    // Current period — sequential with small delay to avoid rate limiting
+    for(let i=0; i<EVENTS.length; i++){
+      const e=EVENTS[i];
+      document.getElementById('loadingText').textContent = `Fetching ${e.label}… (${i+1}/${EVENTS.length})`;
+      try {
+        state.data[e.key] = await fetchSeries(e.project, e.key);
+      } catch(err) {
+        state.data[e.key] = null;
+      }
+      await new Promise(r=>setTimeout(r,200)); // 200ms between requests
+    }
 
-    // Previous period (same length, shifted back)
+    // Previous period — sequential
     const prevTo=new Date(state.from); prevTo.setDate(prevTo.getDate()-1);
     const prevFrom=new Date(prevTo); prevFrom.setDate(prevFrom.getDate()-state.days+1);
-    const prevResults=await Promise.allSettled(EVENTS.map(e=>fetchSeries(e.project,e.key,toISO(prevFrom),toISO(prevTo))));
-    prevResults.forEach((r,i)=>{ state.prevData[EVENTS[i].key]=r.status==='fulfilled'?r.value:null; });
+    for(let i=0; i<EVENTS.length; i++){
+      const e=EVENTS[i];
+      try {
+        state.prevData[e.key] = await fetchSeries(e.project, e.key, toISO(prevFrom), toISO(prevTo));
+      } catch(err) {
+        state.prevData[e.key] = null;
+      }
+      await new Promise(r=>setTimeout(r,200));
+    }
 
     const now=new Date();
     const fl=state.from?new Date(state.from).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
