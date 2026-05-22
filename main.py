@@ -259,9 +259,12 @@ async def _fetch_articles(n: int) -> dict:
 
     # Normalise: CMS may return {id/itemId/key, count/value}
     def normalise(rows):
+        # Unwrap {"top": [...]} envelope from CMS top-n response
+        if isinstance(rows, dict):
+            rows = rows.get("top") or rows.get("items") or rows.get("results") or []
         out = {}
         for row in rows:
-            aid = row.get("id") or row.get("itemId") or row.get("key") or row.get("item_id") or ""
+            aid = row.get("itemId") or row.get("id") or row.get("key") or row.get("item_id") or ""
             cnt = int(row.get("count") or row.get("value") or 0)
             if aid:
                 out[aid] = cnt
@@ -377,7 +380,7 @@ def _compute_sessions(events: list) -> list:
     from collections import defaultdict
     sessions = defaultdict(list)
     for e in events:
-        sid = e.get("session_id") or e.get("sessionId") or "unknown"
+        sid = e.get("session_id") or e.get("sessionId") or e.get("session") or "unknown"
         sessions[sid].append(e)
 
     result = []
@@ -397,7 +400,7 @@ def _compute_sessions(events: list) -> list:
         if duration_s > 28800:
             duration_s = 28800
 
-        has_logout = any(e.get("event_type") == "auth.logout" for e in evts)
+        has_logout = any((e.get("event_type") or e.get("eventType","")) == "auth.logout" for e in evts)
         date_str   = datetime.utcfromtimestamp(t_start / 1000).strftime("%Y-%m-%d")
 
         # Time per activity — gap between consecutive events, attributed to the first event's type
@@ -406,13 +409,13 @@ def _compute_sessions(events: list) -> list:
         for i in range(len(evts_sorted) - 1):
             gap_s    = (evts_sorted[i+1].get("timestamp",0) - evts_sorted[i].get("timestamp",0)) / 1000
             gap_s    = min(gap_s, 300)  # cap gaps at 5 min (idle time)
-            etype    = evts_sorted[i].get("event_type", "")
+            etype    = evts_sorted[i].get("event_type") or evts_sorted[i].get("eventType") or ""
             bucket   = ACTIVITY_MAP.get(etype, "other")
             activity_time[bucket]   += gap_s
             activity_events[bucket] += 1
 
         # Also count last event
-        last_etype  = evts_sorted[-1].get("event_type", "")
+        last_etype  = evts_sorted[-1].get("event_type") or evts_sorted[-1].get("eventType") or ""
         last_bucket = ACTIVITY_MAP.get(last_etype, "other")
         activity_events[last_bucket] += 1
 
@@ -420,7 +423,7 @@ def _compute_sessions(events: list) -> list:
         search_queries = [
             e.get("properties", {}).get("query", "")
             for e in evts_sorted
-            if e.get("event_type") == "search.performed"
+            if (e.get("event_type") or e.get("eventType","")) == "search.performed"
             and isinstance(e.get("properties"), dict)
             and e.get("properties", {}).get("query")
         ]
@@ -447,10 +450,13 @@ async def _compute_all_session_stats() -> dict:
         group_by="userId", n=5000,
         from_date=DATA_START_DATE, to_date=today
     )
+    # top-n returns {"top": [{itemId: userId, count: N}]} — unwrap
+    if isinstance(all_users_raw, dict):
+        all_users_raw = all_users_raw.get("top", [])
     user_ids = [
-        r.get("id") or r.get("itemId") or r.get("key") or ""
+        r.get("itemId") or r.get("id") or r.get("key") or ""
         for r in all_users_raw
-        if (r.get("id") or r.get("itemId") or r.get("key") or "") not in ("anonymous", "")
+        if (r.get("itemId") or r.get("id") or r.get("key") or "") not in ("anonymous", "")
     ]
     print(f"Session stats: fetching timelines for {len(user_ids)} users")
 
