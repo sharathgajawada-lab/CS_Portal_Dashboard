@@ -463,9 +463,9 @@ async def _compute_all_session_stats() -> dict:
     if isinstance(all_users_raw, dict):
         all_users_raw = all_users_raw.get("top", [])
     user_ids = [
-        r.get("itemId") or r.get("id") or r.get("key") or ""
+        r.get("userId") or r.get("itemId") or r.get("id") or r.get("key") or ""
         for r in all_users_raw
-        if (r.get("itemId") or r.get("id") or r.get("key") or "") not in ("anonymous", "")
+        if (r.get("userId") or r.get("itemId") or r.get("id") or r.get("key") or "") not in ("anonymous", "")
     ]
     print(f"Session stats: fetching timelines for {len(user_ids)} users")
 
