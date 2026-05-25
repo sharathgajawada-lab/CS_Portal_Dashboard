@@ -309,6 +309,7 @@ tbody td{padding:10px 12px}
           <tr>
             <th>Event</th>
             <th>Total</th>
+            <th>Unique users</th>
             <th>Daily avg</th>
             <th>vs prev period</th>
             <th>WoW</th>
@@ -322,8 +323,17 @@ tbody td{padding:10px 12px}
     </div>
   </div>
 
+  <!-- TOP ARTICLES -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-title">Top 10 most viewed articles</div>
+      <div class="chart-subtitle">All time · grouped by article ID</div>
+    </div>
+    <div id="topArticles" style="font-size:13px;color:var(--text3);padding:1rem 0">Loading…</div>
+  </div>
+
   <div class="dash-footer">
-    <p>hear.com CMS Metrics API · 180-day retention · <span id="footerRange"></span></p>
+    <p>hear.com CMS Metrics API · Data from <span id="footerRange"></span></p>
     <p style="font-size:11px;color:var(--text3)">Data is live — click Refresh now to reload</p>
   </div>
 </div>
@@ -466,15 +476,16 @@ async function loadAll(){
     document.getElementById('progressFill').style.width='100%';
     setTimeout(()=>document.getElementById('loadingOverlay').classList.add('hidden'), 200);
 
-    setTimeout(()=>renderAlerts(),      0);
-    setTimeout(()=>renderTrendChart(),  50);
-    setTimeout(()=>renderDonut(),       100);
-    setTimeout(()=>renderPeriodChart(), 150);
-    setTimeout(()=>renderWoWChart(),    200);
-    setTimeout(()=>renderSessionChart(),250);
-    setTimeout(()=>renderDow(),         300);
-    setTimeout(()=>renderHeatmap(),     350);
-    setTimeout(()=>renderTable(),       400);
+    setTimeout(()=>renderAlerts(),       0);
+    setTimeout(()=>renderTrendChart(),   50);
+    setTimeout(()=>renderDonut(),        100);
+    setTimeout(()=>renderPeriodChart(),  150);
+    setTimeout(()=>renderWoWChart(),     200);
+    setTimeout(()=>renderSessionChart(), 250);
+    setTimeout(()=>renderDow(),          300);
+    setTimeout(()=>renderHeatmap(),      350);
+    setTimeout(()=>renderTable(),        400);
+    setTimeout(()=>renderTopArticles(),  450);
 
   } catch(err){
     document.getElementById('loadingOverlay').classList.add('hidden');
@@ -492,7 +503,7 @@ function renderAll(){
   renderTrendChart(); renderDonut();
   renderPeriodChart();
   renderWoWChart(); renderSessionChart();
-  renderDow(); renderHeatmap(); renderTable();
+  renderDow(); renderHeatmap(); renderTable(); renderTopArticles();
 }
 
 function updateDateLabels(prevFrom, prevTo){
@@ -884,6 +895,7 @@ function renderTable(){
     const share=gt?(total/gt*100).toFixed(1):0;
     const vs=vsPercent(e.key);
     const wow=getWoW(e.key);
+    const uniqueUsers=rawData[e.key]?.unique_users ?? null;
     const vsClass=vs===null?'flat':vs>5?'up':vs<-5?'down':'flat';
     const vsLabel=vs===null?'—':(vs>0?'▲ ':'▼ ')+Math.abs(Math.round(vs))+'%';
     const wowClass=wow===null?'flat':wow>5?'up':wow<-5?'down':'flat';
@@ -893,6 +905,7 @@ function renderTable(){
     return `<tr>
       <td><span class="badge" style="${e.badge}">${e.label}</span></td>
       <td class="mono">${fmt(total)}</td>
+      <td class="mono">${uniqueUsers!==null?fmt(uniqueUsers):'—'}</td>
       <td class="mono">${Math.round(avg)}/day</td>
       <td style="font-weight:500" class="${vsClass}">${vsLabel}</td>
       <td style="font-weight:500" class="${wowClass}">${wowLabel}</td>
@@ -901,6 +914,34 @@ function renderTable(){
       <td style="font-weight:500" class="${trendClass}">${trendLabel}</td>
     </tr>`;
   }).join('');
+}
+
+function renderTopArticles(){
+  const top = rawData['__top_articles__'] || [];
+  const el = document.getElementById('topArticles');
+  if(!top.length){
+    el.innerHTML='<p style="color:var(--text3);font-size:13px">No article data available yet.</p>';
+    return;
+  }
+  const maxCount = Math.max(...top.map(a=>a.count||0), 1);
+  el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">` +
+    top.map((a,i)=>{
+      const count = a.count || 0;
+      const pct = (count/maxCount*100).toFixed(0);
+      const itemId = a.itemId || a.id || a.key || `Article ${i+1}`;
+      return `<div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:11px;color:var(--text3);min-width:20px;text-align:right">${i+1}</span>
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="font-size:12px;color:var(--text);font-family:'DM Mono',monospace">${itemId}</span>
+            <span style="font-size:12px;color:var(--text2);font-weight:500">${fmt(count)} views</span>
+          </div>
+          <div style="height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:var(--blue);border-radius:2px"></div>
+          </div>
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
 }
 
 let activeKpi = null;
