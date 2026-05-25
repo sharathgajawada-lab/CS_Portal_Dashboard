@@ -83,15 +83,14 @@ semaphore = asyncio.Semaphore(5)   # 5 concurrent CMS requests for speed
 async def cms_fetch(project: str, event: str,
                     since: str = None, until: str = None) -> dict:
     """
-    Fetch time-series from CMS using correct OpenAPI params:
+    Fetch time-series from CMS.
     - since: lower bound (e.g. "2026-04-24" ISO date or "-30d" relative)
-    - until: upper bound (e.g. "2026-05-25" ISO date)
+    - until: upper bound — NOTE: causes empty results, do not use
     """
     params = {"event": event, "bucket": "day"}
     if since:
         params["since"] = since
-    if until:
-        params["until"] = until
+    # DO NOT pass until — CMS returns empty series when until is set
 
     url = f"{CMS_BASE}/{project}/query/time-series"
 
@@ -156,12 +155,12 @@ async def prefetch_all():
         print(f"CMS unhealthy, skipping prefetch: {cms_status['last_error']}")
         return cache.get("batch:all", {}).get("data", {})
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.utcnow().strftime("%Y-%m-%d")  # kept for logging
 
-    # Fetch all events in parallel — semaphore limits to 3 concurrent CMS calls
+    # Fetch all events in parallel — semaphore limits concurrent CMS calls
     async def fetch_one(e):
         raw = await cms_fetch(e["project"], e["key"],
-                              since=DATA_START_DATE, until=today)
+                              since=DATA_START_DATE)
         aggregated = aggregate_to_daily(raw.get("series", []), e["key"])
         return e["key"], {"series": aggregated}
 
