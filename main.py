@@ -78,7 +78,7 @@ def aggregate_to_daily(series: list, event_key: str = "") -> list:
             for d in sorted(daily.keys())]
 
 # ─── CMS Fetch (correct OpenAPI params: since/until not from/to) ──────────────
-semaphore = asyncio.Semaphore(3)
+semaphore = asyncio.Semaphore(5)   # 5 concurrent CMS requests for speed
 
 async def cms_fetch(project: str, event: str,
                     since: str = None, until: str = None) -> dict:
@@ -150,21 +150,31 @@ async def check_cms_health():
 
 # ─── Prefetch ─────────────────────────────────────────────────────────────────
 async def prefetch_all():
-    print("Prefetching all events...")
+    print("Prefetching all events in parallel...")
     await check_cms_health()
     if not cms_status["healthy"]:
         print(f"CMS unhealthy, skipping prefetch: {cms_status['last_error']}")
         return cache.get("batch:all", {}).get("data", {})
 
-    result = {}
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    for e in EVENTS:
-        # Use ISO date range: since=2026-04-24 until=today
+
+    # Fetch all events in parallel — semaphore limits to 3 concurrent CMS calls
+    async def fetch_one(e):
         raw = await cms_fetch(e["project"], e["key"],
                               since=DATA_START_DATE, until=today)
         aggregated = aggregate_to_daily(raw.get("series", []), e["key"])
-        result[e["key"]] = {"series": aggregated}
-        await asyncio.sleep(0.3)
+        return e["key"], {"series": aggregated}
+
+    results = await asyncio.gather(*[fetch_one(e) for e in EVENTS],
+                                   return_exceptions=True)
+
+    result = {}
+    for r in results:
+        if isinstance(r, Exception):
+            print(f"Fetch error: {r}")
+            continue
+        key, data = r
+        result[key] = data
 
     cache_set("batch:all", result)
     total_rows = sum(len(v["series"]) for v in result.values())

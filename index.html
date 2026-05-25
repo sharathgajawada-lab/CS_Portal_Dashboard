@@ -143,13 +143,18 @@ tbody td{padding:10px 12px}
 /* FOOTER */
 .dash-footer{margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .dash-footer p{font-size:11px;color:var(--text3)}
+.progress-bar{width:200px;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;background:var(--blue);border-radius:2px;transition:width .3s ease;width:0%}
+.loading-step{font-size:12px;color:var(--text3);margin-top:6px}
 </style>
 </head>
 <body>
 
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
-  <p class="loading-text">Fetching live metrics…</p>
+  <p class="loading-text" id="loadingText">Connecting to CMS…</p>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  <p class="loading-step" id="loadingStep"></p>
 </div>
 
 <nav class="topbar">
@@ -424,7 +429,9 @@ function applyCustomRange(){
 // ── Load — ONE batch API call ─────────────────────────────────────────────
 async function loadAll(){
   document.getElementById('loadingOverlay').classList.remove('hidden');
-  document.getElementById('loadingText').textContent='Loading dashboard…';
+  document.getElementById('loadingText').textContent='Connecting to CMS…';
+  document.getElementById('progressFill').style.width='10%';
+  document.getElementById('loadingStep').textContent='';
   document.getElementById('errorBanner').classList.remove('visible');
 
   // Set default range if not set
@@ -436,29 +443,38 @@ async function loadAll(){
 
   try {
     document.getElementById('loadingText').textContent='Fetching metrics…';
+    document.getElementById('progressFill').style.width='30%';
+    document.getElementById('loadingStep').textContent='Loading all events in parallel…';
+
     const r = await fetch('/api/metrics/batch', { headers: { 'Cache-Control': 'no-cache' } });
     if(!r.ok) throw new Error(`Server returned ${r.status}`);
+
+    document.getElementById('progressFill').style.width='70%';
+    document.getElementById('loadingStep').textContent='Processing data…';
     rawData = await r.json();
 
-    document.getElementById('loadingOverlay').classList.add('hidden');
+    document.getElementById('progressFill').style.width='90%';
+    document.getElementById('loadingStep').textContent='Rendering dashboard…';
 
     // Progressive render — show KPIs immediately, then charts
     const {prevFrom, prevTo} = applyRange();
     updateDateLabels(prevFrom, prevTo);
 
-    renderKPIs();           // instant
-    renderInsights();       // instant
+    renderKPIs();
+    renderInsights();
 
-    // Render charts progressively with small delays so browser doesn't freeze
-    setTimeout(()=>renderAlerts(),    0);
-    setTimeout(()=>renderTrendChart(),50);
-    setTimeout(()=>renderDonut(),     100);
-    setTimeout(()=>{ renderPeriodChart(); },150);
-    setTimeout(()=>renderWoWChart(),  200);
+    document.getElementById('progressFill').style.width='100%';
+    setTimeout(()=>document.getElementById('loadingOverlay').classList.add('hidden'), 200);
+
+    setTimeout(()=>renderAlerts(),      0);
+    setTimeout(()=>renderTrendChart(),  50);
+    setTimeout(()=>renderDonut(),       100);
+    setTimeout(()=>renderPeriodChart(), 150);
+    setTimeout(()=>renderWoWChart(),    200);
     setTimeout(()=>renderSessionChart(),250);
-    setTimeout(()=>renderDow(),       300);
-    setTimeout(()=>renderHeatmap(),   350);
-    setTimeout(()=>renderTable(),     400);
+    setTimeout(()=>renderDow(),         300);
+    setTimeout(()=>renderHeatmap(),     350);
+    setTimeout(()=>renderTable(),       400);
 
   } catch(err){
     document.getElementById('loadingOverlay').classList.add('hidden');
