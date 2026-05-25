@@ -459,9 +459,6 @@ async def _compute_all_session_stats() -> dict:
         group_by="userId", n=5000,
         from_date=DATA_START_DATE, to_date=today
     )
-    # top-n returns {"top": [{itemId: userId, count: N}]} — unwrap
-    if isinstance(all_users_raw, dict):
-        all_users_raw = all_users_raw.get("top", [])
     user_ids = [
         r.get("userId") or r.get("itemId") or r.get("id") or r.get("key") or ""
         for r in all_users_raw
@@ -563,15 +560,16 @@ async def _compute_all_session_stats() -> dict:
     }
 
 @app.get("/api/session-stats")
-async def session_stats():
+async def session_stats(force: bool = False):
     cache_key = "session:stats"
-    data, fresh = cache_get(cache_key)
-    if fresh:
-        return data
-    if data is not None and not fresh:
-        asyncio.create_task(_refresh_session_stats())
-        return data
-    # First call — compute synchronously
+    if not force:
+        data, fresh = cache_get(cache_key)
+        if fresh:
+            return data
+        if data is not None and not fresh:
+            asyncio.create_task(_refresh_session_stats())
+            return data
+    # First call or force=true — compute synchronously
     result = await _compute_all_session_stats()
     cache_set(cache_key, result)
     return result
@@ -690,9 +688,43 @@ async def health():
 
 @app.get("/cache/clear")
 async def clear_cache():
+    global _http_client
+    # Close and reset the HTTP client to clear any stale connections
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+    _http_client = None
     cache.clear()
     asyncio.create_task(prefetch_all())
-    return {"status": "cleared, prefetching..."}
+    return {"status": "cleared, client reset, prefetching..."}
+
+@app.get("/debug/test-cms")
+async def test_cms():
+    """Test a single CMS call directly to verify connectivity."""
+    global _http_client
+    # Force fresh client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+    _http_client = None
+    client = get_http_client()
+    try:
+        r = await client.get(
+            f"{CMS_BASE}/cs-portal-auth-events/query/time-series",
+            params={"event": "auth.login", "bucket": "day", "since": "7d"}
+        )
+        return {
+            "status": r.status_code,
+            "api_key_header": API_KEY[:8] + "...",
+            "response_preview": r.text[:300],
+            "headers_sent": {"api-key": API_KEY[:8] + "..."}
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/cache/session-clear")
+async def clear_session_cache():
+    """Force session stats to recompute on next request."""
+    cache.pop("session:stats", None)
+    return {"status": "session cache cleared — hit /api/session-stats to recompute"}
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
