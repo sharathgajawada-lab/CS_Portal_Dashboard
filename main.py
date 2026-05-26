@@ -3,14 +3,12 @@ CS Portal Analytics — main.py
 hear.com · Customer Support Intelligence
 
 Call budget:
-  Startup / hourly intel refresh : 14 calls total
+  Startup / hourly intel refresh : 24 calls total
     - 9  time-series  (one per event, KPIs)
-    - 1  top-n        articles by itemId
-    - 1  top-n        feedback by itemId
-    - 1  top-n        categories by itemId
-    - 1  top-n        search users by userId
-    - 1  user-timeline (1 user, content-events only, search+video)
+    - 5  top-n        (articles, feedback, categories, search users, video users)
+    - 10 user-timelines (content-events only, search+video extraction)
   Every 5 min (batch only) : 9 calls
+  Per hour (intel only)    : 15 calls (5 topn + 10 timelines)
   Per page load             : 0 calls (all from cache)
 """
 
@@ -165,23 +163,39 @@ async def fetch_batch():
 async def fetch_intel():
     print(f"[intel] fetching...", flush=True)
 
-    # 4 top-n calls in parallel
-    art_rows, fb_rows, cat_rows, user_rows = await asyncio.gather(
+    # 5 top-n calls in parallel (still cheap)
+    art_rows, fb_rows, cat_rows, search_users, video_users = await asyncio.gather(
         _topn("cs-portal-content-events",  "article.viewed",   "itemId", 10),
         _topn("cs-portal-feedback-events", "article.feedback", "itemId", 10),
         _topn("cs-portal-content-events",  "category.viewed",  "itemId", 10),
         _topn("cs-portal-content-events",  "search.performed", "userId", 10),
+        _topn("cs-portal-content-events",  "video.watched",    "userId", 10),
     )
-    print(f"[intel] top-n: articles={len(art_rows)} fb={len(fb_rows)} cats={len(cat_rows)} users={len(user_rows)}", flush=True)
+    print(f"[intel] top-n: articles={len(art_rows)} fb={len(fb_rows)} cats={len(cat_rows)}", flush=True)
 
-    # 1 timeline call — pick first non-anonymous user
+    # Combine unique non-anonymous users from search + video watchers
+    seen = set()
+    combined_users = []
+    for rows in (search_users, video_users):
+        for r in rows:
+            uid = r.get("userId") or r.get("itemId") or ""
+            if uid and uid != "anonymous" and uid not in seen:
+                seen.add(uid)
+                combined_users.append(uid)
+    combined_users = combined_users[:10]  # cap at 10 users
+    print(f"[intel] fetching content timelines for {len(combined_users)} users", flush=True)
+
+    # Fetch content-events timeline for each user in parallel (1 project only)
+    tl_results = await asyncio.gather(
+        *[_timeline("cs-portal-content-events", uid, limit=200) for uid in combined_users],
+        return_exceptions=True
+    )
+    # Merge all timelines into one flat list
     timeline = []
-    for r in user_rows:
-        uid = r.get("userId") or r.get("itemId") or ""
-        if uid and uid != "anonymous":
-            timeline = await _timeline("cs-portal-content-events", uid, limit=200)
-            print(f"[intel] timeline: {len(timeline)} events for {uid[:20]}", flush=True)
-            break
+    for tl in tl_results:
+        if isinstance(tl, list):
+            timeline.extend(tl)
+    print(f"[intel] timelines: {len(timeline)} total events", flush=True)
 
     # ── Articles ──────────────────────────────────────────────────────────────
     fb_map = {}
@@ -283,7 +297,7 @@ async def fetch_intel():
             "total_searches":  search_total,
             "conversion_rate": round(search_conv/search_total*100,1) if search_total else 0,
             "computed_at":     datetime.utcnow().isoformat(),
-            "note": "Based on 1 active user's timeline (200 events).",
+            "note": "Based on top-10 search users and top-10 video watchers (content-events only).",
         },
         "categories": {
             "categories":  categories,
@@ -292,7 +306,7 @@ async def fetch_intel():
         "videos": {
             "videos":      [{"title":t,"count":c,"url":video_urls.get(t,"")} for t,c in video_counter.most_common(20)],
             "computed_at": datetime.utcnow().isoformat(),
-            "note": "From 1 user timeline. Full video analytics requires itemId on video events.",
+            "note": "From top-10 video watchers (content-events timeline). Full analytics requires itemId on video events.",
         },
         "sessions": {
             "total_sessions": 0, "avg_seconds": 0, "median_seconds": 0,
@@ -404,9 +418,9 @@ async def health():
         "intel_cached": i is not None,
         "intel_fresh":  fi,
         "cache_entries":len(_cache),
-        "calls_per_startup": "14 total (9 batch + 4 topn + 1 timeline)",
+        "calls_per_startup": "24 total (9 batch + 5 topn + 10 timelines)",
         "calls_per_5min":    "9 (batch refresh)",
-        "calls_per_hour":    "5 (intel refresh)",
+        "calls_per_hour":    "15 (5 topn + 10 timelines)",
         "ts":           datetime.utcnow().isoformat(),
     }
 
@@ -419,7 +433,7 @@ async def clear_cache():
     _cache.clear()
     asyncio.create_task(fetch_batch())
     asyncio.create_task(fetch_intel())
-    return {"status": "cleared — refetching (14 CMS calls total)"}
+    return {"status": "cleared — refetching (24 CMS calls total)"}
 
 @app.get("/debug/cms")
 async def debug_cms():
