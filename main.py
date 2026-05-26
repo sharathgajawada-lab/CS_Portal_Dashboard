@@ -172,14 +172,23 @@ async def full_refresh():
         # ── Call 13: top video watchers ───────────────────────────────────────
         video_user_rows = await _topn("cs-portal-content-events", "video.watched", "userId", 10)
 
-        # Get up to 3 non-anonymous users
-        users = [
-            r.get("userId") or r.get("itemId") or ""
-            for r in video_user_rows
-            if (r.get("userId") or r.get("itemId") or "") not in ("anonymous", "")
-        ][:3]
+        # ── Call 14: top search users ─────────────────────────────────────────
+        search_user_rows = await _topn("cs-portal-content-events", "search.performed", "userId", 10)
 
-        # ── Calls 14-16: content timelines for video+search ───────────────────
+        # Merge unique non-anonymous users from both — up to 4
+        seen = set()
+        users = []
+        for rows in (video_user_rows, search_user_rows):
+            for r in rows:
+                uid = r.get("userId") or r.get("itemId") or ""
+                if uid and uid not in ("anonymous", "") and uid not in seen:
+                    seen.add(uid)
+                    users.append(uid)
+            if len(users) >= 4:
+                users = users[:4]
+                break
+
+        # ── Calls 15-18: content timelines ───────────────────────────────────
         all_events = []
         for uid in users:
             tl = await _timeline("cs-portal-content-events", uid, limit=500)
