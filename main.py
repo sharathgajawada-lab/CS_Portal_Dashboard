@@ -11,7 +11,6 @@ Architecture:
   - top-n is hard-capped at 10 by CMS — session stats uses sample accordingly
 """
 
-from __future__ import annotations
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,8 +18,12 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
-from typing import Optional, Dict, List, Any
 import httpx, os, asyncio, time, json, hashlib
+
+# ── Startup diagnostic ───────────────────────────────────────────────────────
+import sys
+print(f"Python {sys.version}", flush=True)
+print(f"Starting CS Portal Dashboard...", flush=True)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CMS_BASE        = "https://cms.audibene.net/api/metrics"
@@ -103,9 +106,9 @@ def cache_del(key: str):
     _cache.pop(key, None)
 
 # ── HTTP client ───────────────────────────────────────────────────────────────
-_client: Optional[httpx.AsyncClient] = None
+_client = None
 
-def get_client() -> httpx.AsyncClient:
+def get_client():
     global _client
     if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(
@@ -116,9 +119,9 @@ def get_client() -> httpx.AsyncClient:
     return _client
 
 # ── Semaphores (lazy init — created inside async context to avoid Python 3.10+ error) ──
-_sem_batch:    Optional[asyncio.Semaphore] = None
-_sem_topn:     Optional[asyncio.Semaphore] = None
-_sem_timeline: Optional[asyncio.Semaphore] = None
+_sem_batch = None
+_sem_topn = None
+_sem_timeline = None
 
 def get_sems():
     global _sem_batch, _sem_topn, _sem_timeline
@@ -129,7 +132,7 @@ def get_sems():
     return _sem_batch, _sem_topn, _sem_timeline
 
 # ── CMS helpers ───────────────────────────────────────────────────────────────
-async def _get(url: str, params: dict, sem_name: str, retries: int = 4) -> Optional[Any]:
+async def _get(url: str, params: dict, sem_name: str, retries: int = 4):
     sb, st, stl = get_sems()
     sem = {"batch": sb, "topn": st, "timeline": stl}[sem_name]
     client = get_client()
@@ -148,7 +151,7 @@ async def _get(url: str, params: dict, sem_name: str, retries: int = 4) -> Optio
                 await asyncio.sleep(2 ** attempt)
     return None
 
-async def cms_timeseries(project: str, event: str) -> list:
+async def cms_timeseries(project: str, event: str):
     """Returns [{ts, count}] — NOTE: since= is ignored by CMS, always returns all data."""
     url  = f"{CMS_BASE}/{project}/query/time-series"
     data = await _get(url, {"event": event, "bucket": "day"}, "batch")
@@ -168,7 +171,7 @@ async def cms_timeseries(project: str, event: str) -> list:
                 pass
     return [{"date": d, "count": daily[d]} for d in sorted(daily)]
 
-async def cms_topn(project: str, event: str, group_by: str = "itemId", n: int = 10) -> list:
+async def cms_topn(project: str, event: str, group_by: str = "itemId", n: int = 10):
     """Returns top-N items. NOTE: CMS hard-caps at 10 regardless of n param."""
     url  = f"{CMS_BASE}/{project}/query/top-n"
     data = await _get(url, {"event": event, "groupBy": group_by, "n": n}, "topn")
@@ -178,7 +181,7 @@ async def cms_topn(project: str, event: str, group_by: str = "itemId", n: int = 
     rows = data.get("top", data) if isinstance(data, dict) else data
     return rows if isinstance(rows, list) else []
 
-async def cms_timeline(project: str, user_id: str, limit: int = 500) -> list:
+async def cms_timeline(project: str, user_id: str, limit: int = 500):
     """Returns events for one user from one project, sorted oldest-first."""
     url  = f"{CMS_BASE}/{project}/query/user-timeline"
     data = await _get(url, {"userId": user_id, "since": "180d", "limit": limit}, "timeline")
@@ -189,7 +192,7 @@ async def cms_timeline(project: str, user_id: str, limit: int = 500) -> list:
         return []
     return sorted(events, key=lambda e: e.get("timestamp", 0))
 
-async def cms_all_projects_timeline(user_id: str) -> list:
+async def cms_all_projects_timeline(user_id: str):
     """Merge events across all projects for one user, sorted by timestamp."""
     results = await asyncio.gather(
         *[cms_timeline(p, user_id) for p in ALL_PROJECTS],
@@ -202,15 +205,15 @@ async def cms_all_projects_timeline(user_id: str) -> list:
     return sorted(events, key=lambda e: e.get("timestamp", 0))
 
 # ── Aggregation helpers ───────────────────────────────────────────────────────
-def _etype(e: dict) -> str:
+def _etype(e: dict):
     return e.get("event_type") or e.get("eventType") or ""
 
-def _props(e: dict) -> dict:
+def _props(e: dict):
     p = e.get("properties")
     return p if isinstance(p, dict) else {}
 
 # ── Batch prefetch ────────────────────────────────────────────────────────────
-async def prefetch_batch() -> dict:
+async def prefetch_batch():
     print(f"[{datetime.utcnow().isoformat()}] Prefetching batch...")
     result = {}
     for ev in EVENTS:
@@ -231,7 +234,7 @@ async def _background_prefetch():
         await asyncio.sleep(PREFETCH_SEC)
 
 # ── Article performance ───────────────────────────────────────────────────────
-async def _fetch_article_performance() -> dict:
+async def _fetch_article_performance():
     """
     Combines:
       - article views (top-n by itemId)
@@ -259,9 +262,9 @@ async def _fetch_article_performance() -> dict:
     )
 
     # Build article stats from timelines
-    article_times: Dict[str, List] = defaultdict(list)   # article_id -> [seconds]
-    feedback_sentiment: Dict[str, Dict] = defaultdict(lambda: {"helpful": 0, "not_helpful": 0})
-    article_next: Dict[str, Counter] = defaultdict(Counter)  # navigation paths
+    article_times = defaultdict(list)   # article_id -> [seconds]
+    feedback_sentiment = defaultdict(lambda: {"helpful": 0, "not_helpful": 0})
+    article_next = defaultdict(Counter)  # navigation paths
 
     for tl in timelines:
         if not isinstance(tl, list):
@@ -376,7 +379,7 @@ async def _fetch_article_performance() -> dict:
     }
 
 # ── Search intelligence ───────────────────────────────────────────────────────
-async def _fetch_search_intelligence() -> dict:
+async def _fetch_search_intelligence():
     """
     Extracts final search queries (not keystrokes), zero-result searches,
     and content gap detection from user timelines.
@@ -475,7 +478,7 @@ async def _fetch_search_intelligence() -> dict:
     }
 
 # ── Session sample ────────────────────────────────────────────────────────────
-async def _fetch_session_sample() -> dict:
+async def _fetch_session_sample():
     """
     Session analytics based on top-10 authenticated users.
     NOTE: CMS top-n is hard-capped at 10. Full population analytics
@@ -498,7 +501,7 @@ async def _fetch_session_sample() -> dict:
         if not isinstance(tl, list):
             continue
         # Group by session_id
-        sessions: Dict[str, List] = defaultdict(list)
+        sessions = defaultdict(list)
         for ev in tl:
             sid = ev.get("session_id") or "unknown"
             if sid == "unknown":
@@ -579,7 +582,7 @@ async def _fetch_session_sample() -> dict:
     ], key=lambda x: -x["avg_seconds"])
 
     # Daily avg
-    daily: Dict[str, List] = defaultdict(list)
+    daily = defaultdict(list)
     for s in all_sessions:
         daily[s["date"]].append(s["duration_s"])
     daily_avg = [
@@ -601,7 +604,7 @@ async def _fetch_session_sample() -> dict:
     }
 
 # ── Video intelligence ────────────────────────────────────────────────────────
-async def _fetch_video_intelligence() -> dict:
+async def _fetch_video_intelligence():
     """
     Per-video counts from user timelines (itemId is null on video events,
     so we group by properties.videoTitle).
@@ -647,7 +650,7 @@ async def _fetch_video_intelligence() -> dict:
     }
 
 # ── Category intelligence ─────────────────────────────────────────────────────
-async def _fetch_categories() -> dict:
+async def _fetch_categories():
     rows = await cms_topn("cs-portal-content-events", "category.viewed", "itemId", 10)
     cats = [
         {
