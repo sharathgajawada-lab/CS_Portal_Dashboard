@@ -529,9 +529,10 @@ tr.row-active   td { background: var(--blue-dim) }
     <!-- Top stat row -->
     <div class="three-col" style="margin-bottom:16px">
       <div class="card">
-        <div class="card-title">Avg session duration</div>
-        <div class="kpi-value" id="sAvg" style="font-family:'JetBrains Mono',monospace;font-size:32px;margin:8px 0">—</div>
-        <div style="font-size:12px;color:var(--text3)" id="sMedian">median —</div>
+        <div class="card-title">Typical session</div>
+        <div class="kpi-value" id="sMedian" style="font-family:'JetBrains Mono',monospace;font-size:32px;margin:8px 0">—</div>
+        <div style="font-size:12px;color:var(--text3)" id="sAvg">avg —</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Median is more reliable · avg skews with outliers</div>
       </div>
       <div class="card">
         <div class="card-title">P90 session duration</div>
@@ -541,6 +542,7 @@ tr.row-active   td { background: var(--blue-dim) }
       <div class="card">
         <div class="card-title">Engagement depth</div>
         <div id="depthBadges" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></div>
+        <div id="depthChart" style="margin:8px 0 4px"></div>
         <div style="font-size:12px;color:var(--text3)" id="sPctLogout">—</div>
       </div>
     </div>
@@ -561,7 +563,7 @@ tr.row-active   td { background: var(--blue-dim) }
         </div>
       </div>
     </div>
-    <div class="note" id="sessionNote" style="margin-top:12px">ℹ️ Session data is sampled from the top active users' timelines. Full population analytics require a CMS API upgrade.</div>
+    <div class="note" id="sessionNote" style="margin-top:12px">ℹ️ Session data is sampled from top active users' timelines (top 4 by video/search activity). Median duration is the most reliable metric — the mean is easily skewed by a single long session. Full population analytics require a CMS bulk-timeline API endpoint.</div>
   </div>
 
   <!-- Heatmaps -->
@@ -575,7 +577,7 @@ tr.row-active   td { background: var(--blue-dim) }
     <div class="card">
       <div class="card-title">Hour of day pattern</div>
       <div class="card-sub" id="hourSub">When users are most active (UTC) · from session data</div>
-      <div class="chart-wrap" style="height:160px;margin-top:8px">
+      <div class="chart-wrap" id="hourChartWrap" style="height:160px;margin-top:8px">
         <canvas id="hourChart"></canvas>
       </div>
     </div>
@@ -601,6 +603,9 @@ tr.row-active   td { background: var(--blue-dim) }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const DATA_START = '2026-04-24';
+// Update this to the real CS portal article base URL once confirmed
+// Article URL will be: ARTICLE_BASE_URL + article_slug
+const ARTICLE_BASE_URL = 'https://cs.hear.com/article/';
 const EVENTS = [
   {key:'auth.login',             label:'Logins',         color:'#0e6e45'},
   {key:'article.viewed',         label:'Articles viewed',color:'#c47a0a'},
@@ -947,14 +952,17 @@ function renderArticleTable() {
     const hlpClass = hlpPct === null ? 'grey' : hlpPct >= 70 ? 'green' : hlpPct >= 40 ? 'amber' : 'red';
     const rowClass = a.needs_attention ? 'row-warning' : '';
     // Build article URL from slug
-    const articleUrl = `https://portal.hear.com/article/${a.id}`;
+    const articleUrl = ARTICLE_BASE_URL + a.id;
 
     return `<tr class="${rowClass}" style="cursor:pointer" title="Click for details">
       <td style="padding-left:20px;max-width:260px" onclick="openDrawer(${i})">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:11px;color:var(--text3);min-width:18px">${i+1}</span>
           <div>
-            <div style="color:var(--text1);font-size:13px;font-weight:500">${a.label}${a.is_dead_end ? ' <span class="pill grey" style="font-size:10px;vertical-align:middle">dead-end</span>' : ''}</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="color:var(--text1);font-size:13px;font-weight:500">${a.label}${a.is_dead_end ? ' <span class="pill grey" style="font-size:10px;vertical-align:middle">dead-end</span>' : ''}</span>
+              <a href="${articleUrl}" target="_blank" onclick="event.stopPropagation()" title="Open article in CS portal" style="color:var(--text3);font-size:11px;text-decoration:none;opacity:.6;transition:opacity .15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.6'">↗</a>
+            </div>
             <div style="font-size:11px;color:var(--text3);margin-top:1px;font-family:'JetBrains Mono',monospace">${a.id}</div>
           </div>
         </div>
@@ -1058,8 +1066,9 @@ function renderVideos() {
 function renderSessionSection() {
   if (!sessionData) return;
   const d = sessionData;
-  document.getElementById('sAvg').textContent     = fmtDur(d.avg_seconds);
-  document.getElementById('sMedian').textContent  = `median ${fmtDur(d.median_seconds)}`;
+  // Headline: median (more reliable than avg for skewed distributions)
+  document.getElementById('sMedian').textContent  = fmtDur(d.median_seconds);
+  document.getElementById('sAvg').textContent     = `avg ${fmtDur(d.avg_seconds)}${d.avg_seconds > d.median_seconds * 3 ? ' ⚠ outliers present' : ''}`;
   document.getElementById('sP90').textContent     = fmtDur(d.p90_seconds);
   document.getElementById('sPctLogout').textContent = `${d.pct_with_logout}% sessions end with explicit logout`;
   document.getElementById('sessionNote').textContent = `ℹ️ ${d.note}`;
@@ -1068,13 +1077,27 @@ function renderSessionSection() {
 
   // Depth badges
   const dd = d.depth_distribution || {};
-  document.getElementById('depthBadges').innerHTML = [
-    ['bounce','grey', dd.bounce || 0, '1-2 events'],
-    ['normal','blue', dd.normal || 0, '3-9 events'],
-    ['deep',  'green',dd.deep   || 0, '10+ events'],
-  ].map(([k, cls, cnt, lbl]) =>
-    `<span class="pill ${cls}">${fmt(cnt)} ${k}<br><span style="font-size:9px;opacity:.7">${lbl}</span></span>`
+  const depthData = [
+    { key: 'bounce', label: 'Bounce',  desc: '1–2 events', color: '#6b7280', val: dd.bounce || 0 },
+    { key: 'normal', label: 'Normal',  desc: '3–9 events', color: '#2563eb', val: dd.normal || 0 },
+    { key: 'deep',   label: 'Deep',    desc: '10+ events', color: '#059669', val: dd.deep   || 0 },
+  ];
+  document.getElementById('depthBadges').innerHTML = depthData.map(d =>
+    `<span class="pill ${d.key === 'bounce' ? 'grey' : d.key === 'normal' ? 'blue' : 'green'}">${fmt(d.val)} ${d.label} <span style="font-size:9px;opacity:.7">${d.desc}</span></span>`
   ).join('');
+
+  // Mini horizontal bar showing depth distribution visually
+  const total = depthData.reduce((a, b) => a + b.val, 0);
+  if (total > 0) {
+    document.getElementById('depthChart').innerHTML = `
+      <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px">
+        ${depthData.map(d => d.val > 0 ? `<div style="flex:${d.val};background:${d.color};opacity:.7" title="${d.label}: ${d.val}"></div>` : '').join('')}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:3px">
+        <span>${total > 0 ? Math.round(depthData[0].val/total*100) : 0}% bounce</span>
+        <span>${total > 0 ? Math.round(depthData[2].val/total*100) : 0}% deep</span>
+      </div>`;
+  }
 
   // Duration trend
   const daily = d.daily_avg || [];
@@ -1154,12 +1177,24 @@ function renderHeatmap() {
 
 // ── Hour of day grid ──────────────────────────────────────────────────────────
 function renderHourGrid() {
-  // Placeholder until real data arrives from /api/insights
-  renderHourChart(new Array(24).fill(0), false);
+  // Don't create a chart with empty data (causes 0–1 auto-scale artifact).
+  // Show a clean text state until real data arrives from /api/insights.
+  document.getElementById('hourSub').textContent = 'Loading — data arrives with session analytics';
+  const wrap = document.getElementById('hourChart').parentElement;
+  wrap.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:13px">Waiting for session data…</div>';
 }
 
 function renderHourGridFromInsights(hourDist) {
   const counts = Array.from({length:24}, (_, h) => hourDist[h] || hourDist[String(h)] || 0);
+  const total = counts.reduce((a, b) => a + b, 0);
+  if (total === 0) {
+    document.getElementById('hourSub').textContent = 'No session timing data recorded yet';
+    return;
+  }
+  // Restore canvas if the loading placeholder replaced it
+  if (!document.getElementById('hourChart')) {
+    document.getElementById('hourChartWrap').innerHTML = '<canvas id="hourChart"></canvas>';
+  }
   renderHourChart(counts, true);
 }
 
@@ -1218,7 +1253,7 @@ function openDrawer(idx) {
   const hlpPct = a.helpful_pct;
   const hlpClass = hlpPct === null ? 'grey' : hlpPct >= 70 ? 'green' : hlpPct >= 40 ? 'amber' : 'red';
 
-  const articleUrl = 'https://portal.hear.com/article/' + a.id;
+  const articleUrl = ARTICLE_BASE_URL + a.id;
   document.getElementById('drawerTitle').textContent = a.label;
   document.getElementById('drawerSub').innerHTML =
     '<span style="font-family:JetBrains Mono,monospace;font-size:11px;color:var(--text3)">' + a.id + '</span>' +
