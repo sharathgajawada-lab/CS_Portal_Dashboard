@@ -371,8 +371,13 @@ tr.row-active   td { background: var(--blue-dim) }
   <!-- Header -->
   <div class="header">
     <div class="header-brand">
-      <div class="title">CS Portal Intelligence</div>
-      <div class="subtitle">hear.com · Customer Support Analytics</div>
+      <a href="https://hear.com" target="_blank" style="display:flex;align-items:center;gap:8px;text-decoration:none">
+        <svg width="88" height="22" viewBox="0 0 88 22" xmlns="http://www.w3.org/2000/svg">
+          <text x="0" y="19" font-family="Syne,sans-serif" font-weight="800" font-size="21" fill="#111827">hear</text>
+          <text x="50" y="19" font-family="Syne,sans-serif" font-weight="400" font-size="21" fill="#9ca3af">.com</text>
+        </svg>
+      </a>
+      <div class="subtitle">CS Portal Intelligence</div>
     </div>
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
@@ -430,7 +435,7 @@ tr.row-active   td { background: var(--blue-dim) }
         <div class="section-title">Article performance</div>
         <span class="section-status loading" id="articleStatus"><span class="spinner"></span> Loading…</span>
       </div>
-      <div class="section-sub" id="articleSub">Views · time spent · feedback sentiment · health score</div>
+      <div class="section-sub" id="articleSub">Views · time spent · feedback sentiment</div>
       <button class="export-btn" onclick="exportArticleCSV()" style="margin-left:auto">⬇ Export table</button>
     </div>
     <div class="card" style="padding:0">
@@ -441,13 +446,10 @@ tr.row-active   td { background: var(--blue-dim) }
               <th style="padding-left:20px">Article</th>
               <th class="r">Views</th>
               <th class="r">Avg time</th>
-              <th class="r">Min</th>
-              <th class="r">Max</th>
               <th class="r">Helpful</th>
               <th class="r">Not helpful</th>
               <th class="r">Feedback %</th>
               <th class="r">Share</th>
-              <th class="r">Health</th>
             </tr>
           </thead>
           <tbody id="articleTable"></tbody>
@@ -457,35 +459,8 @@ tr.row-active   td { background: var(--blue-dim) }
     </div>
   </div>
 
-  <!-- Two-col: Search + Categories -->
-  <div class="two-col section">
-    <!-- Search intelligence -->
-    <div>
-      <div class="section-header">
-        <div class="section-title">Search intelligence</div>
-        <span class="section-status loading" id="searchStatus"><span class="spinner"></span> Loading…</span>
-      </div>
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-title">Top search queries</div>
-        <div class="card-sub" id="searchSub">Final queries only · keystroke noise filtered</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>#</th><th>Query</th>
-              <th class="r">Count</th>
-              <th class="r">Result</th>
-            </tr></thead>
-            <tbody id="searchTable"></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title">Content gaps</div>
-        <div class="card-sub">Searches with no matching article</div>
-        <div id="gapsList"></div>
-      </div>
-    </div>
-
+  <!-- Categories + Videos -->
+  <div class="two-col section" id="catVideoSection">
     <!-- Categories + Videos -->
     <div>
       <div class="section-header">
@@ -509,10 +484,9 @@ tr.row-active   td { background: var(--blue-dim) }
           </table>
         </div>
       </div>
-    </div>
   </div>
 
-  <!-- Weekly digest + key insights -->
+    <!-- Weekly digest + key insights -->
   <div class="section" id="insightsSection" style="display:none">
     <div class="section-header">
       <div class="section-title">Key insights</div>
@@ -550,42 +524,44 @@ tr.row-active   td { background: var(--blue-dim) }
         <div class="section-title">Session analytics</div>
         <span class="section-status loading" id="sessionStatus"><span class="spinner"></span> Loading…</span>
       </div>
-      <div class="section-sub" id="sessionSub">Will take 10-20s on first load</div>
+      <div class="section-sub" id="sessionSub">Derived from user timeline sample · top active users</div>
     </div>
+    <!-- Top stat row -->
     <div class="three-col" style="margin-bottom:16px">
       <div class="card">
-        <div class="card-title">Average session</div>
+        <div class="card-title">Avg session duration</div>
         <div class="kpi-value" id="sAvg" style="font-family:'JetBrains Mono',monospace;font-size:32px;margin:8px 0">—</div>
-        <div class="flat" id="sMedian" style="font-size:12px">median —</div>
+        <div style="font-size:12px;color:var(--text3)" id="sMedian">median —</div>
       </div>
       <div class="card">
-        <div class="card-title">P90 session</div>
+        <div class="card-title">P90 session duration</div>
         <div class="kpi-value" id="sP90" style="font-family:'JetBrains Mono',monospace;font-size:32px;margin:8px 0">—</div>
-        <div class="flat" style="font-size:12px">90th percentile duration</div>
+        <div style="font-size:12px;color:var(--text3)">90th percentile — longest typical session</div>
       </div>
       <div class="card">
-        <div class="card-title">Session depth</div>
+        <div class="card-title">Engagement depth</div>
         <div id="depthBadges" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></div>
-        <div class="flat" id="sPctLogout" style="font-size:12px">—</div>
+        <div style="font-size:12px;color:var(--text3)" id="sPctLogout">—</div>
       </div>
     </div>
+    <!-- Charts row -->
     <div class="two-col">
       <div class="card">
-        <div class="card-title">Duration trend</div>
-        <div class="card-sub">Avg session duration by day</div>
-        <div class="chart-wrap" style="height:180px">
+        <div class="card-title">Session duration over time</div>
+        <div class="card-sub">Average session length by day</div>
+        <div class="chart-wrap" style="height:180px" id="sessionTrendWrap">
           <canvas id="sessionTrendChart"></canvas>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">Where time goes</div>
-        <div class="card-sub">Avg minutes per session by activity</div>
-        <div class="chart-wrap" style="height:180px">
+        <div class="card-title">Time by activity</div>
+        <div class="card-sub">Where users spend time per session</div>
+        <div class="chart-wrap" style="height:180px" id="sessionActivityWrap">
           <canvas id="sessionActivityChart"></canvas>
         </div>
       </div>
     </div>
-    <div class="note" id="sessionNote" style="margin-top:12px">ℹ️ Loading session data…</div>
+    <div class="note" id="sessionNote" style="margin-top:12px">ℹ️ Session data is sampled from the top active users' timelines. Full population analytics require a CMS API upgrade.</div>
   </div>
 
   <!-- Heatmaps -->
@@ -598,9 +574,10 @@ tr.row-active   td { background: var(--blue-dim) }
     </div>
     <div class="card">
       <div class="card-title">Hour of day pattern</div>
-      <div class="card-sub" id="hourSub">When users are most active (UTC)</div>
-      <div class="hour-grid" id="hourGrid"></div>
-      <div class="hour-labels" id="hourLabels"></div>
+      <div class="card-sub" id="hourSub">When users are most active (UTC) · from session data</div>
+      <div class="chart-wrap" style="height:160px;margin-top:8px">
+        <canvas id="hourChart"></canvas>
+      </div>
     </div>
   </div>
 
@@ -856,7 +833,8 @@ function renderKPIs() {
     const avg   = getAvgPerDay(ev.key);
     const wow   = getWoW(ev.key);
     const wowClass = wow === null ? 'flat' : wow > 5 ? 'up' : wow < -5 ? 'down' : 'flat';
-    const wowLabel = wow === null ? '—' : (wow > 0 ? '↑ ' : '↓ ') + Math.abs(wow) + '% WoW';
+    const periodLabel = state.days === 1 ? 'vs prev day' : state.days === 7 ? 'vs prev week' : state.days >= 28 && state.days <= 31 ? 'vs prev month' : state.days >= 360 ? 'vs prev year' : `vs prev ${state.days}d`;
+    const wowLabel = wow === null ? '—' : (wow > 0 ? '↑ ' : '↓ ') + Math.abs(wow) + '% ' + periodLabel;
     const isActive = activeEvent === ev.key;
     const isFaded  = activeEvent !== null && !isActive;
     return `<div class="kpi${isActive?' active':''}${isFaded?' faded':''}" style="--kpi-accent:${ev.color}" onclick="setFilter('event','${ev.key}')">
@@ -919,9 +897,18 @@ function renderTrend() {
         y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
       },
       onClick: (evt, els) => {
-        if (!els.length || activeEvent) return;
-        const key = mainKeys[els[0].datasetIndex];
-        if (key) setFilter('event', key);
+        if (!els.length) return;
+        if (activeEvent) {
+          // Single event view: click date → drill to that day
+          const idx = els[0].index;
+          const s = getSeries(activeEvent);
+          if (s[idx]) drillDate(s[idx].date);
+        } else {
+          // Multi-event view: click point → check if it's a date label click
+          const idx = els[0].index;
+          const refSeries = getSeries('auth.login');
+          if (refSeries[idx]) drillDate(refSeries[idx].date);
+        }
       },
     },
   });
@@ -936,51 +923,57 @@ function renderArticleTable() {
   const articles = articleData?.articles || [];
   const note     = articleData?.note || '';
 
+  // Views filtered by current date range using time-series data
+  const articleViewSeries = rawData['article.viewed']?.series || [];
+  const filteredTotal = articleViewSeries
+    .filter(p => p.date >= state.from && p.date <= state.to)
+    .reduce((a, p) => a + (p.count || 0), 0);
+
+  // Per-article views are all-time from top-n; show filtered total alongside
+  const allTimeTotal = articleData?.total_views || 1;
+
   document.getElementById('articleSub').textContent =
-    `${articles.length} articles · ${fmt(articleData?.total_views || 0)} total views`;
-  document.getElementById('articleNote').textContent = `ℹ️ ${note}`;
+    `${articles.length} articles · ${fmt(allTimeTotal)} total views (all time) · ${fmt(filteredTotal)} in selected period`;
+  document.getElementById('articleNote').textContent = `ℹ️ ${note} Time/bounce from timeline sample of top users.`;
 
   if (!articles.length) {
     document.getElementById('articleTable').innerHTML =
-      '<tr><td colspan="10"><div class="empty"><span>📄</span>No article data yet</div></td></tr>';
+      '<tr><td colspan="7"><div class="empty"><span>📄</span>No article data yet</div></td></tr>';
     return;
   }
 
-  const total_views = articleData.total_views || 1;
-
   document.getElementById('articleTable').innerHTML = articles.map((a, i) => {
-    const hlpPct  = a.helpful_pct;
+    const hlpPct   = a.helpful_pct;
     const hlpClass = hlpPct === null ? 'grey' : hlpPct >= 70 ? 'green' : hlpPct >= 40 ? 'amber' : 'red';
-    const score   = a.health_score || 0;
-    const scoreClass = score >= 70 ? 'good' : score >= 40 ? 'ok' : 'bad';
-    const rowClass = score < 30 && a.views > 0 ? 'row-critical' : score >= 70 ? 'row-good' : '';
+    const rowClass = a.needs_attention ? 'row-warning' : '';
+    // Build article URL from slug
+    const articleUrl = `https://portal.hear.com/article/${a.id}`;
 
-    return `<tr class="${rowClass}" onclick="openDrawer(${i})" style="cursor:pointer" title="Click for details">
-      <td style="padding-left:20px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.id}">
+    return `<tr class="${rowClass}" style="cursor:pointer" title="Click for details">
+      <td style="padding-left:20px;max-width:260px" onclick="openDrawer(${i})">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:11px;color:var(--text3);min-width:18px">${i+1}</span>
-          <span style="color:var(--text1);font-size:13px">${a.label}</span>
-          ${a.is_dead_end ? '<span class="pill grey" style="font-size:10px">dead-end</span>' : ''}
+          <div>
+            <div style="color:var(--text1);font-size:13px;font-weight:500">${a.label}${a.is_dead_end ? ' <span class="pill grey" style="font-size:10px;vertical-align:middle">dead-end</span>' : ''}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:1px;font-family:'JetBrains Mono',monospace">${a.id}</div>
+          </div>
         </div>
       </td>
-      <td class="mono r">${fmt(a.views)}</td>
-      <td class="mono r">${fmtDur(a.avg_seconds)}</td>
-      <td class="mono r" style="color:var(--text3)">${fmtDur(a.min_seconds)}</td>
-      <td class="mono r" style="color:var(--text3)">${fmtDur(a.max_seconds)}</td>
-      <td class="r"><span class="pill green">${fmt(a.helpful)} 👍</span></td>
-      <td class="r"><span class="pill ${a.not_helpful > 0 ? 'red' : 'grey'}">${fmt(a.not_helpful)} 👎</span></td>
-      <td class="r">
+      <td class="mono r" onclick="openDrawer(${i})">${fmt(a.views)}</td>
+      <td class="mono r" onclick="openDrawer(${i})">${a.avg_seconds != null ? fmtDur(a.avg_seconds) : '<span style="color:var(--text3)">—</span>'}</td>
+      <td class="r" onclick="openDrawer(${i})"><span class="pill green">${fmt(a.helpful)} 👍</span></td>
+      <td class="r" onclick="openDrawer(${i})"><span class="pill ${a.not_helpful > 0 ? 'red' : 'grey'}">${fmt(a.not_helpful)} 👎</span></td>
+      <td class="r" onclick="openDrawer(${i})">
         ${hlpPct !== null
           ? `<span class="pill ${hlpClass}">${hlpPct}%</span>`
-          : '<span class="flat" style="font-size:11px">no feedback</span>'}
+          : '<span style="font-size:11px;color:var(--text3)">no feedback</span>'}
       </td>
-      <td class="r" style="min-width:120px">
+      <td class="r" style="min-width:130px" onclick="openDrawer(${i})">
         <div class="share-bar">
-          <div class="share-track"><div class="share-fill" style="width:${a.share_pct}%;background:${a.share_pct > 20 ? '#4f8ef7' : '#5b3fbf'}"></div></div>
+          <div class="share-track"><div class="share-fill" style="width:${a.share_pct}%;background:var(--blue)"></div></div>
           <span style="font-size:11px;color:var(--text3);min-width:36px">${a.share_pct}%</span>
         </div>
       </td>
-      <td class="r"><div class="score ${scoreClass}">${score}</div></td>
     </tr>`;
   }).join('');
 }
@@ -1087,8 +1080,8 @@ function renderSessionSection() {
   const daily = d.daily_avg || [];
   if (charts.sessionTrend) charts.sessionTrend.destroy();
   if (daily.length === 0) {
-    document.getElementById('sessionTrendChart').parentElement.innerHTML =
-      '<div class="empty" style="padding:32px"><span>📈</span>Duration trend available after first full data refresh</div>';
+    document.getElementById('sessionTrendWrap').innerHTML =
+      '<div class="empty" style="padding:32px"><span>📈</span>Not enough timeline data yet · will populate after next 2-hour refresh</div>';
   } else {
   charts.sessionTrend = new Chart(document.getElementById('sessionTrendChart'), {
     type: 'line',
@@ -1097,7 +1090,7 @@ function renderSessionSection() {
       datasets: [{
         label: 'Avg session (min)',
         data:  daily.map(p => Math.round(p.avg_seconds / 60 * 10) / 10),
-        borderColor: '#4f8ef7', backgroundColor: 'rgba(79,142,247,.07)',
+        borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
         fill: true, pointRadius: 2, tension: .3, borderWidth: 2,
       }],
     },
@@ -1114,11 +1107,11 @@ function renderSessionSection() {
 
   // Activity breakdown
   const acts = d.activity_breakdown || [];
-  const colors = ['#4f8ef7','#c47a0a','#5b3fbf','#0e6e45','#c03030','#0f6e56','#b45309'];
+  const colors = ['#2563eb','#c47a0a','#7c3aed','#059669','#dc2626','#0d9488','#b45309'];
   if (charts.sessionAct) charts.sessionAct.destroy();
   if (acts.length === 0) {
-    document.getElementById('sessionActivityChart').parentElement.innerHTML =
-      '<div class="empty" style="padding:32px"><span>⏱</span>Activity breakdown available after first full data refresh</div>';
+    document.getElementById('sessionActivityWrap').innerHTML =
+      '<div class="empty" style="padding:32px"><span>⏱</span>Activity breakdown needs timeline data · will populate after next 2-hour refresh</div>';
   } else {
   charts.sessionAct = new Chart(document.getElementById('sessionActivityChart'), {
     type: 'bar',
@@ -1161,35 +1154,60 @@ function renderHeatmap() {
 
 // ── Hour of day grid ──────────────────────────────────────────────────────────
 function renderHourGrid() {
-  // Initial render: show a placeholder grid with a loading note.
-  // Real data arrives via renderHourGridFromInsights() once /api/insights loads.
-  const hourCounts = new Array(24).fill(1); // uniform placeholder
-  const max = 1;
-  document.getElementById('hourGrid').innerHTML = hourCounts.map((c, h) => {
-    const alpha = 0.08;
-    return `<div class="hour-cell" style="background:rgba(52,211,153,${alpha})" data-tip="${h}:00 UTC"></div>`;
-  }).join('');
-  document.getElementById('hourLabels').innerHTML = Array.from({length:24}, (_,h) =>
-    `<div class="hour-label">${h % 6 === 0 ? h : ''}</div>`
-  ).join('');
-  document.getElementById('hourSub').textContent = 'Loading peak usage data…';
+  // Placeholder until real data arrives from /api/insights
+  renderHourChart(new Array(24).fill(0), false);
 }
 
 function renderHourGridFromInsights(hourDist) {
-  // hourDist: {0: count, 1: count, …, 23: count} from /api/insights
-  const hourCounts = Array.from({length:24}, (_, h) => hourDist[h] || hourDist[String(h)] || 0);
-  const max = Math.max(...hourCounts, 1);
-  const peak = hourCounts.indexOf(Math.max(...hourCounts));
-  document.getElementById('hourGrid').innerHTML = hourCounts.map((c, h) => {
-    const alpha = 0.06 + (c / max) * 0.88;
-    const isPeak = h === peak;
-    return `<div class="hour-cell" style="background:rgba(52,211,153,${alpha.toFixed(2)})${isPeak ? ';outline:1px solid rgba(52,211,153,.6)' : ''}" data-tip="${h}:00 UTC — ${fmt(c)} sessions"></div>`;
-  }).join('');
-  document.getElementById('hourLabels').innerHTML = Array.from({length:24}, (_,h) =>
-    `<div class="hour-label">${h % 6 === 0 ? h : ''}</div>`
-  ).join('');
-  document.getElementById('hourSub').textContent =
-    `Peak usage at ${peak}:00 UTC · ${fmt(hourCounts[peak])} sessions · from user timelines`;
+  const counts = Array.from({length:24}, (_, h) => hourDist[h] || hourDist[String(h)] || 0);
+  renderHourChart(counts, true);
+}
+
+function renderHourChart(counts, hasData) {
+  const peak = counts.indexOf(Math.max(...counts));
+  const colors = counts.map((_, h) =>
+    h === peak ? 'rgba(37,99,235,0.85)' : 'rgba(37,99,235,0.25)'
+  );
+  if (charts.hourChart) charts.hourChart.destroy();
+  charts.hourChart = new Chart(document.getElementById('hourChart'), {
+    type: 'bar',
+    data: {
+      labels: Array.from({length:24}, (_, h) => h + ':00'),
+      datasets: [{
+        data: counts,
+        backgroundColor: colors,
+        borderRadius: 3,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
+          titleColor: '#111827', bodyColor: '#374151',
+          callbacks: { label: ctx => `${ctx.raw} sessions` },
+        },
+      },
+      scales: {
+        x: { ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+      },
+      onClick: (evt, els) => {
+        if (!els.length) return;
+        const h = els[0].index;
+        document.getElementById('hourSub').textContent =
+          `${h}:00–${h+1}:00 UTC · ${fmt(counts[h])} sessions · click chart to explore`;
+      },
+    },
+  });
+  if (hasData) {
+    const peakLabel = `Peak at ${peak}:00 UTC · ${fmt(counts[peak])} sessions`;
+    document.getElementById('hourSub').textContent = peakLabel + ' · from user timelines';
+  } else {
+    document.getElementById('hourSub').textContent = 'Loading — data arrives with session analytics';
+  }
 }
 
 // ── Article drawer ────────────────────────────────────────────────────────────
@@ -1200,26 +1218,31 @@ function openDrawer(idx) {
   const hlpPct = a.helpful_pct;
   const hlpClass = hlpPct === null ? 'grey' : hlpPct >= 70 ? 'green' : hlpPct >= 40 ? 'amber' : 'red';
 
+  const articleUrl = 'https://portal.hear.com/article/' + a.id;
   document.getElementById('drawerTitle').textContent = a.label;
-  document.getElementById('drawerSub').textContent   = a.id;
+  document.getElementById('drawerSub').innerHTML =
+    '<span style="font-family:JetBrains Mono,monospace;font-size:11px;color:var(--text3)">' + a.id + '</span>' +
+    ' &nbsp;·&nbsp; ' +
+    '<a href="' + articleUrl + '" target="_blank" style="font-size:12px;color:var(--blue);text-decoration:none">Open article ↗</a>';
   document.getElementById('drawerContent').innerHTML = `
     <div class="drawer-section">
       <div class="drawer-section-title">Performance overview</div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="label">Views</div><div class="value">${fmt(a.views)}</div></div>
+        <div class="stat-box"><div class="label">Views (all time)</div><div class="value">${fmt(a.views)}</div></div>
         <div class="stat-box"><div class="label">Share of views</div><div class="value">${a.share_pct}%</div></div>
         <div class="stat-box"><div class="label">Avg time spent</div><div class="value">${fmtDur(a.avg_seconds)}</div></div>
-        <div class="stat-box"><div class="label">Health score</div><div class="value" style="color:${a.health_score >= 70 ? 'var(--green)' : a.health_score >= 40 ? 'var(--amber)' : 'var(--red)'}">${a.health_score}/100</div></div>
+        <div class="stat-box"><div class="label">Revisits</div><div class="value">${a.revisits || 0}</div></div>
       </div>
     </div>
     <div class="drawer-section">
-      <div class="drawer-section-title">Time spent (sample)</div>
+      <div class="drawer-section-title">Time on page (timeline sample)</div>
       <div class="stat-grid">
         <div class="stat-box"><div class="label">Minimum</div><div class="value">${fmtDur(a.min_seconds)}</div></div>
         <div class="stat-box"><div class="label">Average</div><div class="value">${fmtDur(a.avg_seconds)}</div></div>
         <div class="stat-box"><div class="label">Maximum</div><div class="value">${fmtDur(a.max_seconds)}</div></div>
-        <div class="stat-box"><div class="label">Sample size</div><div class="value">${a.time_sample}</div></div>
+        <div class="stat-box"><div class="label">Sample size</div><div class="value">${a.time_sample} sessions</div></div>
       </div>
+      ${a.bounce_rate != null ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)">Bounce rate (under 30s): <strong style="color:${a.bounce_rate > 60 ? 'var(--red)' : 'var(--text2)'}">${a.bounce_rate}%</strong></div>` : ''}
     </div>
     <div class="drawer-section">
       <div class="drawer-section-title">User feedback</div>
@@ -1236,7 +1259,7 @@ function openDrawer(idx) {
           <div style="font-size:11px;color:var(--text3)">👎 Not helpful</div>
         </div>
       </div>
-      ${hlpPct !== null ? `<div style="text-align:center"><span class="pill ${hlpClass}" style="font-size:14px">${hlpPct}% helpful</span></div>` : '<div class="flat" style="font-size:12px;text-align:center">No feedback yet</div>'}
+      ${hlpPct !== null ? `<div style="text-align:center"><span class="pill ${hlpClass}" style="font-size:14px">${hlpPct}% helpful</span></div>` : '<div style="font-size:12px;color:var(--text3);text-align:center">No feedback recorded yet</div>'}
     </div>
     ${a.next_articles?.length ? `
     <div class="drawer-section">
@@ -1248,7 +1271,7 @@ function openDrawer(idx) {
         </div>`).join('')}
     </div>` : ''}
     ${a.is_dead_end ? `
-    <div class="note">⚠️ Dead-end article — users don't navigate to other articles after reading this one. Consider adding related article links.</div>` : ''}
+    <div class="note">⚠️ Dead-end article — users don't navigate to other articles after this one. Consider adding related article links.</div>` : ''}
   `;
 
   document.getElementById('drawerOverlay').classList.add('open');
