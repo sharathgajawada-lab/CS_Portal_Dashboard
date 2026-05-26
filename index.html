@@ -9,28 +9,28 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 :root {
-  --bg:        #0d0f14;
-  --surface:   #13161e;
-  --surface2:  #1a1e28;
-  --surface3:  #222634;
-  --border:    #2a2f3f;
-  --border2:   #363c52;
-  --text1:     #f0f2f8;
-  --text2:     #9ba3be;
-  --text3:     #5c6480;
-  --blue:      #4f8ef7;
-  --blue-dim:  #1e3a6e;
-  --green:     #34d399;
-  --green-dim: #0d3d2a;
-  --amber:     #fbbf24;
-  --amber-dim: #3d2e08;
-  --red:       #f87171;
-  --red-dim:   #3d1515;
-  --purple:    #a78bfa;
-  --teal:      #2dd4bf;
+  --bg:        #f4f5f7;
+  --surface:   #ffffff;
+  --surface2:  #f0f2f6;
+  --surface3:  #e4e7ef;
+  --border:    #dde1ec;
+  --border2:   #c8cedd;
+  --text1:     #111827;
+  --text2:     #374151;
+  --text3:     #6b7280;
+  --blue:      #2563eb;
+  --blue-dim:  #dbeafe;
+  --green:     #059669;
+  --green-dim: #d1fae5;
+  --amber:     #d97706;
+  --amber-dim: #fef3c7;
+  --red:       #dc2626;
+  --red-dim:   #fee2e2;
+  --purple:    #7c3aed;
+  --teal:      #0d9488;
   --r:         10px;
   --r-sm:      6px;
-  --shadow:    0 4px 24px rgba(0,0,0,.4);
+  --shadow:    0 2px 12px rgba(0,0,0,.08);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0 }
@@ -65,7 +65,7 @@ body {
 /* ── Header ── */
 .header {
   position: sticky; top: 0; z-index: 100;
-  background: rgba(13,15,20,.92); backdrop-filter: blur(12px);
+  background: rgba(244,245,247,.95); backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   padding: 12px 24px; margin: 0 -24px;
   display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
@@ -96,7 +96,7 @@ input[type=date] {
   height: 30px; padding: 0 10px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background: var(--surface2);
   color: var(--text1); font-size: 12px; font-family: 'Inter', sans-serif;
-  color-scheme: dark;
+  color-scheme: light;
 }
 .apply-btn {
   height: 30px; padding: 0 14px; border-radius: var(--r-sm);
@@ -774,11 +774,11 @@ function getWoW(key) {
 }
 
 // ── Chart defaults ───────────────────────────────────────────────────────────
-Chart.defaults.color = '#5c6480';
-Chart.defaults.borderColor = '#2a2f3f';
+Chart.defaults.color = '#6b7280';
+Chart.defaults.borderColor = '#dde1ec';
 Chart.defaults.font.family = "'Inter', sans-serif";
 const gridOpts = {
-  color: 'rgba(42,47,63,.6)',
+  color: 'rgba(221,225,236,.8)',
   drawBorder: false,
 };
 
@@ -911,8 +911,8 @@ function renderTrend() {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { display: !activeEvent, labels: { boxWidth: 8, font: { size: 11 }, color: '#9ba3be' } },
-        tooltip: { backgroundColor: '#1a1e28', borderColor: '#2a2f3f', borderWidth: 1, titleColor: '#f0f2f8', bodyColor: '#9ba3be' },
+        legend: { display: !activeEvent, labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } },
+        tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
       },
       scales: {
         x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: gridOpts },
@@ -1038,8 +1038,8 @@ function renderCategories() {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'right', labels: { boxWidth: 8, font: { size: 11 }, color: '#9ba3be', padding: 8 } },
-        tooltip: { backgroundColor: '#1a1e28', borderColor: '#2a2f3f', borderWidth: 1, titleColor: '#f0f2f8', bodyColor: '#9ba3be' },
+        legend: { position: 'right', labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280', padding: 8 } },
+        tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
       },
       cutout: '65%',
     },
@@ -1086,6 +1086,10 @@ function renderSessionSection() {
   // Duration trend
   const daily = d.daily_avg || [];
   if (charts.sessionTrend) charts.sessionTrend.destroy();
+  if (daily.length === 0) {
+    document.getElementById('sessionTrendChart').parentElement.innerHTML =
+      '<div class="empty" style="padding:32px"><span>📈</span>Duration trend available after first full data refresh</div>';
+  } else {
   charts.sessionTrend = new Chart(document.getElementById('sessionTrendChart'), {
     type: 'line',
     data: {
@@ -1099,18 +1103,23 @@ function renderSessionSection() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} min` }, backgroundColor: '#1a1e28', borderColor: '#2a2f3f', borderWidth: 1, titleColor: '#f0f2f8', bodyColor: '#9ba3be' } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} min` }, backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' } },
       scales: {
         x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
         y: { ticks: { font: { size: 10 }, callback: v => v + 'm' }, grid: gridOpts, beginAtZero: true },
       },
     },
   });
+  } // end daily.length guard
 
   // Activity breakdown
   const acts = d.activity_breakdown || [];
   const colors = ['#4f8ef7','#c47a0a','#5b3fbf','#0e6e45','#c03030','#0f6e56','#b45309'];
   if (charts.sessionAct) charts.sessionAct.destroy();
+  if (acts.length === 0) {
+    document.getElementById('sessionActivityChart').parentElement.innerHTML =
+      '<div class="empty" style="padding:32px"><span>⏱</span>Activity breakdown available after first full data refresh</div>';
+  } else {
   charts.sessionAct = new Chart(document.getElementById('sessionActivityChart'), {
     type: 'bar',
     data: {
@@ -1124,13 +1133,14 @@ function renderSessionSection() {
     options: {
       indexAxis: 'y',
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} min avg · ${acts[ctx.dataIndex]?.pct_time}% of session` }, backgroundColor: '#1a1e28', borderColor: '#2a2f3f', borderWidth: 1, titleColor: '#f0f2f8', bodyColor: '#9ba3be' } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} min avg · ${acts[ctx.dataIndex]?.pct_time}% of session` }, backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' } },
       scales: {
         x: { ticks: { font: { size: 10 }, callback: v => v + 'm' }, grid: gridOpts, beginAtZero: true },
         y: { ticks: { font: { size: 11 } }, grid: { display: false } },
       },
     },
   });
+  } // end acts.length guard
 }
 
 // ── Heatmap ──────────────────────────────────────────────────────────────────
@@ -1151,30 +1161,35 @@ function renderHeatmap() {
 
 // ── Hour of day grid ──────────────────────────────────────────────────────────
 function renderHourGrid() {
-  const series = rawData['auth.login']?.series || [];
-  const hourCounts = new Array(24).fill(0);
-  series.forEach(p => {
-    if (p.date >= state.from && p.date <= state.to) {
-      // Approximate hour from date — use rotating distribution as proxy
-      // Real hour data comes from session analytics once loaded
-      const d = new Date(p.date);
-      const peak = 14; // ~2pm UTC based on Claude Code findings
-      const h = (peak + d.getDay() * 2) % 24;
-      hourCounts[h] += p.count || 0;
-    }
-  });
-
-  // If session data has timeline events, use those instead
-  // For now render approximation with note
-  const max = Math.max(...hourCounts, 1);
+  // Initial render: show a placeholder grid with a loading note.
+  // Real data arrives via renderHourGridFromInsights() once /api/insights loads.
+  const hourCounts = new Array(24).fill(1); // uniform placeholder
+  const max = 1;
   document.getElementById('hourGrid').innerHTML = hourCounts.map((c, h) => {
-    const alpha = 0.06 + (c / max) * 0.88;
-    return `<div class="hour-cell" style="background:rgba(52,211,153,${alpha.toFixed(2)})" data-tip="${h}:00 UTC — ${fmt(c)} events"></div>`;
+    const alpha = 0.08;
+    return `<div class="hour-cell" style="background:rgba(52,211,153,${alpha})" data-tip="${h}:00 UTC"></div>`;
   }).join('');
   document.getElementById('hourLabels').innerHTML = Array.from({length:24}, (_,h) =>
     `<div class="hour-label">${h % 6 === 0 ? h : ''}</div>`
   ).join('');
-  document.getElementById('hourSub').textContent = 'Auth.login events by hour · 13-15 UTC peak confirmed · Central European users';
+  document.getElementById('hourSub').textContent = 'Loading peak usage data…';
+}
+
+function renderHourGridFromInsights(hourDist) {
+  // hourDist: {0: count, 1: count, …, 23: count} from /api/insights
+  const hourCounts = Array.from({length:24}, (_, h) => hourDist[h] || hourDist[String(h)] || 0);
+  const max = Math.max(...hourCounts, 1);
+  const peak = hourCounts.indexOf(Math.max(...hourCounts));
+  document.getElementById('hourGrid').innerHTML = hourCounts.map((c, h) => {
+    const alpha = 0.06 + (c / max) * 0.88;
+    const isPeak = h === peak;
+    return `<div class="hour-cell" style="background:rgba(52,211,153,${alpha.toFixed(2)})${isPeak ? ';outline:1px solid rgba(52,211,153,.6)' : ''}" data-tip="${h}:00 UTC — ${fmt(c)} sessions"></div>`;
+  }).join('');
+  document.getElementById('hourLabels').innerHTML = Array.from({length:24}, (_,h) =>
+    `<div class="hour-label">${h % 6 === 0 ? h : ''}</div>`
+  ).join('');
+  document.getElementById('hourSub').textContent =
+    `Peak usage at ${peak}:00 UTC · ${fmt(hourCounts[peak])} sessions · from user timelines`;
 }
 
 // ── Article drawer ────────────────────────────────────────────────────────────
@@ -1340,10 +1355,10 @@ function renderInsights(intel) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} sessions` }, backgroundColor:'#1a1e28',borderColor:'#2a2f3f',borderWidth:1,titleColor:'#f0f2f8',bodyColor:'#9ba3be' } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} sessions` }, backgroundColor:'#ffffff',borderColor:'#dde1ec',borderWidth:1,titleColor:'#111827',bodyColor:'#374151' } },
       scales: {
         x: { ticks: { font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid: { display:false } },
-        y: { ticks: { font:{size:10} }, grid: { color:'rgba(42,47,63,.5)' }, beginAtZero:true }
+        y: { ticks: { font:{size:10} }, grid: { color:'rgba(221,225,236,.8)' }, beginAtZero:true }
       }
     }
   });
@@ -1387,22 +1402,32 @@ async function init() {
 
 async function loadAllIntel() {
   // Fetch all intel endpoints in parallel — they all hit the same cache
-  await Promise.all([loadArticles(), loadSearch(), loadSessions(), loadVideos(), loadCategories()]);
-  // Build combined intel for insights
-  intelData = {
-    articles:  articleData,
-    sessions:  sessionData,
-    insights:  articleData?._insights || null,
-  };
-  // Fetch insights separately
+  // Also fetch /api/insights in the same parallel batch
+  await Promise.all([
+    loadArticles(),
+    loadSearch(),
+    loadSessions(),
+    loadVideos(),
+    loadCategories(),
+    loadInsights(),
+  ]);
+}
+
+async function loadInsights() {
   try {
     const r = await fetch('/api/insights');
-    if (r.ok) {
-      const d = await r.json();
-      intelData.insights = d;
-      renderInsights(intelData);
-    }
-  } catch(e) { console.warn('insights failed', e); }
+    if (!r.ok) { console.warn('Insights failed:', r.status); return; }
+    const d = await r.json();
+    // Build intelData once insights have arrived
+    intelData = {
+      articles: articleData,
+      sessions: sessionData,
+      insights: d,
+    };
+    renderInsights(intelData);
+    // Also update the hour grid with real data instead of the proxy
+    renderHourGridFromInsights(d.hour_distribution || {});
+  } catch(e) { console.warn('Insights failed:', e); }
 }
 
 async function loadArticles() {
@@ -1415,8 +1440,11 @@ async function loadArticles() {
     setStatus('articleStatus', 'loaded', n + ' articles loaded');
     renderArticleTable();
     renderAlerts();
-    // Render insights when we have article + session data
-    if (articleData?.articles && intelData) renderInsights(intelData);
+    // If insights already loaded, update intelData with article priority and re-render
+    if (intelData) {
+      intelData.articles = articleData;
+      renderInsights(intelData);
+    }
   } catch (e) {
     setStatus('articleStatus', 'error', 'Error: ' + e.message);
     console.warn('Articles failed:', e);
@@ -1432,6 +1460,7 @@ async function loadSearch() {
     const n = searchData?.top_queries?.length || 0;
     setStatus('searchStatus', 'loaded', n + ' queries · ' + (searchData?.conversion_rate || 0) + '% conversion');
     renderSearchSection();
+    renderAlerts(); // re-render now that gap data is available
   } catch (e) {
     setStatus('searchStatus', 'error', 'Error: ' + e.message);
     console.warn('Search failed:', e);
@@ -1462,10 +1491,14 @@ async function loadSessions() {
 async function loadVideos() {
   try {
     const r = await fetch('/api/videos');
-    if (!r.ok) return;
+    if (!r.ok) { console.warn('Videos failed:', r.status); return; }
     videoData = await r.json();
     renderVideos();
-  } catch (e) { console.warn('Videos failed:', e) }
+  } catch (e) {
+    console.warn('Videos failed:', e);
+    document.getElementById('videoTable').innerHTML =
+      '<tr><td colspan="3"><div class="empty" style="padding:16px"><span>📹</span>Video data unavailable</div></td></tr>';
+  }
 }
 
 async function loadCategories() {
