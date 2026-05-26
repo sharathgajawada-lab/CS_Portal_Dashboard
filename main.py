@@ -42,6 +42,7 @@ EVENTS = [
 
 # ── Cache ──────────────────────────────────────────────────────────────────────
 _cache = {}
+CACHE_FILE = "/tmp/cs_portal_cache.json"
 
 def cache_get(key):
     e = _cache.get(key)
@@ -53,6 +54,25 @@ def cache_get(key):
 
 def cache_set(key, data):
     _cache[key] = {"ts": time.time(), "data": data}
+    # Persist to disk so cache survives server restarts
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump(_cache, f)
+    except Exception as ex:
+        print(f"[cache] disk write failed: {ex}", flush=True)
+
+def load_cache_from_disk():
+    """Load cache from disk on startup — survives Render restarts."""
+    try:
+        with open(CACHE_FILE) as f:
+            data = json.load(f)
+        _cache.update(data)
+        keys = list(data.keys())
+        print(f"[cache] loaded from disk: {keys}", flush=True)
+    except FileNotFoundError:
+        print("[cache] no disk cache found — fresh start", flush=True)
+    except Exception as ex:
+        print(f"[cache] disk read failed: {ex}", flush=True)
 
 # ── HTTP client ────────────────────────────────────────────────────────────────
 _client = None
@@ -326,6 +346,7 @@ async def _refresh_loop():
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app):
+    load_cache_from_disk()  # restore cache immediately on startup
     t = asyncio.create_task(_refresh_loop())
     yield
     t.cancel()
