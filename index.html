@@ -300,6 +300,31 @@ tr.row-active   td { background: var(--blue-dim) }
 /* ── Trend line mini ── */
 .trend-line { display: inline-flex; align-items: center; gap: 3px; font-size: 11px }
 
+/* ── Section status indicators ── */
+.section-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; padding: 3px 10px; border-radius: 20px;
+  font-weight: 500; margin-left: 8px;
+}
+.section-status.loading {
+  background: rgba(79,142,247,.15); color: var(--blue);
+  border: 1px solid rgba(79,142,247,.3);
+}
+.section-status.loaded {
+  background: var(--green-dim); color: var(--green);
+  border: 1px solid rgba(52,211,153,.3);
+}
+.section-status.error {
+  background: var(--red-dim); color: var(--red);
+  border: 1px solid rgba(248,113,113,.3);
+}
+.spinner {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  animation: spin .7s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg) } }
+
 /* ── Footer ── */
 .footer { padding: 24px 0; border-top: 1px solid var(--border); display: flex;
   align-items: center; justify-content: space-between; font-size: 11px; color: var(--text3) }
@@ -386,7 +411,10 @@ tr.row-active   td { background: var(--blue-dim) }
   <!-- Article performance — centrepiece -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title">Article performance</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="section-title">Article performance</div>
+        <span class="section-status loading" id="articleStatus"><span class="spinner"></span> Loading…</span>
+      </div>
       <div class="section-sub" id="articleSub">Views · time spent · feedback sentiment · health score</div>
       <button class="export-btn" onclick="exportArticleCSV()" style="margin-left:auto">⬇ Export table</button>
     </div>
@@ -420,6 +448,7 @@ tr.row-active   td { background: var(--blue-dim) }
     <div>
       <div class="section-header">
         <div class="section-title">Search intelligence</div>
+        <span class="section-status loading" id="searchStatus"><span class="spinner"></span> Loading…</span>
       </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-title">Top search queries</div>
@@ -446,6 +475,7 @@ tr.row-active   td { background: var(--blue-dim) }
     <div>
       <div class="section-header">
         <div class="section-title">Content categories</div>
+        <span class="section-status loading" id="catStatus"><span class="spinner"></span> Loading…</span>
       </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-title">Top categories</div>
@@ -470,8 +500,11 @@ tr.row-active   td { background: var(--blue-dim) }
   <!-- Session analytics -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title">Session analytics</div>
-      <div class="section-sub" id="sessionSub">Loading…</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="section-title">Session analytics</div>
+        <span class="section-status loading" id="sessionStatus"><span class="spinner"></span> Loading…</span>
+      </div>
+      <div class="section-sub" id="sessionSub">Will take 10-20s on first load</div>
     </div>
     <div class="three-col" style="margin-bottom:16px">
       <div class="card">
@@ -1199,6 +1232,15 @@ function downloadCSV(rows, filename) {
 }
 
 // ── Load & init ──────────────────────────────────────────────────────────────
+function setStatus(id, state, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'section-status ' + state;
+  el.innerHTML = state === 'loading'
+    ? '<span class="spinner"></span> ' + text
+    : (state === 'loaded' ? '✓ ' : '✗ ') + text;
+}
+
 async function init() {
   // Set initial date inputs
   document.getElementById('d0').value = state.from;
@@ -1240,40 +1282,60 @@ async function init() {
 }
 
 async function loadArticles() {
+  setStatus('articleStatus', 'loading', 'Fetching articles…');
   try {
-    const r = await fetch('/api/articles');
-    if (!r.ok) return;
+    const r = await fetch('/api/articles?force=true');
+    if (!r.ok) { setStatus('articleStatus', 'error', 'Failed (' + r.status + ')'); return; }
     articleData = await r.json();
+    const n = articleData?.articles?.length || 0;
+    setStatus('articleStatus', 'loaded', n + ' articles loaded');
     renderArticleTable();
-    renderAlerts(); // re-render alerts with article data
-  } catch (e) { console.warn('Articles failed:', e) }
+    renderAlerts();
+  } catch (e) {
+    setStatus('articleStatus', 'error', 'Error: ' + e.message);
+    console.warn('Articles failed:', e);
+  }
 }
 
 async function loadSearch() {
+  setStatus('searchStatus', 'loading', 'Analysing searches…');
   try {
-    const r = await fetch('/api/search');
-    if (!r.ok) return;
+    const r = await fetch('/api/search?force=true');
+    if (!r.ok) { setStatus('searchStatus', 'error', 'Failed (' + r.status + ')'); return; }
     searchData = await r.json();
+    const n = searchData?.top_queries?.length || 0;
+    setStatus('searchStatus', 'loaded', n + ' queries · ' + (searchData?.conversion_rate || 0) + '% conversion');
     renderSearchSection();
-  } catch (e) { console.warn('Search failed:', e) }
+  } catch (e) {
+    setStatus('searchStatus', 'error', 'Error: ' + e.message);
+    console.warn('Search failed:', e);
+  }
 }
 
 async function loadSessions() {
+  setStatus('sessionStatus', 'loading', 'Computing… (10-20s)');
+  document.getElementById('sessionSub').textContent = 'Fetching timelines for top-10 users…';
   try {
-    document.getElementById('sessionSub').textContent = 'Computing session analytics… (10-20s)';
-    const r = await fetch('/api/sessions');
-    if (!r.ok) return;
+    const r = await fetch('/api/sessions?force=true');
+    if (!r.ok) { setStatus('sessionStatus', 'error', 'Failed (' + r.status + ')'); return; }
     sessionData = await r.json();
+    const n = sessionData?.total_sessions || 0;
+    if (n === 0) {
+      setStatus('sessionStatus', 'error', '0 sessions — CMS may be unavailable');
+    } else {
+      setStatus('sessionStatus', 'loaded', n + ' sessions analysed');
+    }
     renderSessionSection();
   } catch (e) {
-    console.warn('Sessions failed:', e);
+    setStatus('sessionStatus', 'error', 'Error: ' + e.message);
     document.getElementById('sessionSub').textContent = 'Session data unavailable';
+    console.warn('Sessions failed:', e);
   }
 }
 
 async function loadVideos() {
   try {
-    const r = await fetch('/api/videos');
+    const r = await fetch('/api/videos?force=true');
     if (!r.ok) return;
     videoData = await r.json();
     renderVideos();
@@ -1281,12 +1343,18 @@ async function loadVideos() {
 }
 
 async function loadCategories() {
+  setStatus('catStatus', 'loading', 'Loading…');
   try {
-    const r = await fetch('/api/categories');
-    if (!r.ok) return;
+    const r = await fetch('/api/categories?force=true');
+    if (!r.ok) { setStatus('catStatus', 'error', 'Failed'); return; }
     catData = await r.json();
+    const n = catData?.categories?.length || 0;
+    setStatus('catStatus', n > 0 ? 'loaded' : 'error', n > 0 ? n + ' categories' : 'No data');
     renderCategories();
-  } catch (e) { console.warn('Categories failed:', e) }
+  } catch (e) {
+    setStatus('catStatus', 'error', 'Error');
+    console.warn('Categories failed:', e);
+  }
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────

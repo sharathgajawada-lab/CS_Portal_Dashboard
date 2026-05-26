@@ -742,11 +742,13 @@ async def video_intelligence(force: bool = False):
     return result
 
 @app.get("/api/categories")
-async def categories():
+async def categories(force: bool = False):
     """Top content categories."""
     key = "categories:top"
-    data, fresh = cache_get(key)
-    if fresh: return data
+    if not force:
+        data, fresh = cache_get(key)
+        if fresh: return data
+        if data: asyncio.create_task(_bg(key, _fetch_categories)); return data
     result = await _fetch_categories()
     cache_set(key, result)
     return result
