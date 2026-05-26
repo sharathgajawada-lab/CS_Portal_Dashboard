@@ -648,6 +648,55 @@ async def _fetch_categories() -> dict:
     ]
     return {"categories": cats, "computed_at": datetime.utcnow().isoformat()}
 
+
+# ── Debug endpoint (remove after confirming fix) ──────────────────────────────
+@app.get("/debug/topn")
+async def debug_topn():
+    """Test cms_topn directly to confirm field names and response shape."""
+    results = {}
+    
+    # Test 1: auth.login by userId
+    r1 = await cms_topn("cs-portal-auth-events", "auth.login", "userId", 10)
+    results["auth_login_userId"] = {
+        "type": type(r1).__name__,
+        "len":  len(r1) if isinstance(r1, list) else "not a list",
+        "sample": r1[:3] if isinstance(r1, list) else str(r1)[:200],
+    }
+
+    # Test 2: article.viewed by itemId
+    r2 = await cms_topn("cs-portal-content-events", "article.viewed", "itemId", 10)
+    results["article_viewed_itemId"] = {
+        "type": type(r2).__name__,
+        "len":  len(r2) if isinstance(r2, list) else "not a list",
+        "sample": r2[:3] if isinstance(r2, list) else str(r2)[:200],
+    }
+
+    # Test 3: category.viewed by itemId
+    r3 = await cms_topn("cs-portal-content-events", "category.viewed", "itemId", 10)
+    results["category_viewed_itemId"] = {
+        "type": type(r3).__name__,
+        "len":  len(r3) if isinstance(r3, list) else "not a list",
+        "sample": r3[:3] if isinstance(r3, list) else str(r3)[:200],
+    }
+
+    # Test 4: raw HTTP call bypassing cms_topn
+    client = get_client()
+    try:
+        r = await client.get(
+            f"{CMS_BASE}/cs-portal-auth-events/query/top-n",
+            params={"event": "auth.login", "groupBy": "userId", "n": 5}
+        )
+        results["raw_http"] = {
+            "status": r.status_code,
+            "body":   r.text[:300],
+        }
+    except Exception as e:
+        results["raw_http"] = {"error": str(e)}
+
+    results["api_key_set"] = bool(API_KEY)
+    results["api_key_prefix"] = API_KEY[:12] if API_KEY else "MISSING"
+    return results
+
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
