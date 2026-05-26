@@ -325,6 +325,21 @@ tr.row-active   td { background: var(--blue-dim) }
 }
 @keyframes spin { to { transform: rotate(360deg) } }
 
+/* ── Insights row ── */
+.insights-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-bottom:24px }
+.insight-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:16px 20px }
+.insight-card .label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:6px }
+.insight-card .value { font-family:'JetBrains Mono',monospace; font-size:24px; font-weight:600; color:var(--text1); margin-bottom:4px }
+.insight-card .sub { font-size:11px; color:var(--text3) }
+.digest-card { background:var(--surface2); border:1px solid var(--border); border-radius:var(--r); padding:16px 20px; margin-bottom:24px; font-size:13px; color:var(--text2); line-height:1.6 }
+.digest-card .title { font-family:'Syne',sans-serif; font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px }
+.priority-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border) }
+.priority-issue { font-size:11px; padding:2px 8px; border-radius:20px; font-weight:500 }
+.priority-issue.bounce { background:rgba(248,113,113,.15); color:var(--red) }
+.priority-issue.no-feedback { background:rgba(251,191,36,.15); color:var(--amber) }
+.priority-issue.low-time { background:rgba(167,139,250,.15); color:var(--purple) }
+.priority-issue.watch { background:var(--surface3); color:var(--text3) }
+
 /* ── Footer ── */
 .footer { padding: 24px 0; border-top: 1px solid var(--border); display: flex;
   align-items: center; justify-content: space-between; font-size: 11px; color: var(--text3) }
@@ -497,6 +512,37 @@ tr.row-active   td { background: var(--blue-dim) }
     </div>
   </div>
 
+  <!-- Weekly digest + key insights -->
+  <div class="section" id="insightsSection" style="display:none">
+    <div class="section-header">
+      <div class="section-title">Key insights</div>
+      <div class="section-sub" id="insightsSub">Computed from all available data</div>
+    </div>
+    <!-- Weekly digest -->
+    <div class="digest-card" id="digestCard">
+      <div class="title">📋 Weekly snapshot</div>
+      <div id="digestText">Loading…</div>
+    </div>
+    <!-- Insight KPIs -->
+    <div class="insights-grid" id="insightsGrid"></div>
+    <!-- Article priority list -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title">🚨 Articles needing attention</div>
+        <div class="card-sub">High views + high bounce or no feedback</div>
+        <div id="priorityList" style="margin-top:8px"></div>
+      </div>
+      <!-- Hour of day -->
+      <div class="card">
+        <div class="card-title">⏰ Peak usage hours (UTC)</div>
+        <div class="card-sub">When users are most active</div>
+        <div class="chart-wrap" style="height:160px;margin-top:8px">
+          <canvas id="hourInsightChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Session analytics -->
   <div class="section">
     <div class="section-header">
@@ -602,6 +648,7 @@ let searchData  = null;
 let sessionData = null;
 let videoData   = null;
 let catData     = null;
+let intelData   = null;  // full intel response
 
 let filters = { event: null, dow: null };
 const charts = {};
@@ -1241,6 +1288,67 @@ function setStatus(id, state, text) {
     : (state === 'loaded' ? '✓ ' : '✗ ') + text;
 }
 
+function renderInsights(intel) {
+  const ins = intel.insights;
+  if (!ins) return;
+  document.getElementById('insightsSection').style.display = 'block';
+
+  // Digest
+  document.getElementById('digestText').textContent = ins.weekly_digest || 'No significant changes';
+  document.getElementById('insightsSub').textContent = 
+    `Computed at ${new Date(ins.computed_at).toLocaleTimeString()}`;
+
+  // Insight KPI cards
+  const cards = [
+    { label: 'Content consumption',  value: ins.consumption_ratio,   sub: 'articles per login',        color: '#c47a0a' },
+    { label: 'Search frustration',   value: ins.frustration_index,   sub: 'searches per login (lower=better)', color: ins.frustration_index > 2 ? '#f87171' : '#34d399' },
+    { label: 'Engagement velocity',  value: (ins.engagement_velocity > 0 ? '+' : '') + ins.engagement_velocity + '%', sub: 'logins vs prev 7 days', color: ins.engagement_velocity >= 0 ? '#34d399' : '#f87171' },
+    { label: 'Self-service rate',    value: ins.self_service_rate + '%', sub: 'sessions: login→article, no search', color: '#4f8ef7' },
+  ];
+  document.getElementById('insightsGrid').innerHTML = cards.map(c => `
+    <div class="insight-card" style="border-top:2px solid ${c.color}">
+      <div class="label">${c.label}</div>
+      <div class="value" style="color:${c.color}">${c.value}</div>
+      <div class="sub">${c.sub}</div>
+    </div>`).join('');
+
+  // Priority list
+  const priority = intel.articles?.priority || [];
+  document.getElementById('priorityList').innerHTML = priority.length
+    ? priority.map(p => `
+      <div class="priority-row">
+        <div style="flex:1;font-size:13px">${p.label}</div>
+        <span class="priority-issue ${p.issue.includes('bounce')?'bounce':p.issue.includes('feedback')?'no-feedback':p.issue.includes('Low')?'low-time':'watch'}">${p.issue}</span>
+        <span style="font-size:12px;color:var(--text3)">${p.views} views</span>
+      </div>`).join('')
+    : '<div class="empty" style="padding:20px"><span>✅</span>All articles healthy</div>';
+
+  // Hour of day chart
+  const hours = ins.hour_distribution || {};
+  const hourData = Array.from({length:24},(_,h) => hours[h] || 0);
+  const maxH = Math.max(...hourData, 1);
+  if (charts.hourInsight) charts.hourInsight.destroy();
+  charts.hourInsight = new Chart(document.getElementById('hourInsightChart'), {
+    type: 'bar',
+    data: {
+      labels: Array.from({length:24},(_,h) => h + ':00'),
+      datasets: [{
+        data: hourData,
+        backgroundColor: hourData.map(v => v === Math.max(...hourData) ? '#4f8ef7' : 'rgba(79,142,247,0.3)'),
+        borderRadius: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} sessions` }, backgroundColor:'#1a1e28',borderColor:'#2a2f3f',borderWidth:1,titleColor:'#f0f2f8',bodyColor:'#9ba3be' } },
+      scales: {
+        x: { ticks: { font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid: { display:false } },
+        y: { ticks: { font:{size:10} }, grid: { color:'rgba(42,47,63,.5)' }, beginAtZero:true }
+      }
+    }
+  });
+}
+
 async function init() {
   // Set initial date inputs
   document.getElementById('d0').value = state.from;
@@ -1267,13 +1375,9 @@ async function init() {
     document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
     document.getElementById('footerTs').textContent = 'Data from ' + DATA_START;
 
-    // Load secondary data in parallel (non-blocking)
-    setLoad(70, 'Loading article intelligence…');
-    loadArticles();
-    loadSearch();
-    loadSessions();
-    loadVideos();
-    loadCategories();
+    // Load all intel in parallel (non-blocking)
+    setLoad(70, 'Loading intelligence…');
+    loadAllIntel();
 
   } catch (err) {
     document.getElementById('loadText').textContent = 'Error loading data — ' + err.message;
@@ -1281,16 +1385,38 @@ async function init() {
   }
 }
 
+async function loadAllIntel() {
+  // Fetch all intel endpoints in parallel — they all hit the same cache
+  await Promise.all([loadArticles(), loadSearch(), loadSessions(), loadVideos(), loadCategories()]);
+  // Build combined intel for insights
+  intelData = {
+    articles:  articleData,
+    sessions:  sessionData,
+    insights:  articleData?._insights || null,
+  };
+  // Fetch insights separately
+  try {
+    const r = await fetch('/api/insights');
+    if (r.ok) {
+      const d = await r.json();
+      intelData.insights = d;
+      renderInsights(intelData);
+    }
+  } catch(e) { console.warn('insights failed', e); }
+}
+
 async function loadArticles() {
   setStatus('articleStatus', 'loading', 'Fetching articles…');
   try {
-    const r = await fetch('/api/articles?force=true');
+    const r = await fetch('/api/articles');
     if (!r.ok) { setStatus('articleStatus', 'error', 'Failed (' + r.status + ')'); return; }
     articleData = await r.json();
     const n = articleData?.articles?.length || 0;
     setStatus('articleStatus', 'loaded', n + ' articles loaded');
     renderArticleTable();
     renderAlerts();
+    // Render insights when we have article + session data
+    if (articleData?.articles && intelData) renderInsights(intelData);
   } catch (e) {
     setStatus('articleStatus', 'error', 'Error: ' + e.message);
     console.warn('Articles failed:', e);
@@ -1300,7 +1426,7 @@ async function loadArticles() {
 async function loadSearch() {
   setStatus('searchStatus', 'loading', 'Analysing searches…');
   try {
-    const r = await fetch('/api/search?force=true');
+    const r = await fetch('/api/search');
     if (!r.ok) { setStatus('searchStatus', 'error', 'Failed (' + r.status + ')'); return; }
     searchData = await r.json();
     const n = searchData?.top_queries?.length || 0;
@@ -1316,7 +1442,7 @@ async function loadSessions() {
   setStatus('sessionStatus', 'loading', 'Computing… (10-20s)');
   document.getElementById('sessionSub').textContent = 'Fetching timelines for top-10 users…';
   try {
-    const r = await fetch('/api/sessions?force=true');
+    const r = await fetch('/api/sessions');
     if (!r.ok) { setStatus('sessionStatus', 'error', 'Failed (' + r.status + ')'); return; }
     sessionData = await r.json();
     const n = sessionData?.total_sessions || 0;
@@ -1335,7 +1461,7 @@ async function loadSessions() {
 
 async function loadVideos() {
   try {
-    const r = await fetch('/api/videos?force=true');
+    const r = await fetch('/api/videos');
     if (!r.ok) return;
     videoData = await r.json();
     renderVideos();
@@ -1345,7 +1471,7 @@ async function loadVideos() {
 async function loadCategories() {
   setStatus('catStatus', 'loading', 'Loading…');
   try {
-    const r = await fetch('/api/categories?force=true');
+    const r = await fetch('/api/categories');
     if (!r.ok) { setStatus('catStatus', 'error', 'Failed'); return; }
     catData = await r.json();
     const n = catData?.categories?.length || 0;

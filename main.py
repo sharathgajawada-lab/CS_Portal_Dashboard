@@ -217,6 +217,8 @@ async def full_refresh():
 
         print(f"[refresh] intel calls done — {len(all_events)} total events", flush=True)
 
+        sorted_ev = sorted(all_events, key=lambda e: e.get("timestamp", 0))
+
         # ── Extract videos ────────────────────────────────────────────────────
         video_counter = Counter()
         video_urls    = {}
@@ -235,7 +237,6 @@ async def full_refresh():
         zero_result_q = Counter()
         search_total  = 0
         search_conv   = 0
-        sorted_ev     = sorted(all_events, key=lambda e: e.get("timestamp", 0))
         for i, ev in enumerate(sorted_ev):
             if _etype(ev) != "search.performed": continue
             props = _props(ev)
@@ -259,7 +260,109 @@ async def full_refresh():
                 if nev.get("session_id") != sid and sid: break
                 if _etype(nev) == "article.viewed": search_conv += 1; break
 
-        # ── Assemble articles ─────────────────────────────────────────────────
+        # ── Extract article intelligence from timelines ───────────────────────
+        article_times   = defaultdict(list)   # aid -> [seconds spent]
+        article_next    = defaultdict(Counter) # aid -> {next_aid: count}
+        article_bounces = defaultdict(int)     # aid -> bounce count (<30s)
+        article_revisits= defaultdict(int)     # aid -> revisit count
+        session_durations = []
+        session_depths    = []
+        hour_counts       = defaultdict(int)   # hour -> event count
+        seen_article_sessions = defaultdict(set)  # aid -> set of session_ids
+
+        # Group by session
+        sessions_map = defaultdict(list)
+        for ev in sorted_ev:
+            sid = ev.get("session_id") or "nosession"
+            sessions_map[sid].append(ev)
+
+        for sid, evts in sessions_map.items():
+            if sid == "nosession": continue
+            evts_s = sorted(evts, key=lambda e: e.get("timestamp", 0))
+            ts_list = [e.get("timestamp",0) for e in evts_s if e.get("timestamp")]
+            if len(ts_list) >= 2:
+                dur = min((max(ts_list)-min(ts_list))/1000, 28800)
+                session_durations.append(round(dur))
+                # Hour of day from session start
+                hour = datetime.utcfromtimestamp(min(ts_list)/1000).hour
+                hour_counts[hour] += 1
+
+            meaningful = [e for e in evts_s if _etype(e) != "profile.viewed"]
+            session_depths.append(len(meaningful))
+
+            # Article time spent + bounce + navigation paths
+            for i, ev in enumerate(evts_s):
+                et    = _etype(ev)
+                props = _props(ev)
+                aid   = ev.get("item_id") or props.get("articleKey") or ""
+                if et == "article.viewed" and aid:
+                    t0 = ev.get("timestamp", 0)
+                    # Revisit detection
+                    if sid in seen_article_sessions[aid]:
+                        article_revisits[aid] += 1
+                    else:
+                        seen_article_sessions[aid].add(sid)
+                    # Time spent + bounce
+                    for j in range(i+1, len(evts_s)):
+                        nev = evts_s[j]
+                        if _etype(nev) == "article.viewed":
+                            gap = (nev.get("timestamp",0) - t0) / 1000
+                            if 5 <= gap <= 300:
+                                article_times[aid].append(round(gap))
+                                if gap < 30:
+                                    article_bounces[aid] += 1
+                            next_aid = nev.get("item_id") or _props(nev).get("articleKey") or ""
+                            if next_aid and next_aid != aid:
+                                article_next[aid][next_aid] += 1
+                            break
+
+        # ── Session analytics from timelines ──────────────────────────────────
+        n_sess = len(session_durations)
+        if n_sess > 0:
+            durs_s = sorted(session_durations)
+            avg_dur    = round(sum(durs_s)/n_sess)
+            median_dur = durs_s[n_sess//2]
+            p90_dur    = durs_s[int(n_sess*0.9)]
+            depths     = Counter("bounce" if d<=2 else "normal" if d<=9 else "deep" for d in session_depths)
+        else:
+            avg_dur = median_dur = p90_dur = 0
+            depths = {}
+
+        # ── KPI-derived metrics (from batch — zero extra calls) ───────────────
+        def series_total(key):
+            return sum(p.get("count",0) for p in batch.get(key,{}).get("series",[]))
+        def series_last_n(key, n=7):
+            s = batch.get(key,{}).get("series",[])
+            return sum(p.get("count",0) for p in s[-n:]) if s else 0
+
+        total_logins   = series_total("auth.login")
+        total_articles = series_total("article.viewed")
+        total_searches = series_total("search.performed")
+        total_videos   = series_total("video.watched")
+
+        # Content consumption ratio — articles per login
+        consumption_ratio = round(total_articles/max(total_logins,1)*100)/100
+
+        # Search frustration index — searches per login (high = struggling)
+        frustration_idx = round(total_searches/max(total_logins,1)*100)/100
+
+        # Engagement velocity — last 7 days vs previous 7 days
+        logins_last7  = series_last_n("auth.login", 7)
+        logins_prev7  = series_last_n("auth.login", 14) - logins_last7
+        velocity = round((logins_last7 - logins_prev7) / max(logins_prev7,1) * 100, 1) if logins_prev7 else 0
+
+        # Self-service sessions (login → article → no search) from timelines
+        self_service = 0
+        total_sess_with_login = 0
+        for sid, evts in sessions_map.items():
+            types = [_etype(e) for e in evts]
+            if "auth.login" in types:
+                total_sess_with_login += 1
+                if "article.viewed" in types and "search.performed" not in types:
+                    self_service += 1
+        self_service_rate = round(self_service/max(total_sess_with_login,1)*100,1)
+
+        # ── Assemble articles with full intelligence ──────────────────────────
         fb_map      = {r.get("itemId") or "": int(r.get("count",0)) for r in fb_rows}
         total_views = sum(int(r.get("count",0)) for r in art_rows)
         articles    = []
@@ -267,8 +370,23 @@ async def full_refresh():
             aid   = r.get("itemId") or r.get("item_id") or ""
             views = int(r.get("count", 0))
             fb    = fb_map.get(aid, 0)
-            score = min(60, round(views/max(total_views,1)*60)) + 20
-            if fb > 0: score = min(100, score + 20)
+            times = article_times.get(aid, [])
+            avg_t = round(sum(times)/len(times)) if times else None
+            min_t = round(min(times)) if times else None
+            max_t = round(max(times)) if times else None
+            bounce_rate = round(article_bounces.get(aid,0)/max(len(times),1)*100,1) if times else None
+            revisits = article_revisits.get(aid, 0)
+            next_arts = [{"id":k,"label":k.replace("-"," ").title(),"count":v}
+                         for k,v in sorted(article_next.get(aid,{}).items(),key=lambda x:-x[1])[:3]]
+            # Health score: views(40) + time_spent(30) + feedback(30)
+            score_v = min(40, round(views/max(total_views,1)*400))
+            score_t = min(30, round(avg_t/300*30)) if avg_t else 10
+            score_f = min(30, fb * 5) if fb > 0 else 10
+            # Penalty for high bounce
+            if bounce_rate and bounce_rate > 60: score_t = max(0, score_t - 15)
+            health = score_v + score_t + score_f
+            # Priority flag: high views + high bounce or low feedback
+            needs_attention = (views > 50 and ((bounce_rate and bounce_rate > 60) or fb == 0))
             articles.append({
                 "id": aid,
                 "label": aid.replace("-"," ").replace("_"," ").title(),
@@ -276,11 +394,31 @@ async def full_refresh():
                 "share_pct": round(views/total_views*100,1) if total_views else 0,
                 "helpful": 0, "not_helpful": 0, "helpful_pct": None,
                 "total_feedback": fb,
-                "avg_seconds": None, "min_seconds": None, "max_seconds": None,
-                "time_sample": 0,
-                "health_score": score,
-                "is_dead_end": False, "next_articles": [],
+                "avg_seconds": avg_t,
+                "min_seconds": min_t,
+                "max_seconds": max_t,
+                "bounce_rate": bounce_rate,
+                "revisits": revisits,
+                "time_sample": len(times),
+                "health_score": health,
+                "needs_attention": needs_attention,
+                "is_dead_end": len(article_next) > 0 and aid not in {k for c in article_next.values() for k in c},
+                "next_articles": next_arts,
             })
+
+        # Sort by needs_attention first, then by views
+        articles.sort(key=lambda x: (-x["needs_attention"], -x["views"]))
+
+        # ── Article improvement priority ──────────────────────────────────────
+        priority = [
+            {"id": a["id"], "label": a["label"], "views": a["views"],
+             "issue": "High bounce rate" if (a["bounce_rate"] and a["bounce_rate"]>60)
+                      else "No feedback despite views" if a["total_feedback"]==0 and a["views"]>50
+                      else "Low time spent" if (a["avg_seconds"] and a["avg_seconds"]<30)
+                      else "Watch",
+             "health_score": a["health_score"]}
+            for a in articles if a["needs_attention"]
+        ]
 
         # ── Content gaps ──────────────────────────────────────────────────────
         art_slugs = {(r.get("itemId") or "").lower().replace("-"," ") for r in art_rows}
@@ -292,12 +430,25 @@ async def full_refresh():
                          "is_zero_result":q in zero_result_q,
                          "has_content":matched})
 
+        # ── Weekly digest ─────────────────────────────────────────────────────
+        top_art = articles[0]["label"] if articles else "N/A"
+        digest_items = []
+        if velocity > 10:  digest_items.append(f"Logins up {velocity}% vs last week")
+        elif velocity < -10: digest_items.append(f"Logins down {abs(velocity)}% vs last week — worth investigating")
+        if priority:       digest_items.append(f"{len(priority)} article(s) need attention")
+        if gaps and any(not g["has_content"] for g in gaps):
+            n_gaps = sum(1 for g in gaps if not g["has_content"])
+            digest_items.append(f"{n_gaps} search term(s) have no matching article")
+        digest_items.append(f"Most viewed: {top_art}")
+        digest = " · ".join(digest_items) if digest_items else "No significant changes this week"
+
         # ── Store intel ───────────────────────────────────────────────────────
         intel = {
             "articles": {
                 "articles": articles, "total_views": total_views,
+                "priority": priority,
                 "computed_at": datetime.utcnow().isoformat(),
-                "note": "Views & feedback from top-n API.",
+                "note": "Views & feedback from top-n. Time/bounce from timeline sample.",
             },
             "search": {
                 "top_queries":     [{"query":q,"count":c} for q,c in query_counter.most_common(20)],
@@ -305,8 +456,9 @@ async def full_refresh():
                 "content_gaps":    gaps,
                 "total_searches":  search_total,
                 "conversion_rate": round(search_conv/search_total*100,1) if search_total else 0,
+                "frustration_index": frustration_idx,
                 "computed_at":     datetime.utcnow().isoformat(),
-                "note": "From top-3 video watchers' content timelines.",
+                "note": "Queries from timeline sample. Frustration index = searches/logins.",
             },
             "categories": {
                 "categories": [{
@@ -320,14 +472,28 @@ async def full_refresh():
                 "videos": [{"title":t,"count":c,"url":video_urls.get(t,"")}
                            for t,c in video_counter.most_common(20)],
                 "computed_at": datetime.utcnow().isoformat(),
-                "note": "From top-3 video watchers' timelines.",
+                "note": "From timeline sample.",
             },
             "sessions": {
-                "total_sessions":0,"avg_seconds":0,"median_seconds":0,
-                "p90_seconds":0,"pct_with_logout":0,
-                "depth_distribution":{},"activity_breakdown":[],"daily_avg":[],
+                "total_sessions":  n_sess,
+                "avg_seconds":     avg_dur,
+                "median_seconds":  median_dur,
+                "p90_seconds":     p90_dur,
+                "pct_with_logout": 0,
+                "depth_distribution": dict(depths),
+                "activity_breakdown": [],
+                "daily_avg": [],
                 "computed_at": datetime.utcnow().isoformat(),
-                "note": "Session analytics requires 60+ API calls. Disabled to protect CMS.",
+                "note": "From timeline sample of top video/search users.",
+            },
+            "insights": {
+                "consumption_ratio":  consumption_ratio,
+                "frustration_index":  frustration_idx,
+                "engagement_velocity":velocity,
+                "self_service_rate":  self_service_rate,
+                "hour_distribution":  dict(hour_counts),
+                "weekly_digest":      digest,
+                "computed_at":        datetime.utcnow().isoformat(),
             },
         }
         cache_set("intel:all", intel)
@@ -384,7 +550,16 @@ async def api_search():
 @app.get("/api/sessions")
 async def api_sessions():
     data, _ = cache_get("intel:all")
-    return (data or {}).get("sessions", {"total_sessions":0,"note":"Disabled."})
+    return (data or {}).get("sessions", {"total_sessions":0,"note":"Session sample from timelines."})
+
+@app.get("/api/insights")
+async def api_insights():
+    data, _ = cache_get("intel:all")
+    return (data or {}).get("insights", {
+        "consumption_ratio":0,"frustration_index":0,
+        "engagement_velocity":0,"self_service_rate":0,
+        "hour_distribution":{},"weekly_digest":"No data yet.","computed_at":""
+    })
 
 @app.get("/api/videos")
 async def api_videos():
