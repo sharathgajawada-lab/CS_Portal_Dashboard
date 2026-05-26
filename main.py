@@ -115,13 +115,23 @@ def get_client() -> httpx.AsyncClient:
         )
     return _client
 
-# ── Semaphores ────────────────────────────────────────────────────────────────
-_sem_batch    = asyncio.Semaphore(5)   # batch time-series calls
-_sem_topn     = asyncio.Semaphore(3)   # top-n calls
-_sem_timeline = asyncio.Semaphore(20)  # timeline calls (higher — many in parallel)
+# ── Semaphores (lazy init — created inside async context to avoid Python 3.10+ error) ──
+_sem_batch:    Optional[asyncio.Semaphore] = None
+_sem_topn:     Optional[asyncio.Semaphore] = None
+_sem_timeline: Optional[asyncio.Semaphore] = None
+
+def get_sems():
+    global _sem_batch, _sem_topn, _sem_timeline
+    if _sem_batch is None:
+        _sem_batch    = asyncio.Semaphore(5)
+        _sem_topn     = asyncio.Semaphore(3)
+        _sem_timeline = asyncio.Semaphore(20)
+    return _sem_batch, _sem_topn, _sem_timeline
 
 # ── CMS helpers ───────────────────────────────────────────────────────────────
-async def _get(url: str, params: dict, sem: asyncio.Semaphore, retries: int = 4) -> Optional[Any]:
+async def _get(url: str, params: dict, sem_name: str, retries: int = 4) -> Optional[Any]:
+    sb, st, stl = get_sems()
+    sem = {"batch": sb, "topn": st, "timeline": stl}[sem_name]
     client = get_client()
     async with sem:
         for attempt in range(retries):
@@ -141,7 +151,7 @@ async def _get(url: str, params: dict, sem: asyncio.Semaphore, retries: int = 4)
 async def cms_timeseries(project: str, event: str) -> list:
     """Returns [{ts, count}] — NOTE: since= is ignored by CMS, always returns all data."""
     url  = f"{CMS_BASE}/{project}/query/time-series"
-    data = await _get(url, {"event": event, "bucket": "day"}, _sem_batch)
+    data = await _get(url, {"event": event, "bucket": "day"}, "batch")
     if not data:
         return []
     series = data.get("series", [])
@@ -161,7 +171,7 @@ async def cms_timeseries(project: str, event: str) -> list:
 async def cms_topn(project: str, event: str, group_by: str = "itemId", n: int = 10) -> list:
     """Returns top-N items. NOTE: CMS hard-caps at 10 regardless of n param."""
     url  = f"{CMS_BASE}/{project}/query/top-n"
-    data = await _get(url, {"event": event, "groupBy": group_by, "n": n}, _sem_topn)
+    data = await _get(url, {"event": event, "groupBy": group_by, "n": n}, "topn")
     if not data:
         return []
     # Unwrap {"top": [...]} envelope
@@ -171,7 +181,7 @@ async def cms_topn(project: str, event: str, group_by: str = "itemId", n: int = 
 async def cms_timeline(project: str, user_id: str, limit: int = 500) -> list:
     """Returns events for one user from one project, sorted oldest-first."""
     url  = f"{CMS_BASE}/{project}/query/user-timeline"
-    data = await _get(url, {"userId": user_id, "since": "180d", "limit": limit}, _sem_timeline)
+    data = await _get(url, {"userId": user_id, "since": "180d", "limit": limit}, "timeline")
     if not data:
         return []
     events = data.get("events", data) if isinstance(data, dict) else data
