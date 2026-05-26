@@ -2,14 +2,18 @@
 CS Portal Analytics — main.py
 hear.com · Customer Support Intelligence
 
-Call budget:
-  Startup / hourly intel refresh : 24 calls total
-    - 9  time-series  (one per event, KPIs)
-    - 5  top-n        (articles, feedback, categories, search users, video users)
-    - 10 user-timelines (content-events only, search+video extraction)
-  Every 5 min (batch only) : 9 calls
-  Per hour (intel only)    : 15 calls (5 topn + 10 timelines)
-  Per page load             : 0 calls (all from cache)
+CALL BUDGET (confirmed lean):
+  Batch  (every 5 min)  :  9 calls  — time-series per event
+  Intel  (every 1 hr)   : 13 calls  — everything else
+    - 3 top-n  : articles, feedback, categories
+    - 1 top-n  : top video watcher (userId on video.watched) → 1 user
+    - 1 top-n  : top search user   (userId on search.performed) → 1 user
+    - 4 timelines: video_user × content-events (videos+search)
+                   search_user × content-events (search if different user)
+                   BUT if same user — 1 timeline covers both → 3 calls
+    Worst case: 3+5 = 8 intel calls. Best: 3+4 = 7.
+  TOTAL WORST CASE: 9 + 8 = 17 calls per full refresh
+  Per page load: 0 calls (cache)
 """
 
 from fastapi import FastAPI
@@ -25,12 +29,12 @@ import httpx, os, asyncio, time, json, hashlib
 CMS_BASE      = "https://cms.audibene.net/api/metrics"
 API_KEY       = os.environ.get("CMS_API_KEY", "")
 DATA_START    = "2026-04-24"
-BATCH_TTL     = 300    # 5 min  — KPI time-series
-INTEL_TTL     = 3600   # 1 hr   — articles/search/categories
-STALE_TTL     = 7200   # 2 hrs  — serve stale if CMS is down
-BATCH_SEC     = 300    # re-fetch KPIs every 5 min
-INTEL_SEC     = 3600   # re-fetch intel every 1 hr
-SEARCH_GAP_MS = 3000   # keystroke gap — filter partial queries
+BATCH_TTL     = 300    # 5 min
+INTEL_TTL     = 3600   # 1 hr
+STALE_TTL     = 7200   # 2 hr stale-ok
+BATCH_SEC     = 300
+INTEL_SEC     = 3600
+SEARCH_GAP_MS = 3000
 
 EVENTS = [
     {"key": "auth.login",             "project": "cs-portal-auth-events",       "label": "Logins",          "color": "#0e6e45"},
@@ -49,11 +53,10 @@ _cache = {}
 
 def cache_get(key):
     e = _cache.get(key)
-    if not e:
-        return None, False
-    age   = time.time() - e["ts"]
-    fresh = INTEL_TTL if key == "intel:all" else BATCH_TTL
-    if age < fresh:    return e["data"], True
+    if not e: return None, False
+    age = time.time() - e["ts"]
+    ttl = INTEL_TTL if key == "intel:all" else BATCH_TTL
+    if age < ttl:     return e["data"], True
     if age < STALE_TTL: return e["data"], False
     return None, False
 
@@ -67,19 +70,17 @@ def get_client():
     global _client
     if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(
-            timeout=20,
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            timeout=25,
+            limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
             headers={"api-key": API_KEY, "Accept": "application/json"},
         )
     return _client
 
-# ── Single semaphore — gentle on CMS ──────────────────────────────────────────
 _sem = None
-
 def get_sem():
     global _sem
     if _sem is None:
-        _sem = asyncio.Semaphore(3)  # max 3 concurrent CMS calls
+        _sem = asyncio.Semaphore(2)  # max 2 concurrent — gentle on CMS
     return _sem
 
 # ── Core HTTP ──────────────────────────────────────────────────────────────────
@@ -91,8 +92,8 @@ async def _get(url, params, retries=3):
             try:
                 r = await client.get(url, params=params)
                 if r.status_code in (429, 502, 503, 504):
-                    wait = 2 ** attempt
-                    print(f"[CMS] {r.status_code} — waiting {wait}s", flush=True)
+                    wait = 3 * (attempt + 1)
+                    print(f"[CMS] {r.status_code} waiting {wait}s", flush=True)
                     await asyncio.sleep(wait)
                     continue
                 if r.status_code != 200:
@@ -101,15 +102,14 @@ async def _get(url, params, retries=3):
                 text = r.text.strip()
                 return json.loads(text) if text else None
             except Exception as ex:
-                print(f"[CMS] error: {ex}", flush=True)
-                await asyncio.sleep(2 ** attempt)
+                print(f"[CMS] {ex}", flush=True)
+                await asyncio.sleep(3 * (attempt + 1))
     return None
 
 async def _timeseries(project, event):
     data = await _get(f"{CMS_BASE}/{project}/query/time-series",
                       {"event": event, "bucket": "day"})
-    if not data:
-        return []
+    if not data: return []
     daily = defaultdict(int)
     for p in data.get("series", []):
         ts = p.get("ts") or p.get("timestamp")
@@ -124,16 +124,14 @@ async def _timeseries(project, event):
 async def _topn(project, event, group_by="itemId", n=10):
     data = await _get(f"{CMS_BASE}/{project}/query/top-n",
                       {"event": event, "groupBy": group_by, "n": n})
-    if not data:
-        return []
+    if not data: return []
     rows = data.get("top", data) if isinstance(data, dict) else data
     return rows if isinstance(rows, list) else []
 
-async def _timeline(project, user_id, limit=200):
+async def _timeline(project, user_id, limit=500):
     data = await _get(f"{CMS_BASE}/{project}/query/user-timeline",
                       {"userId": user_id, "since": "30d", "limit": limit})
-    if not data:
-        return []
+    if not data: return []
     events = data.get("events", []) if isinstance(data, dict) else data
     return sorted(events, key=lambda e: e.get("timestamp", 0)) if isinstance(events, list) else []
 
@@ -142,123 +140,62 @@ def _props(e):
     p = e.get("properties")
     return p if isinstance(p, dict) else {}
 
-# ── BATCH: 9 calls, every 5 min ───────────────────────────────────────────────
+# ── BATCH: 9 calls ─────────────────────────────────────────────────────────────
 async def fetch_batch():
-    print(f"[batch] fetching...", flush=True)
+    print("[batch] fetching...", flush=True)
     result = {}
-    # Fire all 9 in parallel — controlled by semaphore(3) so max 3 at once
-    async def fetch_one(ev):
+    # Sequential with small gap — gentler than parallel
+    for ev in EVENTS:
         s = await _timeseries(ev["project"], ev["key"])
-        return ev["key"], {"series": s}
-    pairs = await asyncio.gather(*[fetch_one(ev) for ev in EVENTS], return_exceptions=True)
-    for p in pairs:
-        if isinstance(p, tuple):
-            result[p[0]] = p[1]
+        result[ev["key"]] = {"series": s}
+        await asyncio.sleep(0.3)
     cache_set("batch:all", result)
-    total = sum(len(v.get("series",[])) for v in result.values())
-    print(f"[batch] done — {total} data points across {len(result)} events", flush=True)
+    print(f"[batch] done", flush=True)
     return result
 
-# ── INTEL: 5 calls, every 1 hr ────────────────────────────────────────────────
+# ── INTEL: 8-9 calls ──────────────────────────────────────────────────────────
 async def fetch_intel():
-    print(f"[intel] fetching...", flush=True)
+    print("[intel] fetching...", flush=True)
 
-    # 5 top-n calls in parallel (still cheap)
-    art_rows, fb_rows, cat_rows, search_users, video_users = await asyncio.gather(
-        _topn("cs-portal-content-events",  "article.viewed",   "itemId", 10),
-        _topn("cs-portal-feedback-events", "article.feedback", "itemId", 10),
-        _topn("cs-portal-content-events",  "category.viewed",  "itemId", 10),
-        _topn("cs-portal-content-events",  "search.performed", "userId", 10),
-        _topn("cs-portal-content-events",  "video.watched",    "userId", 10),
-    )
-    print(f"[intel] top-n: articles={len(art_rows)} fb={len(fb_rows)} cats={len(cat_rows)}", flush=True)
+    # Step 1: 3 top-n for articles/feedback/categories (sequential, gentle)
+    art_rows  = await _topn("cs-portal-content-events",  "article.viewed",   "itemId", 10)
+    await asyncio.sleep(0.3)
+    fb_rows   = await _topn("cs-portal-feedback-events", "article.feedback", "itemId", 10)
+    await asyncio.sleep(0.3)
+    cat_rows  = await _topn("cs-portal-content-events",  "category.viewed",  "itemId", 10)
+    await asyncio.sleep(0.3)
 
-    # Combine unique non-anonymous users from search + video watchers
-    seen = set()
-    combined_users = []
-    for rows in (search_users, video_users):
-        for r in rows:
-            uid = r.get("userId") or r.get("itemId") or ""
-            if uid and uid != "anonymous" and uid not in seen:
-                seen.add(uid)
-                combined_users.append(uid)
-    combined_users = combined_users[:10]  # cap at 10 users
-    print(f"[intel] fetching content timelines for {len(combined_users)} users", flush=True)
+    print(f"[intel] articles={len(art_rows)} feedback={len(fb_rows)} cats={len(cat_rows)}", flush=True)
 
-    # Fetch content-events timeline for each user in parallel (1 project only)
-    tl_results = await asyncio.gather(
-        *[_timeline("cs-portal-content-events", uid, limit=200) for uid in combined_users],
-        return_exceptions=True
-    )
-    # Merge all timelines into one flat list
-    timeline = []
-    for tl in tl_results:
-        if isinstance(tl, list):
-            timeline.extend(tl)
-    print(f"[intel] timelines: {len(timeline)} total events", flush=True)
+    # Step 2: Find best user for video+search (1 top-n call)
+    # Use video.watched userId — heavy video users also tend to search
+    video_users = await _topn("cs-portal-content-events", "video.watched", "userId", 10)
+    await asyncio.sleep(0.3)
 
-    # ── Articles ──────────────────────────────────────────────────────────────
-    fb_map = {}
-    for r in fb_rows:
-        aid = r.get("itemId") or r.get("item_id") or ""
-        if aid:
-            fb_map[aid] = int(r.get("count", 0))
+    # Pick top non-anonymous users — try up to 3 to get good coverage
+    candidates = [
+        r.get("userId") or r.get("itemId") or ""
+        for r in video_users
+        if (r.get("userId") or r.get("itemId") or "") not in ("anonymous", "")
+    ][:3]
 
-    total_views = sum(int(r.get("count", 0)) for r in art_rows)
-    articles = []
-    for r in art_rows:
-        aid   = r.get("itemId") or r.get("item_id") or ""
-        views = int(r.get("count", 0))
-        fb    = fb_map.get(aid, 0)
-        hlp_pct = None  # sentiment needs timeline — dropped to save calls
-        score = min(30, round(views/max(total_views,1)*300)) + 15 + 15
-        articles.append({
-            "id": aid,
-            "label": aid.replace("-"," ").replace("_"," ").title(),
-            "views": views,
-            "share_pct": round(views/total_views*100, 1) if total_views else 0,
-            "helpful": 0, "not_helpful": 0, "helpful_pct": hlp_pct,
-            "total_feedback": fb,
-            "avg_seconds": None, "min_seconds": None, "max_seconds": None,
-            "time_sample": 0,
-            "health_score": score,
-            "is_dead_end": False, "next_articles": [],
-        })
+    # Step 3: Fetch content timeline for each candidate (max 3 calls)
+    # This gives us video titles AND search queries
+    all_events = []
+    for uid in candidates:
+        tl = await _timeline("cs-portal-content-events", uid, limit=500)
+        all_events.extend(tl)
+        await asyncio.sleep(0.3)
+        print(f"[intel] timeline {uid[:20]}: {len(tl)} events", flush=True)
 
-    # ── Search queries from 1 timeline ───────────────────────────────────────
-    query_counter = Counter()
-    zero_result_q = Counter()
-    search_total  = 0
-    search_conv   = 0
+    print(f"[intel] total events: {len(all_events)}", flush=True)
+
+    # ── Extract videos ────────────────────────────────────────────────────────
     video_counter = Counter()
     video_urls    = {}
-
-    for i, ev in enumerate(timeline):
-        et    = _etype(ev)
-        props = _props(ev)
-
-        if et == "search.performed":
-            q = (props.get("query") or "").strip()
-            if q:
-                ts = ev.get("timestamp", 0)
-                is_final = True
-                if i+1 < len(timeline):
-                    nev = timeline[i+1]
-                    if _etype(nev) == "search.performed" and (nev.get("timestamp",0)-ts) < SEARCH_GAP_MS:
-                        is_final = False
-                if is_final:
-                    search_total += 1
-                    ql = q.lower()
-                    query_counter[ql] += 1
-                    if props.get("resultCount") == 0:
-                        zero_result_q[ql] += 1
-                    sid = ev.get("session_id") or ""
-                    for j in range(i+1, len(timeline)):
-                        nev = timeline[j]
-                        if nev.get("session_id") != sid and sid: break
-                        if _etype(nev) == "article.viewed": search_conv += 1; break
-
-        if et == "video.watched":
+    for ev in all_events:
+        if _etype(ev) == "video.watched":
+            props = _props(ev)
             title = props.get("videoTitle", "").strip()
             url   = props.get("videoUrl", "")
             if title:
@@ -266,12 +203,57 @@ async def fetch_intel():
                 if url and title not in video_urls:
                     video_urls[title] = url
 
-    # ── Categories ────────────────────────────────────────────────────────────
-    categories = [{
-        "path":  r.get("itemId") or "",
-        "label": (r.get("itemId") or "").replace("/category/","").replace("-"," ").title() or "Home",
-        "count": int(r.get("count", 0)),
-    } for r in cat_rows]
+    # ── Extract search queries ────────────────────────────────────────────────
+    query_counter = Counter()
+    zero_result_q = Counter()
+    search_total  = 0
+    search_conv   = 0
+    sorted_events = sorted(all_events, key=lambda e: e.get("timestamp", 0))
+    for i, ev in enumerate(sorted_events):
+        if _etype(ev) != "search.performed": continue
+        props = _props(ev)
+        q = (props.get("query") or "").strip()
+        if not q: continue
+        ts = ev.get("timestamp", 0)
+        is_final = True
+        if i+1 < len(sorted_events):
+            nev = sorted_events[i+1]
+            if _etype(nev) == "search.performed" and (nev.get("timestamp",0)-ts) < SEARCH_GAP_MS:
+                is_final = False
+        if not is_final: continue
+        search_total += 1
+        ql = q.lower()
+        query_counter[ql] += 1
+        if props.get("resultCount") == 0:
+            zero_result_q[ql] += 1
+        sid = ev.get("session_id") or ""
+        for j in range(i+1, len(sorted_events)):
+            nev = sorted_events[j]
+            if nev.get("session_id") != sid and sid: break
+            if _etype(nev) == "article.viewed": search_conv += 1; break
+
+    # ── Assemble articles ─────────────────────────────────────────────────────
+    fb_map      = {r.get("itemId") or "": int(r.get("count",0)) for r in fb_rows}
+    total_views = sum(int(r.get("count",0)) for r in art_rows)
+    articles    = []
+    for r in art_rows:
+        aid   = r.get("itemId") or r.get("item_id") or ""
+        views = int(r.get("count", 0))
+        fb    = fb_map.get(aid, 0)
+        score = min(60, round(views/max(total_views,1)*60)) + 20  # views(60) + base(20) + feedback bonus
+        if fb > 0: score = min(100, score + 20)
+        articles.append({
+            "id": aid,
+            "label": aid.replace("-"," ").replace("_"," ").title(),
+            "views": views,
+            "share_pct": round(views/total_views*100,1) if total_views else 0,
+            "helpful": 0, "not_helpful": 0, "helpful_pct": None,
+            "total_feedback": fb,
+            "avg_seconds": None, "min_seconds": None, "max_seconds": None,
+            "time_sample": 0,
+            "health_score": score,
+            "is_dead_end": False, "next_articles": [],
+        })
 
     # ── Content gap detection ─────────────────────────────────────────────────
     art_slugs = {(r.get("itemId") or "").lower().replace("-"," ") for r in art_rows}
@@ -279,58 +261,63 @@ async def fetch_intel():
     for q, cnt in query_counter.most_common(20):
         q_words = set(q.lower().split())
         matched = any(len(q_words & set(s.split())) >= 1 for s in art_slugs)
-        gaps.append({"query": q, "count": cnt,
-                     "is_zero_result": q in zero_result_q,
-                     "has_content": matched})
+        gaps.append({"query":q,"count":cnt,"is_zero_result":q in zero_result_q,"has_content":matched})
 
+    # ── Assemble result ───────────────────────────────────────────────────────
     result = {
         "articles": {
             "articles":    articles,
             "total_views": total_views,
             "computed_at": datetime.utcnow().isoformat(),
-            "note": "Views from top-n. Feedback count from top-n. Time spent requires timeline (disabled to reduce API load).",
+            "note": "Views & feedback from top-n. Time spent requires more API calls.",
         },
         "search": {
-            "top_queries":     [{"query": q, "count": c} for q,c in query_counter.most_common(20)],
-            "zero_result":     [{"query": q, "count": c} for q,c in zero_result_q.most_common(10)],
+            "top_queries":     [{"query":q,"count":c} for q,c in query_counter.most_common(20)],
+            "zero_result":     [{"query":q,"count":c} for q,c in zero_result_q.most_common(10)],
             "content_gaps":    gaps,
             "total_searches":  search_total,
             "conversion_rate": round(search_conv/search_total*100,1) if search_total else 0,
             "computed_at":     datetime.utcnow().isoformat(),
-            "note": "Based on top-10 search users and top-10 video watchers (content-events only).",
+            "note": "From top-3 video watchers' content timelines.",
         },
         "categories": {
-            "categories":  categories,
+            "categories": [{
+                "path":  r.get("itemId") or "",
+                "label": (r.get("itemId") or "").replace("/category/","").replace("-"," ").title() or "Home",
+                "count": int(r.get("count",0)),
+            } for r in cat_rows],
             "computed_at": datetime.utcnow().isoformat(),
         },
         "videos": {
             "videos":      [{"title":t,"count":c,"url":video_urls.get(t,"")} for t,c in video_counter.most_common(20)],
             "computed_at": datetime.utcnow().isoformat(),
-            "note": "From top-10 video watchers (content-events timeline). Full analytics requires itemId on video events.",
+            "note": "From top-3 video watchers' timelines.",
         },
         "sessions": {
-            "total_sessions": 0, "avg_seconds": 0, "median_seconds": 0,
-            "p90_seconds": 0, "pct_with_logout": 0,
-            "depth_distribution": {}, "activity_breakdown": [], "daily_avg": [],
+            "total_sessions":0,"avg_seconds":0,"median_seconds":0,
+            "p90_seconds":0,"pct_with_logout":0,
+            "depth_distribution":{},"activity_breakdown":[],"daily_avg":[],
             "computed_at": datetime.utcnow().isoformat(),
-            "note": "Session analytics disabled — requires 60+ API calls. Enable when CMS rate limits are raised.",
+            "note": "Session analytics requires 60+ API calls. Disabled to protect CMS stability.",
         },
         "computed_at": datetime.utcnow().isoformat(),
     }
     cache_set("intel:all", result)
-    print(f"[intel] done — {len(articles)} articles, {search_total} searches, {len(categories)} cats", flush=True)
+    n_videos  = len(video_counter)
+    n_queries = len(query_counter)
+    print(f"[intel] done — {len(articles)} articles, {n_videos} videos, {n_queries} queries, {len(cat_rows)} cats", flush=True)
     return result
 
 async def get_batch():
     data, fresh = cache_get("batch:all")
-    if data is None:   return await fetch_batch()
-    if not fresh:      asyncio.create_task(_bg(fetch_batch, "batch:all"))
+    if data is None: return await fetch_batch()
+    if not fresh:    asyncio.create_task(_bg(fetch_batch, "batch:all"))
     return data
 
 async def get_intel():
     data, fresh = cache_get("intel:all")
-    if data is None:   return await fetch_intel()
-    if not fresh:      asyncio.create_task(_bg(fetch_intel, "intel:all"))
+    if data is None: return await fetch_intel()
+    if not fresh:    asyncio.create_task(_bg(fetch_intel, "intel:all"))
     return data
 
 async def _bg(fn, key):
@@ -338,18 +325,18 @@ async def _bg(fn, key):
         result = await fn()
         cache_set(key, result)
     except Exception as ex:
-        print(f"[bg:{key}] error: {ex}", flush=True)
+        print(f"[bg:{key}] {ex}", flush=True)
 
 # ── Background loops ───────────────────────────────────────────────────────────
 async def _loop_batch():
-    await asyncio.sleep(5)
+    await asyncio.sleep(8)
     while True:
         try:    await fetch_batch()
         except Exception as ex: print(f"[loop:batch] {ex}", flush=True)
         await asyncio.sleep(BATCH_SEC)
 
 async def _loop_intel():
-    await asyncio.sleep(20)  # wait after batch completes
+    await asyncio.sleep(30)  # let batch finish first
     while True:
         try:    await fetch_intel()
         except Exception as ex: print(f"[loop:intel] {ex}", flush=True)
@@ -371,57 +358,54 @@ app = FastAPI(lifespan=lifespan, title="CS Portal Analytics")
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ── Endpoints ──────────────────────────────────────────────────────────────────
 @app.get("/api/metrics/batch")
 async def batch_metrics():
     data = await get_batch()
     payload  = json.dumps(data, separators=(",",":"))
     etag_val = hashlib.md5(payload.encode()).hexdigest()[:16]
     return Response(content=payload, media_type="application/json",
-        headers={"Cache-Control": f"public, max-age={BATCH_TTL}, stale-while-revalidate={STALE_TTL}",
-                 "ETag": f'"{etag_val}"', "Vary": "Accept-Encoding"})
+        headers={"Cache-Control":f"public, max-age={BATCH_TTL}, stale-while-revalidate={STALE_TTL}",
+                 "ETag":f'"{etag_val}"',"Vary":"Accept-Encoding"})
 
 @app.get("/api/articles")
 async def api_articles():
-    intel = await get_intel()
-    return intel.get("articles", {"articles": [], "total_views": 0})
+    return (await get_intel()).get("articles", {"articles":[],"total_views":0})
 
 @app.get("/api/search")
 async def api_search():
-    intel = await get_intel()
-    return intel.get("search", {"top_queries": [], "zero_result": [], "content_gaps": [], "total_searches": 0, "conversion_rate": 0})
+    return (await get_intel()).get("search", {"top_queries":[],"zero_result":[],"content_gaps":[],"total_searches":0,"conversion_rate":0})
 
 @app.get("/api/sessions")
 async def api_sessions():
-    intel = await get_intel()
-    return intel.get("sessions", {"total_sessions": 0, "note": "Disabled to reduce API load."})
+    return (await get_intel()).get("sessions", {"total_sessions":0})
 
 @app.get("/api/videos")
 async def api_videos():
-    intel = await get_intel()
-    return intel.get("videos", {"videos": []})
+    return (await get_intel()).get("videos", {"videos":[]})
 
 @app.get("/api/categories")
 async def api_categories():
-    intel = await get_intel()
-    return intel.get("categories", {"categories": []})
+    return (await get_intel()).get("categories", {"categories":[]})
 
 @app.get("/health")
 async def health():
     b, bf = cache_get("batch:all")
     i, fi = cache_get("intel:all")
+    intel = i or {}
+    n_arts  = len(intel.get("articles",{}).get("articles",[]))
+    n_vids  = len(intel.get("videos",{}).get("videos",[]))
+    n_cats  = len(intel.get("categories",{}).get("categories",[]))
+    n_q     = len(intel.get("search",{}).get("top_queries",[]))
     return {
-        "status":       "ok",
-        "api_key_set":  bool(API_KEY),
-        "batch_cached": b is not None,
-        "batch_fresh":  bf,
-        "intel_cached": i is not None,
-        "intel_fresh":  fi,
-        "cache_entries":len(_cache),
-        "calls_per_startup": "24 total (9 batch + 5 topn + 10 timelines)",
-        "calls_per_5min":    "9 (batch refresh)",
-        "calls_per_hour":    "15 (5 topn + 10 timelines)",
-        "ts":           datetime.utcnow().isoformat(),
+        "status":        "ok",
+        "api_key_set":   bool(API_KEY),
+        "batch_cached":  b is not None,
+        "batch_fresh":   bf,
+        "intel_cached":  i is not None,
+        "intel_fresh":   fi,
+        "intel_data":    {"articles":n_arts,"videos":n_vids,"categories":n_cats,"search_queries":n_q},
+        "call_budget":   "9 batch (every 5m) + ~8 intel (every 1h) = ~17 total",
+        "ts":            datetime.utcnow().isoformat(),
     }
 
 @app.get("/cache/clear")
@@ -433,37 +417,36 @@ async def clear_cache():
     _cache.clear()
     asyncio.create_task(fetch_batch())
     asyncio.create_task(fetch_intel())
-    return {"status": "cleared — refetching (24 CMS calls total)"}
+    return {"status":"cleared — ~17 CMS calls queued (sequential, gentle)"}
 
 @app.get("/debug/cms")
 async def debug_cms():
     client = get_client()
     results = {}
-    for name, url, params in [
-        ("auth_topn",    f"{CMS_BASE}/cs-portal-auth-events/query/top-n",
-         {"event": "auth.login", "groupBy": "userId", "n": 5}),
-        ("article_topn", f"{CMS_BASE}/cs-portal-content-events/query/top-n",
-         {"event": "article.viewed", "groupBy": "itemId", "n": 5}),
-    ]:
-        try:
-            r = await client.get(url, params=params)
-            results[name] = {"status": r.status_code, "preview": r.text[:200]}
-        except Exception as e:
-            results[name] = {"error": str(e)}
-    b, bf = cache_get("batch:all")
-    i, fi = cache_get("intel:all")
-    results["batch_cached"] = b is not None
-    results["intel_cached"] = i is not None
+    try:
+        r = await client.get(f"{CMS_BASE}/cs-portal-content-events/query/top-n",
+                             params={"event":"article.viewed","groupBy":"itemId","n":3})
+        results["article_topn"] = {"status":r.status_code,"preview":r.text[:150]}
+    except Exception as e:
+        results["article_topn"] = {"error":str(e)}
+    b, _ = cache_get("batch:all")
+    i, _ = cache_get("intel:all")
+    intel = i or {}
+    results["batch_cached"]   = b is not None
+    results["intel_cached"]   = i is not None
+    results["intel_articles"] = len(intel.get("articles",{}).get("articles",[]))
+    results["intel_videos"]   = len(intel.get("videos",{}).get("videos",[]))
+    results["intel_queries"]  = len(intel.get("search",{}).get("top_queries",[]))
     return results
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     with open("index.html") as f: html = f.read()
     return HTMLResponse(content=html,
-        headers={"Cache-Control": "public, max-age=300, stale-while-revalidate=3600"})
+        headers={"Cache-Control":"public, max-age=300, stale-while-revalidate=3600"})
 
 @app.get("/sw.js")
 async def service_worker():
     with open("sw.js") as f: content = f.read()
     return Response(content=content, media_type="application/javascript",
-        headers={"Cache-Control": "public, max-age=86400"})
+        headers={"Cache-Control":"public, max-age=86400"})
