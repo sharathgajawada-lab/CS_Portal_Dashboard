@@ -1,17 +1,16 @@
 """
-CS Portal Analytics Dashboard — Backend
-hear.com · Customer Support Intelligence Platform
+CS Portal Analytics — main.py
+hear.com · Customer Support Intelligence
 
-Architecture:
-  - Single shared httpx client with connection pooling
-  - In-memory cache with TTL tiers (5min batch, 1hr sessions)
-  - Background prefetch keeps cache warm
-  - All CMS API calls go through this server — browser never touches CMS directly
-  - Date filtering is client-side (CMS ignores since= on time-series)
-  - top-n is hard-capped at 10 by CMS — session stats uses sample accordingly
+API call budget (per full refresh):
+  Batch time-series : 9  calls (one per event)
+  top-n calls       : 4  calls (articles, feedback, categories, user IDs)
+  User timelines    : 10 users × 6 projects = 60 calls
+  TOTAL             : ~73 calls per refresh (every 1hr)
+  Per page load     : 0 calls (all served from cache)
 """
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -20,19 +19,17 @@ from datetime import datetime
 from collections import defaultdict, Counter
 import httpx, os, asyncio, time, json, hashlib
 
-# ── Config ────────────────────────────────────────────────────────────────────
-CMS_BASE        = "https://cms.audibene.net/api/metrics"
-API_KEY         = os.environ.get("CMS_API_KEY", "")
-DATA_START      = "2026-04-24"
-CACHE_TTL       = 300      # 5 min — batch data
-STALE_TTL       = 3600     # 1 hr  — stale-while-revalidate
-SESSION_TTL     = 3600     # 1 hr  — session stats (expensive)
-PREFETCH_SEC    = 300      # prefetch every 5 min
-SEARCH_GAP_MS   = 3000     # gap to detect "final" vs keystroke search
-TIME_CAP_S      = 300      # cap time-spent-per-article at 5 min
+# ── Config ─────────────────────────────────────────────────────────────────────
+CMS_BASE       = "https://cms.audibene.net/api/metrics"
+API_KEY        = os.environ.get("CMS_API_KEY", "")
+DATA_START     = "2026-04-24"
+BATCH_TTL      = 300    # 5 min  — time-series batch
+INTEL_TTL      = 3600   # 1 hr   — articles/search/sessions/videos
+STALE_TTL      = 7200   # 2 hrs  — stale-while-revalidate
+PREFETCH_SEC   = 300    # re-fetch batch every 5 min
+SEARCH_GAP_MS  = 3000   # keystroke gap filter
+TIME_CAP_S     = 300    # max article dwell time
 
-# Events with data — confirmed via Claude Code investigation 2026-05-25
-# profile.viewed excluded — confirmed heartbeat/auto-fire, empty properties
 EVENTS = [
     {"key": "auth.login",             "project": "cs-portal-auth-events",       "label": "Logins",          "color": "#0e6e45"},
     {"key": "article.viewed",         "project": "cs-portal-content-events",    "label": "Articles viewed", "color": "#c47a0a"},
@@ -45,7 +42,6 @@ EVENTS = [
     {"key": "scheduling.started",     "project": "cs-portal-scheduling-events", "label": "Scheduling",      "color": "#7c3aed"},
 ]
 
-# All projects for session timeline fetches
 ALL_PROJECTS = [
     "cs-portal-auth-events",
     "cs-portal-content-events",
@@ -55,52 +51,32 @@ ALL_PROJECTS = [
     "cs-portal-scheduling-events",
 ]
 
-# Activity bucket map for session analysis
 ACTIVITY_MAP = {
-    "auth.login":             "auth",
-    "auth.logout":            "auth",
-    "article.viewed":         "articles",
-    "video.watched":          "videos",
-    "search.performed":       "search",
-    "article.feedback":       "feedback",
-    "category.viewed":        "browsing",
-    "order_supplies.visited": "supplies",
-    "scheduling.started":     "scheduling",
-    "scheduling.completed":   "scheduling",
+    "auth.login": "auth", "auth.logout": "auth",
+    "article.viewed": "articles", "video.watched": "videos",
+    "search.performed": "search", "article.feedback": "feedback",
+    "category.viewed": "browsing", "order_supplies.visited": "supplies",
+    "scheduling.started": "scheduling", "scheduling.completed": "scheduling",
 }
 
-ACTIVITY_LABELS = {
-    "articles":  "Articles",
-    "videos":    "Videos",
-    "search":    "Search",
-    "browsing":  "Category browsing",
-    "supplies":  "Supplies",
-    "feedback":  "Feedback",
-    "scheduling":"Scheduling",
-    "auth":      "Auth",
-}
+# ── Cache ──────────────────────────────────────────────────────────────────────
+_cache = {}
 
-# ── Cache ─────────────────────────────────────────────────────────────────────
-_cache: dict = {}
-
-def cache_get(key: str):
+def cache_get(key):
     e = _cache.get(key)
     if not e:
         return None, False
     age = time.time() - e["ts"]
-    ttl   = SESSION_TTL if key.startswith("session:") else CACHE_TTL
-    stale = SESSION_TTL * 2 if key.startswith("session:") else STALE_TTL
+    ttl   = INTEL_TTL  if key.startswith("intel:") else BATCH_TTL
+    stale = STALE_TTL
     if age < ttl:   return e["data"], True
     if age < stale: return e["data"], False
     return None, False
 
-def cache_set(key: str, data):
+def cache_set(key, data):
     _cache[key] = {"ts": time.time(), "data": data}
 
-def cache_del(key: str):
-    _cache.pop(key, None)
-
-# ── HTTP client ───────────────────────────────────────────────────────────────
+# ── HTTP client ────────────────────────────────────────────────────────────────
 _client = None
 
 def get_client():
@@ -113,9 +89,9 @@ def get_client():
         )
     return _client
 
-# ── Semaphores (lazy init — created inside async context to avoid Python 3.10+ error) ──
-_sem_batch = None
-_sem_topn = None
+# ── Semaphores (lazy — created inside async context) ──────────────────────────
+_sem_batch    = None
+_sem_topn     = None
 _sem_timeline = None
 
 def get_sems():
@@ -126,8 +102,8 @@ def get_sems():
         _sem_timeline = asyncio.Semaphore(20)
     return _sem_batch, _sem_topn, _sem_timeline
 
-# ── CMS helpers ───────────────────────────────────────────────────────────────
-async def _get(url: str, params: dict, sem_name: str, retries: int = 4):
+# ── Core HTTP ──────────────────────────────────────────────────────────────────
+async def _get(url, params, sem_name, retries=4):
     sb, st, stl = get_sems()
     sem = {"batch": sb, "topn": st, "timeline": stl}[sem_name]
     client = get_client()
@@ -136,633 +112,423 @@ async def _get(url: str, params: dict, sem_name: str, retries: int = 4):
             try:
                 r = await client.get(url, params=params)
                 if r.status_code in (429, 502, 503, 504):
+                    print(f"[CMS] {r.status_code} {url} retry {attempt+1}", flush=True)
                     await asyncio.sleep(2 ** attempt)
                     continue
                 if r.status_code != 200:
+                    print(f"[CMS] {r.status_code} {url}", flush=True)
                     return None
                 text = r.text.strip()
                 return json.loads(text) if text else None
-            except Exception:
+            except Exception as ex:
+                print(f"[CMS] exception {url}: {ex}", flush=True)
                 await asyncio.sleep(2 ** attempt)
     return None
 
-async def cms_timeseries(project: str, event: str):
-    """Returns [{ts, count}] — NOTE: since= is ignored by CMS, always returns all data."""
-    url  = f"{CMS_BASE}/{project}/query/time-series"
-    data = await _get(url, {"event": event, "bucket": "day"}, "batch")
+async def cms_timeseries(project, event):
+    data = await _get(f"{CMS_BASE}/{project}/query/time-series",
+                      {"event": event, "bucket": "day"}, "batch")
     if not data:
         return []
-    series = data.get("series", [])
-    # Convert Unix ms timestamps to daily aggregation
     daily = defaultdict(int)
-    for p in series:
+    for p in data.get("series", []):
         ts = p.get("ts") or p.get("timestamp")
-        count = int(p.get("count", 0) or 0)
         if ts:
             try:
-                d = datetime.utcfromtimestamp(int(ts) / 1000).strftime("%Y-%m-%d")
-                daily[d] += count
+                d = datetime.utcfromtimestamp(int(ts)/1000).strftime("%Y-%m-%d")
+                daily[d] += int(p.get("count", 0) or 0)
             except Exception:
                 pass
     return [{"date": d, "count": daily[d]} for d in sorted(daily)]
 
-async def cms_topn(project: str, event: str, group_by: str = "itemId", n: int = 10):
-    """Returns top-N items. NOTE: CMS hard-caps at 10 regardless of n param."""
-    url  = f"{CMS_BASE}/{project}/query/top-n"
-    data = await _get(url, {"event": event, "groupBy": group_by, "n": n}, "topn")
+async def cms_topn(project, event, group_by="itemId", n=10):
+    data = await _get(f"{CMS_BASE}/{project}/query/top-n",
+                      {"event": event, "groupBy": group_by, "n": n}, "topn")
     if not data:
         return []
-    # Unwrap {"top": [...]} envelope
     rows = data.get("top", data) if isinstance(data, dict) else data
     return rows if isinstance(rows, list) else []
 
-async def cms_timeline(project: str, user_id: str, limit: int = 500):
-    """Returns events for one user from one project, sorted oldest-first."""
-    url  = f"{CMS_BASE}/{project}/query/user-timeline"
-    data = await _get(url, {"userId": user_id, "since": "180d", "limit": limit}, "timeline")
+async def cms_timeline(project, user_id, limit=500):
+    data = await _get(f"{CMS_BASE}/{project}/query/user-timeline",
+                      {"userId": user_id, "since": "180d", "limit": limit}, "timeline")
     if not data:
         return []
     events = data.get("events", data) if isinstance(data, dict) else data
-    if not isinstance(events, list):
-        return []
-    return sorted(events, key=lambda e: e.get("timestamp", 0))
+    return sorted(events, key=lambda e: e.get("timestamp", 0)) if isinstance(events, list) else []
 
-async def cms_all_projects_timeline(user_id: str):
-    """Merge events across all projects for one user, sorted by timestamp."""
-    results = await asyncio.gather(
-        *[cms_timeline(p, user_id) for p in ALL_PROJECTS],
-        return_exceptions=True
-    )
-    events = []
-    for r in results:
-        if isinstance(r, list):
-            events.extend(r)
-    return sorted(events, key=lambda e: e.get("timestamp", 0))
-
-# ── Aggregation helpers ───────────────────────────────────────────────────────
-def _etype(e: dict):
+def _etype(e):
     return e.get("event_type") or e.get("eventType") or ""
 
-def _props(e: dict):
+def _props(e):
     p = e.get("properties")
     return p if isinstance(p, dict) else {}
 
-# ── Batch prefetch ────────────────────────────────────────────────────────────
+# ── BATCH PREFETCH (time-series for KPI cards) ────────────────────────────────
 async def prefetch_batch():
-    print(f"[{datetime.utcnow().isoformat()}] Prefetching batch...")
+    print(f"[{datetime.utcnow().isoformat()}] Prefetching batch...", flush=True)
     result = {}
     for ev in EVENTS:
         series = await cms_timeseries(ev["project"], ev["key"])
         result[ev["key"]] = {"series": series}
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.1)
     cache_set("batch:all", result)
-    print(f"[{datetime.utcnow().isoformat()}] Batch cached — {len(result)} events")
+    print(f"[{datetime.utcnow().isoformat()}] Batch done — {sum(len(v['series']) for v in result.values())} points", flush=True)
     return result
 
-async def _background_prefetch():
-    await asyncio.sleep(3)
-    while True:
-        try:
-            await prefetch_batch()
-        except Exception as ex:
-            print(f"Prefetch error: {ex}")
-        await asyncio.sleep(PREFETCH_SEC)
-
-# ── Article performance ───────────────────────────────────────────────────────
-async def _fetch_article_performance():
+# ── INTELLIGENCE COMPUTE (single function, all secondary data) ─────────────────
+# Fetches timelines ONCE and derives articles + search + sessions + videos
+async def compute_intelligence():
     """
-    Combines:
-      - article views (top-n by itemId)
-      - feedback sentiment per article (top-n + timeline sentiment split)
-      - time spent per article (from top-10 user timelines — sample-based)
+    Single compute: 4 top-n calls + 60 timeline calls = ~64 total.
+    Returns everything needed for all secondary endpoints.
     """
-    # 1. Top articles by views
-    views_rows = await cms_topn("cs-portal-content-events", "article.viewed", "itemId", 10)
+    print(f"[{datetime.utcnow().isoformat()}] Computing intelligence...", flush=True)
 
-    # 2. Feedback top-n to get article list
-    fb_rows = await cms_topn("cs-portal-feedback-events", "article.feedback", "itemId", 10)
+    # ── Step 1: Top-n calls (4 total) ──────────────────────────────────────────
+    views_rows, fb_rows, cat_rows, user_rows = await asyncio.gather(
+        cms_topn("cs-portal-content-events",  "article.viewed",   "itemId", 10),
+        cms_topn("cs-portal-feedback-events", "article.feedback", "itemId", 10),
+        cms_topn("cs-portal-content-events",  "category.viewed",  "itemId", 10),
+        cms_topn("cs-portal-auth-events",     "auth.login",       "userId", 10),
+    )
+    print(f"  top-n: articles={len(views_rows)} feedback={len(fb_rows)} cats={len(cat_rows)} users={len(user_rows)}", flush=True)
 
-    # 3. Top users for timeline-based calculations
-    user_rows = await cms_topn("cs-portal-auth-events", "auth.login", "userId", 10)
-    user_ids  = [
+    # ── Step 2: Get user IDs (exclude anonymous) ───────────────────────────────
+    user_ids = [
         r.get("userId") or r.get("itemId") or ""
         for r in user_rows
         if (r.get("userId") or r.get("itemId") or "") not in ("anonymous", "")
     ][:10]
+    print(f"  user_ids: {len(user_ids)}", flush=True)
 
-    # 4. Fetch timelines in parallel for time-spent and feedback sentiment
-    timelines = await asyncio.gather(
-        *[cms_all_projects_timeline(uid) for uid in user_ids],
-        return_exceptions=True
-    )
+    # ── Step 3: Fetch all timelines in parallel (60 calls max) ────────────────
+    # Each user × 6 projects — one gather call, all at once
+    all_timelines = []
+    if user_ids:
+        tasks = []
+        for uid in user_ids:
+            for project in ALL_PROJECTS:
+                tasks.append(cms_timeline(project, uid))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Group by user_id
+        per_user = defaultdict(list)
+        for i, events in enumerate(results):
+            uid = user_ids[i // len(ALL_PROJECTS)]
+            if isinstance(events, list):
+                per_user[uid].extend(events)
+        # Sort each user's timeline by timestamp
+        for uid in user_ids:
+            tl = sorted(per_user[uid], key=lambda e: e.get("timestamp", 0))
+            all_timelines.append(tl)
+        print(f"  timelines fetched: {len(all_timelines)} users, {sum(len(t) for t in all_timelines)} events total", flush=True)
 
-    # Build article stats from timelines
-    article_times = defaultdict(list)   # article_id -> [seconds]
-    feedback_sentiment = defaultdict(lambda: {"helpful": 0, "not_helpful": 0})
-    article_next = defaultdict(Counter)  # navigation paths
+    # ── Step 4: Derive all intelligence from timelines ─────────────────────────
+    article_times = defaultdict(list)
+    article_next  = defaultdict(Counter)
+    feedback_sent = defaultdict(lambda: {"helpful": 0, "not_helpful": 0})
+    query_counter = Counter()
+    zero_result_q = Counter()
+    search_converted = 0
+    search_total  = 0
+    video_counter = Counter()
+    video_urls    = {}
+    all_sessions  = []
 
-    for tl in timelines:
-        if not isinstance(tl, list):
-            continue
+    for tl in all_timelines:
+        # ── Article time spent + navigation paths ──────────────────────────────
         for i, ev in enumerate(tl):
-            et = _etype(ev)
+            et    = _etype(ev)
             props = _props(ev)
-            article_id = ev.get("item_id") or props.get("articleKey") or props.get("itemId") or ""
+            aid   = ev.get("item_id") or props.get("articleKey") or ""
 
-            # Time spent — gap to next article.viewed in same session
-            if et == "article.viewed" and article_id:
+            if et == "article.viewed" and aid:
                 sid = ev.get("session_id") or ""
                 t0  = ev.get("timestamp", 0)
-                # Find next article.viewed in same session
-                for j in range(i + 1, len(tl)):
+                for j in range(i+1, len(tl)):
                     nev = tl[j]
                     if nev.get("session_id") != sid and sid:
                         break
                     if _etype(nev) == "article.viewed":
                         gap = (nev.get("timestamp", 0) - t0) / 1000
                         if 5 <= gap <= TIME_CAP_S:
-                            article_times[article_id].append(gap)
-                        # Navigation path
-                        next_art = nev.get("item_id") or _props(nev).get("articleKey") or ""
-                        if next_art and next_art != article_id:
-                            article_next[article_id][next_art] += 1
+                            article_times[aid].append(round(gap))
+                        next_aid = nev.get("item_id") or _props(nev).get("articleKey") or ""
+                        if next_aid and next_aid != aid:
+                            article_next[aid][next_aid] += 1
                         break
 
-            # Feedback sentiment
-            if et == "article.feedback" and article_id:
+            if et == "article.feedback" and aid:
                 val = props.get("value", "")
                 if val in ("helpful", "not_helpful"):
-                    feedback_sentiment[article_id][val] += 1
+                    feedback_sent[aid][val] += 1
 
-    # 5. Assemble article list from views top-n
-    articles = []
-    total_views = sum(int(r.get("count", 0)) for r in views_rows)
+            # ── Search intelligence ────────────────────────────────────────────
+            if et == "search.performed":
+                query = (props.get("query") or "").strip()
+                if query:
+                    ts = ev.get("timestamp", 0)
+                    is_final = True
+                    if i+1 < len(tl):
+                        nev = tl[i+1]
+                        if _etype(nev) == "search.performed" and (nev.get("timestamp",0)-ts) < SEARCH_GAP_MS:
+                            is_final = False
+                    if is_final:
+                        search_total += 1
+                        ql = query.lower()
+                        query_counter[ql] += 1
+                        if props.get("resultCount") == 0:
+                            zero_result_q[ql] += 1
+                        sid = ev.get("session_id") or ""
+                        for j in range(i+1, len(tl)):
+                            nev = tl[j]
+                            if nev.get("session_id") != sid and sid:
+                                break
+                            if _etype(nev) == "article.viewed":
+                                search_converted += 1
+                                break
 
-    for r in views_rows:
-        aid     = r.get("itemId") or r.get("item_id") or ""
-        views   = int(r.get("count", 0))
-        label   = aid.replace("-", " ").replace("_", " ").title()
-        fb      = feedback_sentiment.get(aid, {"helpful": 0, "not_helpful": 0})
-        helpful = fb["helpful"]
-        not_hlp = fb["not_helpful"]
-        total_fb= helpful + not_hlp
-        hlp_pct = round(helpful / total_fb * 100) if total_fb > 0 else None
+            # ── Video intelligence ─────────────────────────────────────────────
+            if et == "video.watched":
+                title = props.get("videoTitle", "").strip()
+                url   = props.get("videoUrl", "")
+                if title:
+                    video_counter[title] += 1
+                    if url and title not in video_urls:
+                        video_urls[title] = url
 
-        times   = article_times.get(aid, [])
-        avg_t   = round(sum(times) / len(times)) if times else None
-        min_t   = round(min(times)) if times else None
-        max_t   = round(max(times)) if times else None
-
-        # Dead-end: never appears as "next article" in anyone's path
-        is_dead_end = all(aid not in counter for counter in article_next.values()) and len(article_next) > 0
-
-        # Health score: 0-100
-        # Components: views weight (30), helpful% (40), time-spent (30)
-        score_views   = min(30, round(views / max(total_views, 1) * 300))
-        score_helpful = round(hlp_pct * 0.4) if hlp_pct is not None else 15  # neutral if no feedback
-        score_time    = min(30, round(avg_t / TIME_CAP_S * 30)) if avg_t else 15
-        health_score  = score_views + score_helpful + score_time
-
-        # Next articles (top 3)
-        next_arts = [
-            {"id": k, "label": k.replace("-", " ").title(), "count": v}
-            for k, v in sorted(article_next.get(aid, {}).items(), key=lambda x: -x[1])[:3]
-        ]
-
-        articles.append({
-            "id":          aid,
-            "label":       label,
-            "views":       views,
-            "share_pct":   round(views / total_views * 100, 1) if total_views else 0,
-            "helpful":     helpful,
-            "not_helpful": not_hlp,
-            "helpful_pct": hlp_pct,
-            "total_feedback": total_fb,
-            "avg_seconds": avg_t,
-            "min_seconds": min_t,
-            "max_seconds": max_t,
-            "time_sample": len(times),
-            "health_score":health_score,
-            "is_dead_end": is_dead_end,
-            "next_articles": next_arts,
-        })
-
-    # Sort by views desc
-    articles.sort(key=lambda x: -x["views"])
-
-    # Also build feedback for articles NOT in top-10 views
-    for r in fb_rows:
-        aid = r.get("itemId") or r.get("item_id") or ""
-        if aid and not any(a["id"] == aid for a in articles):
-            fb    = feedback_sentiment.get(aid, {"helpful": 0, "not_helpful": 0})
-            total_fb = fb["helpful"] + fb["not_helpful"]
-            articles.append({
-                "id": aid, "label": aid.replace("-", " ").title(),
-                "views": 0, "share_pct": 0,
-                "helpful": fb["helpful"], "not_helpful": fb["not_helpful"],
-                "helpful_pct": round(fb["helpful"]/total_fb*100) if total_fb else None,
-                "total_feedback": total_fb,
-                "avg_seconds": None, "min_seconds": None, "max_seconds": None,
-                "time_sample": 0, "health_score": 0, "is_dead_end": False, "next_articles": [],
-            })
-
-    return {
-        "articles":    articles,
-        "total_views": total_views,
-        "computed_at": datetime.utcnow().isoformat(),
-        "note":        "Time spent based on sample of top-10 authenticated users",
-    }
-
-# ── Search intelligence ───────────────────────────────────────────────────────
-async def _fetch_search_intelligence():
-    """
-    Extracts final search queries (not keystrokes), zero-result searches,
-    and content gap detection from user timelines.
-    """
-    user_rows = await cms_topn("cs-portal-auth-events", "auth.login", "userId", 10)
-    user_ids  = [
-        r.get("userId") or r.get("itemId") or ""
-        for r in user_rows
-        if (r.get("userId") or r.get("itemId") or "") not in ("anonymous", "")
-    ][:10]
-
-    timelines = await asyncio.gather(
-        *[cms_timeline("cs-portal-content-events", uid) for uid in user_ids],
-        return_exceptions=True
-    )
-
-    query_counter    = Counter()
-    zero_result_q    = Counter()
-    search_converted = 0   # search → article view in same session
-    search_total     = 0
-
-    for tl in timelines:
-        if not isinstance(tl, list):
-            continue
-        for i, ev in enumerate(tl):
-            if _etype(ev) != "search.performed":
-                continue
-            props = _props(ev)
-            query = (props.get("query") or "").strip()
-            result_count = props.get("resultCount")
-            if not query:
-                continue
-
-            # Final query detection: next event is NOT a search within 3s
-            ts = ev.get("timestamp", 0)
-            is_final = True
-            if i + 1 < len(tl):
-                nev = tl[i + 1]
-                gap = nev.get("timestamp", 0) - ts
-                if _etype(nev) == "search.performed" and gap < SEARCH_GAP_MS:
-                    is_final = False
-
-            if not is_final:
-                continue
-
-            search_total += 1
-            query_lower = query.lower()
-            query_counter[query_lower] += 1
-
-            if result_count == 0:
-                zero_result_q[query_lower] += 1
-
-            # Check if session converted to article view after this search
-            sid = ev.get("session_id") or ""
-            for j in range(i + 1, len(tl)):
-                nev = tl[j]
-                if nev.get("session_id") != sid and sid:
-                    break
-                if _etype(nev) == "article.viewed":
-                    search_converted += 1
-                    break
-
-    # Top articles for content gap cross-reference
-    article_rows = await cms_topn("cs-portal-content-events", "article.viewed", "itemId", 10)
-    article_slugs = {
-        (r.get("itemId") or "").lower().replace("-", " ")
-        for r in article_rows
-    }
-
-    # Content gap: top searches with no matching article slug
-    top_queries = query_counter.most_common(30)
-    gaps = []
-    for q, cnt in top_queries:
-        q_words = set(q.lower().split())
-        matched = any(
-            len(q_words & set(slug.split())) >= 1
-            for slug in article_slugs
-        )
-        gaps.append({
-            "query":   q,
-            "count":   cnt,
-            "is_zero_result": q in zero_result_q,
-            "has_content":    matched,
-        })
-
-    conversion_rate = round(search_converted / search_total * 100, 1) if search_total else 0
-
-    return {
-        "top_queries":       [{"query": q, "count": c} for q, c in query_counter.most_common(20)],
-        "zero_result":       [{"query": q, "count": c} for q, c in zero_result_q.most_common(10)],
-        "content_gaps":      gaps,
-        "total_searches":    search_total,
-        "conversion_rate":   conversion_rate,
-        "computed_at":       datetime.utcnow().isoformat(),
-        "note":              "Based on sample of top-10 authenticated users",
-    }
-
-# ── Session sample ────────────────────────────────────────────────────────────
-async def _fetch_session_sample():
-    """
-    Session analytics based on top-10 authenticated users.
-    NOTE: CMS top-n is hard-capped at 10. Full population analytics
-    requires a CMS API change to increase the cap or add histogram endpoint.
-    """
-    user_rows = await cms_topn("cs-portal-auth-events", "auth.login", "userId", 10)
-    user_ids  = [
-        r.get("userId") or r.get("itemId") or ""
-        for r in user_rows
-        if (r.get("userId") or r.get("itemId") or "") not in ("anonymous", "")
-    ][:10]
-
-    timelines = await asyncio.gather(
-        *[cms_all_projects_timeline(uid) for uid in user_ids],
-        return_exceptions=True
-    )
-
-    all_sessions = []
-    for tl in timelines:
-        if not isinstance(tl, list):
-            continue
-        # Group by session_id
-        sessions = defaultdict(list)
+        # ── Session analytics ──────────────────────────────────────────────────
+        sessions_map = defaultdict(list)
         for ev in tl:
             sid = ev.get("session_id") or "unknown"
-            if sid == "unknown":
-                continue
-            sessions[sid].append(ev)
+            if sid != "unknown":
+                sessions_map[sid].append(ev)
 
-        for sid, evts in sessions.items():
-            evts_sorted = sorted(evts, key=lambda e: e.get("timestamp", 0))
-            ts_list     = [e.get("timestamp", 0) for e in evts_sorted if e.get("timestamp")]
+        for sid, evts in sessions_map.items():
+            evts_s  = sorted(evts, key=lambda e: e.get("timestamp", 0))
+            ts_list = [e.get("timestamp", 0) for e in evts_s if e.get("timestamp")]
             if len(ts_list) < 2:
                 continue
-
-            t_start    = min(ts_list)
-            t_end      = max(ts_list)
-            duration_s = min((t_end - t_start) / 1000, 28800)  # cap 8hr
-            date_str   = datetime.utcfromtimestamp(t_start / 1000).strftime("%Y-%m-%d")
-            has_logout = any(_etype(e) == "auth.logout" for e in evts)
-
-            # Profile.viewed excluded — confirmed heartbeat
-            meaningful = [e for e in evts_sorted if _etype(e) != "profile.viewed"]
-            event_count = len(meaningful)
-
-            # Activity time breakdown
-            act_time = defaultdict(float)
-            for i in range(len(meaningful) - 1):
-                gap = min((meaningful[i+1].get("timestamp",0) - meaningful[i].get("timestamp",0)) / 1000, 300)
+            dur_s = min((max(ts_list) - min(ts_list)) / 1000, 28800)
+            meaningful = [e for e in evts_s if _etype(e) != "profile.viewed"]
+            ec    = len(meaningful)
+            depth = "bounce" if ec <= 2 else "normal" if ec <= 9 else "deep"
+            has_logout = any(_etype(e) == "auth.logout" for e in evts_s)
+            date_str   = datetime.utcfromtimestamp(min(ts_list)/1000).strftime("%Y-%m-%d")
+            act_time   = defaultdict(float)
+            for i in range(len(meaningful)-1):
+                gap    = min((meaningful[i+1].get("timestamp",0)-meaningful[i].get("timestamp",0))/1000, 300)
                 bucket = ACTIVITY_MAP.get(_etype(meaningful[i]), "other")
                 act_time[bucket] += gap
-
-            # Session depth category
-            if event_count <= 2:   depth = "bounce"
-            elif event_count <= 9: depth = "normal"
-            else:                  depth = "deep"
-
             all_sessions.append({
-                "session_id":  sid,
-                "date":        date_str,
-                "duration_s":  round(duration_s),
-                "has_logout":  has_logout,
-                "event_count": event_count,
-                "depth":       depth,
-                "act_time":    dict(act_time),
+                "date": date_str, "duration_s": round(dur_s),
+                "has_logout": has_logout, "event_count": ec,
+                "depth": depth, "act_time": dict(act_time),
             })
 
-    if not all_sessions:
-        return {
-            "total_sessions": 0, "avg_seconds": 0, "median_seconds": 0,
-            "p90_seconds": 0, "pct_with_logout": 0,
-            "depth_distribution": {}, "activity_breakdown": [], "daily_avg": [],
+    # ── Step 5: Assemble article performance ──────────────────────────────────
+    total_views = sum(int(r.get("count", 0)) for r in views_rows)
+    articles = []
+    for r in views_rows:
+        aid    = r.get("itemId") or r.get("item_id") or ""
+        views  = int(r.get("count", 0))
+        label  = aid.replace("-"," ").replace("_"," ").title()
+        fb     = feedback_sent.get(aid, {"helpful":0,"not_helpful":0})
+        hlp    = fb["helpful"]; nhlp = fb["not_helpful"]
+        tot_fb = hlp + nhlp
+        hlp_pct = round(hlp/tot_fb*100) if tot_fb else None
+        times   = article_times.get(aid, [])
+        avg_t   = round(sum(times)/len(times)) if times else None
+        score_v = min(30, round(views/max(total_views,1)*300))
+        score_h = round(hlp_pct*0.4) if hlp_pct is not None else 15
+        score_t = min(30, round(avg_t/TIME_CAP_S*30)) if avg_t else 15
+        is_dead = len(article_next) > 0 and all(aid not in c for c in article_next.values())
+        next_arts = [{"id":k,"label":k.replace("-"," ").title(),"count":v}
+                     for k,v in sorted(article_next.get(aid,{}).items(), key=lambda x:-x[1])[:3]]
+        articles.append({
+            "id": aid, "label": label, "views": views,
+            "share_pct": round(views/total_views*100,1) if total_views else 0,
+            "helpful": hlp, "not_helpful": nhlp, "helpful_pct": hlp_pct,
+            "total_feedback": tot_fb,
+            "avg_seconds": avg_t,
+            "min_seconds": round(min(times)) if times else None,
+            "max_seconds": round(max(times)) if times else None,
+            "time_sample": len(times),
+            "health_score": score_v+score_h+score_t,
+            "is_dead_end": is_dead, "next_articles": next_arts,
+        })
+    articles.sort(key=lambda x: -x["views"])
+
+    # ── Step 6: Assemble search intelligence ──────────────────────────────────
+    article_slugs = {(r.get("itemId") or "").lower().replace("-"," ") for r in views_rows}
+    gaps = []
+    for q, cnt in query_counter.most_common(30):
+        q_words = set(q.lower().split())
+        matched = any(len(q_words & set(slug.split())) >= 1 for slug in article_slugs)
+        gaps.append({"query":q,"count":cnt,"is_zero_result":q in zero_result_q,"has_content":matched})
+
+    # ── Step 7: Assemble session analytics ────────────────────────────────────
+    sess_result = {"total_sessions":0,"avg_seconds":0,"median_seconds":0,
+                   "p90_seconds":0,"pct_with_logout":0,
+                   "depth_distribution":{},"activity_breakdown":[],"daily_avg":[],
+                   "note":"Based on top-10 most active authenticated users (CMS top-n cap=10)"}
+    if all_sessions:
+        durs    = sorted(s["duration_s"] for s in all_sessions)
+        n       = len(durs)
+        act_tot = defaultdict(float)
+        for s in all_sessions:
+            for b,t in s["act_time"].items(): act_tot[b] += t
+        tot_t   = sum(act_tot.values()) or 1
+        daily_m = defaultdict(list)
+        for s in all_sessions: daily_m[s["date"]].append(s["duration_s"])
+        sess_result.update({
+            "total_sessions": n,
+            "avg_seconds":    round(sum(durs)/n),
+            "median_seconds": durs[n//2],
+            "p90_seconds":    durs[int(n*0.9)],
+            "pct_with_logout":round(sum(1 for s in all_sessions if s["has_logout"])/n*100,1),
+            "depth_distribution": dict(Counter(s["depth"] for s in all_sessions)),
+            "activity_breakdown": sorted([
+                {"bucket":b,"label":b.replace("_"," ").title(),
+                 "avg_seconds":round(act_tot[b]/n),
+                 "pct_time":round(act_tot[b]/tot_t*100,1)}
+                for b in act_tot if b not in ("auth","other")
+            ], key=lambda x:-x["avg_seconds"]),
+            "daily_avg": [{"date":d,"avg_seconds":round(sum(v)/len(v)),"count":len(v)}
+                          for d,v in sorted(daily_m.items())],
+        })
+
+    # ── Step 8: Categories ─────────────────────────────────────────────────────
+    categories = [
+        {"path":  r.get("itemId") or "",
+         "label": (r.get("itemId") or "").replace("/category/","").replace("-"," ").title() or "Home",
+         "count": int(r.get("count", 0))}
+        for r in cat_rows
+    ]
+
+    # ── Step 9: Videos ─────────────────────────────────────────────────────────
+    videos = [{"title":t,"count":c,"url":video_urls.get(t,"")}
+              for t,c in video_counter.most_common(20)]
+
+    result = {
+        "articles": {
+            "articles": articles, "total_views": total_views,
             "computed_at": datetime.utcnow().isoformat(),
-            "note": "No sessions found in sample",
-        }
-
-    durations  = sorted(s["duration_s"] for s in all_sessions)
-    n          = len(durations)
-    avg_s      = round(sum(durations) / n)
-    median_s   = durations[n // 2]
-    p90_s      = durations[int(n * 0.9)]
-    pct_logout = round(sum(1 for s in all_sessions if s["has_logout"]) / n * 100, 1)
-
-    # Depth distribution
-    depth_dist = Counter(s["depth"] for s in all_sessions)
-
-    # Activity breakdown
-    act_total = defaultdict(float)
-    for s in all_sessions:
-        for bucket, t in s["act_time"].items():
-            act_total[bucket] += t
-    total_t = sum(act_total.values()) or 1
-    activity_breakdown = sorted([
-        {
-            "bucket":      b,
-            "label":       ACTIVITY_LABELS.get(b, b.title()),
-            "avg_seconds": round(act_total[b] / n),
-            "pct_time":    round(act_total[b] / total_t * 100, 1),
-        }
-        for b in act_total if b not in ("auth", "other")
-    ], key=lambda x: -x["avg_seconds"])
-
-    # Daily avg
-    daily = defaultdict(list)
-    for s in all_sessions:
-        daily[s["date"]].append(s["duration_s"])
-    daily_avg = [
-        {"date": d, "avg_seconds": round(sum(v)/len(v)), "count": len(v)}
-        for d, v in sorted(daily.items())
-    ]
-
-    return {
-        "total_sessions":    n,
-        "avg_seconds":       avg_s,
-        "median_seconds":    median_s,
-        "p90_seconds":       p90_s,
-        "pct_with_logout":   pct_logout,
-        "depth_distribution":dict(depth_dist),
-        "activity_breakdown":activity_breakdown,
-        "daily_avg":         daily_avg,
-        "computed_at":       datetime.utcnow().isoformat(),
-        "note":              "Based on top-10 most active authenticated users. CMS top-n is hard-capped at 10.",
-    }
-
-# ── Video intelligence ────────────────────────────────────────────────────────
-async def _fetch_video_intelligence():
-    """
-    Per-video counts from user timelines (itemId is null on video events,
-    so we group by properties.videoTitle).
-    """
-    user_rows = await cms_topn("cs-portal-content-events", "video.watched", "userId", 10)
-    user_ids  = [
-        r.get("userId") or r.get("itemId") or ""
-        for r in user_rows
-        if (r.get("userId") or r.get("itemId") or "") not in ("anonymous", "")
-    ][:10]
-
-    timelines = await asyncio.gather(
-        *[cms_timeline("cs-portal-content-events", uid) for uid in user_ids],
-        return_exceptions=True
-    )
-
-    video_counter = Counter()
-    video_urls    = {}
-
-    for tl in timelines:
-        if not isinstance(tl, list):
-            continue
-        for ev in tl:
-            if _etype(ev) != "video.watched":
-                continue
-            props = _props(ev)
-            title = props.get("videoTitle", "").strip()
-            url   = props.get("videoUrl", "")
-            if title:
-                video_counter[title] += 1
-                if url and title not in video_urls:
-                    video_urls[title] = url
-
-    videos = [
-        {"title": t, "count": c, "url": video_urls.get(t, "")}
-        for t, c in video_counter.most_common(20)
-    ]
-
-    return {
-        "videos":      videos,
+            "note": "Time spent based on sample of top-10 authenticated users",
+        },
+        "search": {
+            "top_queries":     [{"query":q,"count":c} for q,c in query_counter.most_common(20)],
+            "zero_result":     [{"query":q,"count":c} for q,c in zero_result_q.most_common(10)],
+            "content_gaps":    gaps,
+            "total_searches":  search_total,
+            "conversion_rate": round(search_converted/search_total*100,1) if search_total else 0,
+            "computed_at":     datetime.utcnow().isoformat(),
+            "note": "Based on top-10 authenticated users",
+        },
+        "sessions":   sess_result,
+        "categories": {"categories": categories, "computed_at": datetime.utcnow().isoformat()},
+        "videos":     {"videos": videos, "computed_at": datetime.utcnow().isoformat(),
+                       "note": "Sample of top-10 users. itemId not populated on video events."},
         "computed_at": datetime.utcnow().isoformat(),
-        "note":        "Sample of top-10 video watchers. itemId not populated on video events.",
     }
+    cache_set("intel:all", result)
+    print(f"[{datetime.utcnow().isoformat()}] Intelligence done — articles={len(articles)} searches={search_total} sessions={len(all_sessions)}", flush=True)
+    return result
 
-# ── Category intelligence ─────────────────────────────────────────────────────
-async def _fetch_categories():
-    rows = await cms_topn("cs-portal-content-events", "category.viewed", "itemId", 10)
-    cats = [
-        {
-            "path":  r.get("itemId") or r.get("item_id") or "",
-            "label": (r.get("itemId") or "").replace("/category/", "").replace("-", " ").title() or "Home",
-            "count": int(r.get("count", 0)),
-        }
-        for r in rows
-    ]
-    return {"categories": cats, "computed_at": datetime.utcnow().isoformat()}
+async def get_intel():
+    data, fresh = cache_get("intel:all")
+    if data is None:
+        data = await compute_intelligence()
+    elif not fresh:
+        asyncio.create_task(compute_intelligence())
+    return data
 
+# ── Background tasks ───────────────────────────────────────────────────────────
+async def _bg_prefetch():
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await prefetch_batch()
+        except Exception as ex:
+            print(f"Batch prefetch error: {ex}", flush=True)
+        await asyncio.sleep(PREFETCH_SEC)
 
-# ── Lifespan ──────────────────────────────────────────────────────────────────
+async def _bg_intel():
+    await asyncio.sleep(15)  # wait for server to stabilise
+    while True:
+        try:
+            await compute_intelligence()
+        except Exception as ex:
+            print(f"Intel compute error: {ex}", flush=True)
+        await asyncio.sleep(INTEL_TTL)
+
+# ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    task = asyncio.create_task(_background_prefetch())
+async def lifespan(app):
+    t1 = asyncio.create_task(_bg_prefetch())
+    t2 = asyncio.create_task(_bg_intel())
     yield
-    task.cancel()
+    t1.cancel(); t2.cancel()
     global _client
     if _client and not _client.is_closed:
         await _client.aclose()
 
-# ── App ───────────────────────────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(lifespan=lifespan, title="CS Portal Analytics")
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
-
+# ── Endpoints ──────────────────────────────────────────────────────────────────
 @app.get("/api/metrics/batch")
 async def batch_metrics():
-    """Main time-series batch — all events, all-time data."""
     data, fresh = cache_get("batch:all")
     if data is None:
         data = await prefetch_batch()
     elif not fresh:
         asyncio.create_task(prefetch_batch())
-    payload  = json.dumps(data, separators=(",", ":"))
+    payload  = json.dumps(data, separators=(",",":"))
     etag_val = hashlib.md5(payload.encode()).hexdigest()[:16]
-    return Response(
-        content=payload, media_type="application/json",
-        headers={
-            "Cache-Control": f"public, max-age={CACHE_TTL}, stale-while-revalidate={STALE_TTL}",
-            "ETag": f'"{etag_val}"', "Vary": "Accept-Encoding",
-        },
-    )
+    return Response(content=payload, media_type="application/json",
+        headers={"Cache-Control":f"public, max-age={BATCH_TTL}, stale-while-revalidate={STALE_TTL}",
+                 "ETag":f'"{etag_val}"', "Vary":"Accept-Encoding"})
 
 @app.get("/api/articles")
-async def article_performance(force: bool = False):
-    """Article performance: views, time spent, feedback sentiment, health score."""
-    key = "articles:performance"
-    if not force:
-        data, fresh = cache_get(key)
-        if fresh:   return data
-        if data:    asyncio.create_task(_bg("articles:performance", _fetch_article_performance)); return data
-    result = await _fetch_article_performance()
-    cache_set(key, result)
-    return result
+async def api_articles():
+    intel = await get_intel()
+    return intel.get("articles", {"articles":[],"total_views":0})
 
 @app.get("/api/search")
-async def search_intelligence(force: bool = False):
-    """Search analytics: final queries, zero-results, content gaps, conversion rate."""
-    key = "search:intelligence"
-    if not force:
-        data, fresh = cache_get(key)
-        if fresh:   return data
-        if data:    asyncio.create_task(_bg("search:intelligence", _fetch_search_intelligence)); return data
-    result = await _fetch_search_intelligence()
-    cache_set(key, result)
-    return result
+async def api_search():
+    intel = await get_intel()
+    return intel.get("search", {"top_queries":[],"zero_result":[],"content_gaps":[],"total_searches":0,"conversion_rate":0})
 
 @app.get("/api/sessions")
-async def session_sample(force: bool = False):
-    """Session analytics (sample of top-10 authenticated users)."""
-    key = "session:stats"
-    if not force:
-        data, fresh = cache_get(key)
-        if fresh:   return data
-        if data:    asyncio.create_task(_bg("session:stats", _fetch_session_sample)); return data
-    result = await _fetch_session_sample()
-    cache_set(key, result)
-    return result
+async def api_sessions():
+    intel = await get_intel()
+    return intel.get("sessions", {"total_sessions":0})
 
 @app.get("/api/videos")
-async def video_intelligence(force: bool = False):
-    """Per-video counts from user timelines."""
-    key = "videos:intelligence"
-    if not force:
-        data, fresh = cache_get(key)
-        if fresh:   return data
-        if data:    asyncio.create_task(_bg("videos:intelligence", _fetch_video_intelligence)); return data
-    result = await _fetch_video_intelligence()
-    cache_set(key, result)
-    return result
+async def api_videos():
+    intel = await get_intel()
+    return intel.get("videos", {"videos":[]})
 
 @app.get("/api/categories")
-async def categories(force: bool = False):
-    """Top content categories."""
-    key = "categories:top"
-    if not force:
-        data, fresh = cache_get(key)
-        if fresh: return data
-        if data: asyncio.create_task(_bg(key, _fetch_categories)); return data
-    result = await _fetch_categories()
-    cache_set(key, result)
-    return result
+async def api_categories():
+    intel = await get_intel()
+    return intel.get("categories", {"categories":[]})
 
 @app.get("/health")
 async def health():
-    data, fresh = cache_get("batch:all")
+    b, bf = cache_get("batch:all")
+    i, fi = cache_get("intel:all")
     return {
         "status":        "ok",
         "api_key_set":   bool(API_KEY),
-        "batch_cached":  data is not None,
-        "batch_fresh":   fresh,
+        "batch_cached":  b is not None,
+        "batch_fresh":   bf,
+        "intel_cached":  i is not None,
+        "intel_fresh":   fi,
         "cache_entries": len(_cache),
-        "data_start":    DATA_START,
         "ts":            datetime.utcnow().isoformat(),
     }
 
@@ -774,52 +540,41 @@ async def clear_cache():
     _client = None
     _cache.clear()
     asyncio.create_task(prefetch_batch())
-    return {"status": "cleared, client reset, prefetching..."}
+    asyncio.create_task(compute_intelligence())
+    return {"status": "cleared — recomputing batch and intelligence"}
 
-@app.get("/debug/topn")
-async def debug_topn():
-    """Test cms_topn — confirms CMS API connectivity."""
-    r1 = await cms_topn("cs-portal-auth-events", "auth.login", "userId", 10)
-    r2 = await cms_topn("cs-portal-content-events", "article.viewed", "itemId", 10)
+@app.get("/debug/cms")
+async def debug_cms():
     client = get_client()
-    try:
-        r = await client.get(
-            f"{CMS_BASE}/cs-portal-auth-events/query/top-n",
-            params={"event": "auth.login", "groupBy": "userId", "n": 5}
-        )
-        raw = {"status": r.status_code, "body": r.text[:300]}
-    except Exception as e:
-        raw = {"error": str(e)}
-    return {
-        "auth_users": {"len": len(r1), "sample": r1[:3]},
-        "articles":   {"len": len(r2), "sample": r2[:3]},
-        "raw_http":   raw,
-        "api_key_set": bool(API_KEY),
-        "api_key_prefix": API_KEY[:12] if API_KEY else "MISSING",
-    }
+    results = {}
+    for name, url, params in [
+        ("auth_topn",    f"{CMS_BASE}/cs-portal-auth-events/query/top-n",
+         {"event":"auth.login","groupBy":"userId","n":5}),
+        ("article_topn", f"{CMS_BASE}/cs-portal-content-events/query/top-n",
+         {"event":"article.viewed","groupBy":"itemId","n":5}),
+        ("timeseries",   f"{CMS_BASE}/cs-portal-auth-events/query/time-series",
+         {"event":"auth.login","bucket":"day"}),
+    ]:
+        try:
+            r = await client.get(url, params=params)
+            body = r.text[:300]
+            results[name] = {"status": r.status_code, "preview": body}
+        except Exception as e:
+            results[name] = {"error": str(e)}
+    results["api_key_set"] = bool(API_KEY)
+    results["intel_cached"] = cache_get("intel:all")[0] is not None
+    return results
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     with open("index.html") as f:
         html = f.read()
-    return HTMLResponse(
-        content=html,
-        headers={"Cache-Control": "public, max-age=300, stale-while-revalidate=3600"},
-    )
+    return HTMLResponse(content=html,
+        headers={"Cache-Control":"public, max-age=300, stale-while-revalidate=3600"})
 
 @app.get("/sw.js")
 async def service_worker():
     with open("sw.js") as f:
         content = f.read()
-    return Response(
-        content=content, media_type="application/javascript",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
-
-# ── Background refresh helper ─────────────────────────────────────────────────
-async def _bg(key: str, fn):
-    try:
-        result = await fn()
-        cache_set(key, result)
-    except Exception as ex:
-        print(f"Background refresh error [{key}]: {ex}")
+    return Response(content=content, media_type="application/javascript",
+        headers={"Cache-Control":"public, max-age=86400"})
