@@ -11,6 +11,7 @@ Architecture:
   - top-n is hard-capped at 10 by CMS — session stats uses sample accordingly
 """
 
+from __future__ import annotations
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +19,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
-from typing import Optional
+from typing import Optional, Dict, List, Any
 import httpx, os, asyncio, time, json, hashlib
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ _sem_topn     = asyncio.Semaphore(3)   # top-n calls
 _sem_timeline = asyncio.Semaphore(20)  # timeline calls (higher — many in parallel)
 
 # ── CMS helpers ───────────────────────────────────────────────────────────────
-async def _get(url: str, params: dict, sem: asyncio.Semaphore, retries: int = 4) -> dict | list | None:
+async def _get(url: str, params: dict, sem: asyncio.Semaphore, retries: int = 4) -> Optional[Any]:
     client = get_client()
     async with sem:
         for attempt in range(retries):
@@ -248,9 +249,9 @@ async def _fetch_article_performance() -> dict:
     )
 
     # Build article stats from timelines
-    article_times: dict[str, list] = defaultdict(list)   # article_id -> [seconds]
-    feedback_sentiment: dict[str, dict] = defaultdict(lambda: {"helpful": 0, "not_helpful": 0})
-    article_next: dict[str, Counter]    = defaultdict(Counter)  # navigation paths
+    article_times: Dict[str, List] = defaultdict(list)   # article_id -> [seconds]
+    feedback_sentiment: Dict[str, Dict] = defaultdict(lambda: {"helpful": 0, "not_helpful": 0})
+    article_next: Dict[str, Counter] = defaultdict(Counter)  # navigation paths
 
     for tl in timelines:
         if not isinstance(tl, list):
@@ -487,7 +488,7 @@ async def _fetch_session_sample() -> dict:
         if not isinstance(tl, list):
             continue
         # Group by session_id
-        sessions: dict[str, list] = defaultdict(list)
+        sessions: Dict[str, List] = defaultdict(list)
         for ev in tl:
             sid = ev.get("session_id") or "unknown"
             if sid == "unknown":
@@ -568,7 +569,7 @@ async def _fetch_session_sample() -> dict:
     ], key=lambda x: -x["avg_seconds"])
 
     # Daily avg
-    daily: dict[str, list] = defaultdict(list)
+    daily: Dict[str, List] = defaultdict(list)
     for s in all_sessions:
         daily[s["date"]].append(s["duration_s"])
     daily_avg = [
