@@ -508,6 +508,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
               <th class="r">Rating</th>
               <th class="r">Solved</th>
               <th class="r">Low %</th>
+              <th class="r">1–5 breakdown</th>
             </tr></thead>
             <tbody id="csatTeamTable"></tbody>
           </table>
@@ -539,6 +540,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
               <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('avg_rating')">Rating <span class="sort-arrow" id="arrowAvg_rating">&#8597;</span></th>
               <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('solved_pct')">Solved <span class="sort-arrow" id="arrowSolved_pct">&#8597;</span></th>
               <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('low_pct')">Low % <span class="sort-arrow" id="arrowLow_pct">&#8597;</span></th>
+              <th class="r">1–5 breakdown</th>
               <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('total')"># <span class="sort-arrow" id="arrowTotal">&#8597;</span></th>
             </tr></thead>
             <tbody id="csatAllTable"></tbody>
@@ -735,8 +737,9 @@ function _csatComputeAndRender(from, to) {
 
     // Teams
     for (const [t,tv] of Object.entries(dm.tm||{})) {
-      if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0};
+      if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
       teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
+      if (tv.d) for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(tv.d[r]||0);
     }
   } // end dKeys loop
 
@@ -746,8 +749,10 @@ function _csatComputeAndRender(from, to) {
     const wkEnd = new Date(new Date(wk+'T00:00:00').getTime() + 6*86400000).toISOString().slice(0,10);
     if (wk > hi || wkEnd < lo) continue;
     for (const [c,cv] of Object.entries(wkData)) {
-      if (!cons[c]) cons[c]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0};
+      if (!cons[c]) cons[c]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
       cons[c].t+=cv.t; cons[c].sr+=cv.sr; cons[c].s+=cv.s; cons[c].l+=cv.l;
+      // Accumulate per-rating distribution if available
+      if (cv.d) for (let r=1;r<=5;r++) cons[c].d[r] = (cons[c].d[r]||0) + (cv.d[r]||0);
     }
   }
   // We don't have per-row solved+rating in the index — use day-level solved ratio
@@ -776,7 +781,9 @@ function _csatComputeAndRender(from, to) {
       avg_rating: Math.round(v.sr/v.t*100)/100,
       solved_pct: Math.round(v.s/v.t*1000)/10,
       total: v.t,
-      low_pct: Math.round(v.l/v.t*1000)/10 }))
+      low_pct: Math.round(v.l/v.t*1000)/10,
+      dist: [1,2,3,4,5].map(r => ({ r, count: v.d?.[r]||0, pct: v.t>0 ? Math.round((v.d?.[r]||0)/v.t*1000)/10 : 0 }))
+    }))
     .sort((a,b) => b.avg_rating - a.avg_rating);
 
   const consList = Object.entries(cons)
@@ -785,7 +792,9 @@ function _csatComputeAndRender(from, to) {
       avg_rating: Math.round(v.sr/v.t*100)/100,
       solved_pct: Math.round(v.s/v.t*1000)/10,
       total: v.t,
-      low_pct: Math.round(v.l/v.t*1000)/10 }))
+      low_pct: Math.round(v.l/v.t*1000)/10,
+      dist: [1,2,3,4,5].map(r => ({ r, count: v.d?.[r]||0, pct: v.t>0 ? Math.round((v.d?.[r]||0)/v.t*1000)/10 : 0 }))
+    }))
     .sort((a,b) => b.avg_rating - a.avg_rating);
 
   csatData = {
@@ -925,6 +934,21 @@ function renderCSAT(d) {
       </td>
       <td class="mono r" style="color:${t.solved_pct >= 74 ? 'var(--green)' : t.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)'}">${t.solved_pct}%</td>
       <td class="r"><span class="pill ${t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green'}">${t.low_pct}%</span></td>
+      <td class="r" style="min-width:90px">
+        ${(t.dist||[]).length ? `
+        <div style="display:flex;align-items:flex-end;gap:2px;height:22px;justify-content:flex-end">
+          ${(t.dist||[]).map(d => {
+            const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+            const maxPct = Math.max(...(t.dist||[]).map(x=>x.pct), 1);
+            const h = Math.max(2, Math.round(d.pct / maxPct * 20));
+            return `<div title="${d.r}★: ${d.pct}% (${d.count})"
+              style="width:10px;height:${h}px;background:${barColors[d.r]};border-radius:2px 2px 0 0;opacity:${d.pct>0?1:0.15}"></div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:2px;justify-content:flex-end;margin-top:1px">
+          ${(t.dist||[]).map(d => `<div style="width:10px;font-size:8px;color:var(--text3);text-align:center">${d.r}</div>`).join('')}
+        </div>` : '<span style="color:var(--text3);font-size:11px">—</span>'}
+      </td>
     </tr>`;
   }).join('');
 
@@ -1019,6 +1043,21 @@ function renderConsultantTable() {
       </td>
       <td class="mono r" style="font-size:12px;color:${c.solved_pct >= 74 ? 'var(--green)' : c.solved_pct >= 55 ? 'var(--amber)' : 'var(--red)'}">${c.solved_pct}%</td>
       <td class="r"><span class="pill ${c.low_pct > 25 ? 'red' : c.low_pct > 12 ? 'amber' : 'green'}" style="font-size:11px">${c.low_pct}%</span></td>
+      <td class="r" style="min-width:90px">
+        ${(c.dist||[]).length ? `
+        <div style="display:flex;align-items:flex-end;gap:2px;height:22px;justify-content:flex-end">
+          ${(c.dist||[]).map(d => {
+            const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+            const maxPct = Math.max(...(c.dist||[]).map(x=>x.pct), 1);
+            const h = Math.max(2, Math.round(d.pct / maxPct * 20));
+            return `<div title="${d.r}★: ${d.pct}% (${d.count})"
+              style="width:10px;height:${h}px;background:${barColors[d.r]};border-radius:2px 2px 0 0;opacity:${d.pct>0?1:0.15}"></div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:2px;justify-content:flex-end;margin-top:1px">
+          ${(c.dist||[]).map(d => `<div style="width:10px;font-size:8px;color:var(--text3);text-align:center">${d.r}</div>`).join('')}
+        </div>` : '<span style="color:var(--text3);font-size:11px">—</span>'}
+      </td>
       <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No consultants match the current filter</td></tr>';

@@ -241,11 +241,12 @@ def _build_csat_index(rows: list) -> dict:
         if not bad_team:
             t = team.strip()
             if t not in dm["tm"]:
-                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0}
+                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
             dm["tm"][t]["t"]  += 1
             dm["tm"][t]["sr"] += r["rating"]
             dm["tm"][t]["s"]  += int(r["solved"])
             dm["tm"][t]["l"]  += int(r["rating"] <= 2)
+            dm["tm"][t]["d"][r["rating"]] = dm["tm"][t]["d"].get(r["rating"], 0) + 1
 
         if not bad_name:
             try:
@@ -257,11 +258,12 @@ def _build_csat_index(rows: list) -> dict:
             if wk not in week_cons:
                 week_cons[wk] = {}
             if cid not in week_cons[wk]:
-                week_cons[wk][cid] = {"n":name,"tm":team,"t":0,"sr":0,"s":0,"l":0}
+                week_cons[wk][cid] = {"n":name,"tm":team,"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
             week_cons[wk][cid]["t"]  += 1
             week_cons[wk][cid]["sr"] += r["rating"]
             week_cons[wk][cid]["s"]  += int(r["solved"])
             week_cons[wk][cid]["l"]  += int(r["rating"] <= 2)
+            week_cons[wk][cid]["d"][r["rating"]] = week_cons[wk][cid]["d"].get(r["rating"], 0) + 1
 
     dates     = sorted(day_map.keys())
     index_data = {
