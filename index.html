@@ -222,7 +222,8 @@ tr.row-active   td { background: var(--blue-dim) }
 .spark-bar { flex: 1; border-radius: 1px; min-height: 2px; background: var(--blue); opacity: .7 }
 
 /* ── Share bar ── */
-.share-bar { display: flex; align-items: center; gap: 6px }
+.sort-arrow { font-size:10px; color:var(--text3); margin-left:2px }
+thead th:hover .sort-arrow { color:var(--text2) }
 .share-track { flex: 1; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden; min-width: 50px }
 .share-fill  { height: 100%; border-radius: 2px; background: var(--blue) }
 
@@ -371,13 +372,18 @@ tr.row-active   td { background: var(--blue-dim) }
   <!-- Header -->
   <div class="header">
     <div class="header-brand">
-      <a href="https://hear.com" target="_blank" style="display:flex;align-items:center;gap:8px;text-decoration:none">
-        <svg width="88" height="22" viewBox="0 0 88 22" xmlns="http://www.w3.org/2000/svg">
-          <text x="0" y="19" font-family="Syne,sans-serif" font-weight="800" font-size="21" fill="#111827">hear</text>
-          <text x="50" y="19" font-family="Syne,sans-serif" font-weight="400" font-size="21" fill="#9ca3af">.com</text>
+      <a href="https://hear.com" target="_blank" style="display:flex;align-items:center;gap:0px;text-decoration:none">
+        <svg width="130" height="36" viewBox="0 0 130 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Arc / swoosh -->
+          <path d="M18 4C10.268 4 4 10.268 4 18C4 25.732 10.268 32 18 32C21.5 32 24.7 30.7 27.2 28.5" stroke="#4a7fc1" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+          <path d="M18 9C13.029 9 9 13.029 9 18C9 22.971 13.029 27 18 27C20.4 27 22.6 26.1 24.3 24.6" stroke="#2e5f9e" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.75"/>
+          <path d="M18 14C15.791 14 14 15.791 14 18C14 20.209 15.791 22 18 22C19.2 22 20.3 21.5 21.1 20.7" stroke="#1a3f6f" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+          <!-- hear.com wordmark -->
+          <text x="36" y="24" font-family="'Inter','Helvetica Neue',sans-serif" font-weight="700" font-size="17" fill="#1a2e4a" letter-spacing="-0.3">hear</text>
+          <text x="72" y="24" font-family="'Inter','Helvetica Neue',sans-serif" font-weight="400" font-size="17" fill="#1a2e4a" letter-spacing="-0.3">.com</text>
         </svg>
       </a>
-      <div class="subtitle">CS Portal Intelligence</div>
+      <div class="subtitle" style="margin-left:2px">CS Portal Intelligence</div>
     </div>
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
@@ -661,41 +667,51 @@ tr.row-active   td { background: var(--blue-dim) }
       </div>
     </div>
 
-    <!-- Consultant tables -->
-    <div class="two-col">
-      <div class="card" style="padding:0">
-        <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
-          <div class="card-title" style="color:var(--green)">⭐ Top performers</div>
-          <div class="card-sub">Highest CSAT · min 10 surveys in period</div>
+
+    <!-- All consultants sortable table -->
+    <div class="card" style="padding:0">
+      <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <div class="card-title">All consultants</div>
+          <div class="card-sub" id="csatConsultantSub">Min 10 surveys · sorted by avg rating</div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th style="padding-left:16px">Consultant</th>
-              <th class="r">Rating</th>
-              <th class="r">Solved</th>
-              <th class="r">Surveys</th>
-            </tr></thead>
-            <tbody id="csatTopTable"></tbody>
-          </table>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="csatConsultantSearch" type="text" placeholder="Search name or team…"
+            style="padding:5px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:180px;background:var(--surface2);color:var(--text1)"
+            oninput="filterConsultantTable()">
+          <select id="csatTeamFilter"
+            style="padding:5px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none"
+            onchange="filterConsultantTable()">
+            <option value="">All teams</option>
+          </select>
         </div>
       </div>
-      <div class="card" style="padding:0">
-        <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
-          <div class="card-title" style="color:var(--red)">⚠ Needs support</div>
-          <div class="card-sub">Lowest CSAT · min 10 surveys in period</div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th style="padding-left:16px">Consultant</th>
-              <th class="r">Rating</th>
-              <th class="r">Solved</th>
-              <th class="r">Low %</th>
-            </tr></thead>
-            <tbody id="csatLowTable"></tbody>
-          </table>
-        </div>
+      <div class="table-wrap" style="max-height:480px;overflow-y:auto">
+        <table id="csatConsultantTable">
+          <thead>
+            <tr>
+              <th style="padding-left:20px;cursor:pointer;user-select:none" onclick="sortConsultantTable('name')" id="csatSortName">
+                Consultant <span class="sort-arrow" id="arrowName">↕</span>
+              </th>
+              <th style="cursor:pointer;user-select:none" onclick="sortConsultantTable('team')" id="csatSortTeam">
+                Team <span class="sort-arrow" id="arrowTeam">↕</span>
+              </th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('avg_rating')">
+                Avg Rating <span class="sort-arrow" id="arrowAvg_rating">↕</span>
+              </th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('solved_pct')">
+                Solved % <span class="sort-arrow" id="arrowSolved_pct">↕</span>
+              </th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('low_pct')">
+                Low % <span class="sort-arrow" id="arrowLow_pct">↕</span>
+              </th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('total')">
+                Surveys <span class="sort-arrow" id="arrowTotal">↕</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody id="csatAllTable"></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -1018,32 +1034,104 @@ function renderCSAT(d) {
     </tr>`;
   }).join('');
 
-  // Top consultants
-  document.getElementById('csatTopTable').innerHTML = (d.top_consultants || []).map(c =>
-    `<tr>
-      <td style="padding-left:16px">
-        <div style="font-size:13px;font-weight:500;color:var(--text1)">${c.name}</div>
-        <div style="font-size:11px;color:var(--text3)">${c.team}</div>
-      </td>
-      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--green)">${c.avg_rating}</span></td>
-      <td class="mono r" style="font-size:12px;color:var(--green)">${c.solved_pct}%</td>
-      <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
-    </tr>`
-  ).join('');
+  // Helper to skip None/empty/null consultant names
+  const validName = n => {
+    if (!n) return false;
+    const s = String(n).trim().toLowerCase();
+    return s !== 'none' && s !== 'null' && s !== '' && s !== 'n/a';
+  };
 
-  // Low consultants
-  document.getElementById('csatLowTable').innerHTML = (d.low_consultants || []).map(c =>
-    `<tr>
-      <td style="padding-left:16px">
-        <div style="font-size:13px;font-weight:500;color:var(--text1)">${c.name}</div>
-        <div style="font-size:11px;color:var(--text3)">${c.team}</div>
-      </td>
-      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${c.avg_rating < 2 ? 'var(--red)' : 'var(--amber)'}">${c.avg_rating}</span></td>
-      <td class="mono r" style="font-size:12px;color:var(--red)">${c.solved_pct}%</td>
-      <td class="r"><span class="pill ${c.low_pct > 30 ? 'red' : 'amber'}">${c.low_pct}%</span></td>
-    </tr>`
-  ).join('');
+  // Populate team filter dropdown
+  const allCons = (d.all_consultants || []).filter(c => validName(c.name));
+  const teams = [...new Set(allCons.map(c => c.team).filter(Boolean))].sort();
+  const teamSel = document.getElementById('csatTeamFilter');
+  if (teamSel) {
+    teamSel.innerHTML = '<option value="">All teams</option>' +
+      teams.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+
+  // Store for sort/filter
+  window._csatAllCons = allCons;
+  window._csatSort = { key: 'avg_rating', dir: -1 };
+  document.getElementById('csatConsultantSub').textContent =
+    `${allCons.length} consultants · min 10 surveys · sorted by avg rating`;
+  renderConsultantTable();
 }
+
+// Sort state lives outside renderCSAT
+function sortConsultantTable(key) {
+  if (!window._csatSort) return;
+  if (window._csatSort.key === key) {
+    window._csatSort.dir *= -1;
+  } else {
+    window._csatSort.key = key;
+    window._csatSort.dir = key === 'avg_rating' ? -1 : (key === 'low_pct' ? -1 : -1);
+  }
+  // Update arrows
+  ['name','team','avg_rating','solved_pct','low_pct','total'].forEach(k => {
+    const el = document.getElementById('arrow' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (el) el.textContent = '↕';
+  });
+  // Capitalise first char of key for ID
+  const arrowKey = 'arrow' + key.charAt(0).toUpperCase() + key.slice(1);
+  const arrowEl = document.getElementById(arrowKey);
+  if (arrowEl) arrowEl.textContent = window._csatSort.dir === -1 ? '↓' : '↑';
+  renderConsultantTable();
+}
+
+function filterConsultantTable() {
+  renderConsultantTable();
+}
+
+function renderConsultantTable() {
+  const all = window._csatAllCons || [];
+  const search = (document.getElementById('csatConsultantSearch')?.value || '').toLowerCase();
+  const teamFilter = document.getElementById('csatTeamFilter')?.value || '';
+  const { key, dir } = window._csatSort || { key: 'avg_rating', dir: -1 };
+
+  let rows = all.filter(c => {
+    if (teamFilter && c.team !== teamFilter) return false;
+    if (search && !c.name.toLowerCase().includes(search) && !c.team.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    const av = typeof a[key] === 'string' ? a[key].toLowerCase() : a[key];
+    const bv = typeof b[key] === 'string' ? b[key].toLowerCase() : b[key];
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+
+  document.getElementById('csatConsultantSub').textContent =
+    `${rows.length} of ${all.length} consultants · min 10 surveys`;
+
+  document.getElementById('csatAllTable').innerHTML = rows.map((c, i) => {
+    const rColor = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+    const isTop = c.avg_rating >= 4.7;
+    const isLow = c.avg_rating < 3.5;
+    return `<tr style="${isTop ? 'background:rgba(5,150,105,.04)' : isLow ? 'background:rgba(220,38,38,.04)' : ''}">
+      <td style="padding-left:20px;max-width:180px">
+        <div style="font-size:13px;font-weight:${isTop||isLow?'500':'400'};color:var(--text1)">
+          ${isTop ? '⭐ ' : isLow ? '⚠️ ' : ''}${c.name}
+        </div>
+      </td>
+      <td style="font-size:12px;color:var(--text3);max-width:140px">${c.team}</td>
+      <td class="r">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div style="width:40px;height:3px;background:var(--surface3);border-radius:2px;overflow:hidden">
+            <div style="width:${(c.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rColor};border-radius:2px"></div>
+          </div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${rColor}">${c.avg_rating}</span>
+        </div>
+      </td>
+      <td class="mono r" style="font-size:12px;color:${c.solved_pct >= 74 ? 'var(--green)' : c.solved_pct >= 55 ? 'var(--amber)' : 'var(--red)'}">${c.solved_pct}%</td>
+      <td class="r"><span class="pill ${c.low_pct > 25 ? 'red' : c.low_pct > 12 ? 'amber' : 'green'}" style="font-size:11px">${c.low_pct}%</span></td>
+      <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No consultants match the current filter</td></tr>';
+}
+
+// placeholder to keep old references alive (tables removed from HTML)
+function _csatLegacyNoop() {}
 
 
 Chart.defaults.color = '#6b7280';

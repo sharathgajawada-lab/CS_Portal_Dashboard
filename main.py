@@ -142,7 +142,9 @@ def _compute_csat(date_from: str = "", date_to: str = "") -> dict:
          "total": v["total"],
          "low_pct": round(sum(1 for x in v["ratings"] if x <= 2) / v["total"] * 100, 1)}
         for t, v in team_data.items()
-    ], key=lambda x: -x["total"])
+        if t and t.strip().lower() not in ("none", "null", "", "n/a")  # exclude blank team rows
+        and v["total"] >= 3  # only teams with meaningful data
+    ], key=lambda x: -x["avg_rating"])  # sort by rating, best first
 
     # Consultant stats (min 10 surveys in range)
     cons_data: dict = defaultdict(lambda: {"name": "", "team": "", "ratings": [], "solved": 0, "total": 0})
@@ -162,10 +164,15 @@ def _compute_csat(date_from: str = "", date_to: str = "") -> dict:
          "solved_pct": round(v["solved"] / v["total"] * 100, 1),
          "total": v["total"],
          "low_pct": round(sum(1 for x in v["ratings"] if x <= 2) / v["total"] * 100, 1)}
-        for c, v in cons_data.items() if v["total"] >= 10
+        for c, v in cons_data.items()
+        if v["total"] >= 10
+        and v["name"]                                    # exclude empty names
+        and v["name"].strip().lower() not in ("none", "null", "", "n/a")  # exclude None rows
+        and not v["name"].strip().lower().startswith("frank ai")  # exclude AI agents from consultant lists
     ]
     top_consultants  = sorted(cons_list, key=lambda x: -x["avg_rating"])[:10]
     low_consultants  = sorted(cons_list, key=lambda x: x["avg_rating"])[:10]
+    all_consultants  = sorted(cons_list, key=lambda x: -x["avg_rating"])  # full list, best first
 
     return {
         "available":      True,
@@ -183,6 +190,7 @@ def _compute_csat(date_from: str = "", date_to: str = "") -> dict:
         "teams":          teams,
         "top_consultants": top_consultants,
         "low_consultants": low_consultants,
+        "all_consultants": all_consultants,
     }
 
 CACHE_TTL     = 7200   # 2 hr fresh
