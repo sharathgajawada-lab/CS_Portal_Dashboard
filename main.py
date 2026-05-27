@@ -1165,6 +1165,22 @@ async def full_refresh():
         print(f"[refresh] complete — {len(articles)} articles, {len(video_counter)} videos, {search_total} searches", flush=True)
 
 # ── Background loop — one refresh every 2 hours ────────────────────────────────
+# Supabase free tier pauses after 1 week of inactivity.
+# We ping it every 6 hours to keep it alive — cheap and reliable.
+SUPABASE_KEEPALIVE_SEC = 6 * 3600
+
+async def _supabase_keepalive_loop():
+    """Ping Supabase every 6 hours to prevent free-tier pausing."""
+    await asyncio.sleep(60)  # wait for startup to settle
+    while True:
+        if _sb_enabled:
+            try:
+                result = await _sb_request("GET", "/cs_user_fetch_log?select=user_id&limit=1")
+                print(f"[supabase] keepalive ping OK", flush=True)
+            except Exception as ex:
+                print(f"[supabase] keepalive ping failed: {ex}", flush=True)
+        await asyncio.sleep(SUPABASE_KEEPALIVE_SEC)
+
 async def _refresh_loop():
     await asyncio.sleep(10)  # let server boot fully
     while True:
@@ -1186,8 +1202,10 @@ async def lifespan(app):
     else:
         print("[supabase] not configured — using local timeline only", flush=True)
     t = asyncio.create_task(_refresh_loop())
+    k = asyncio.create_task(_supabase_keepalive_loop())  # prevents Supabase free-tier pause
     yield
     t.cancel()
+    k.cancel()
     global _client
     if _client and not _client.is_closed:
         await _client.aclose()
@@ -1245,10 +1263,26 @@ async def api_categories():
 
 @app.get("/api/sessions/full")
 async def api_sessions_full(date_from: str = "", date_to: str = ""):
-    """Full session analytics from all users stored in Supabase."""
+    """Full session analytics from all users stored in Supabase.
+    Falls back to in-memory timeline sample if Supabase is unavailable.
+    """
     if not _sb_enabled:
-        return {"available": False, "note": "Supabase not configured"}
-    events = await _sb_get_all_events(date_from=date_from, date_to=date_to)
+        # Supabase not configured — serve in-memory sample so dashboard still works
+        data, _ = cache_get("intel:all")
+        sessions = (data or {}).get("sessions", {})
+        sessions["note"] = "Supabase not configured — showing in-memory sample (top users only)"
+        return {"available": True, **sessions}
+
+    try:
+        events = await _sb_get_all_events(date_from=date_from, date_to=date_to)
+    except Exception as ex:
+        # Supabase is down — fall back to in-memory cache so dashboard stays functional
+        print(f"[supabase] sessions/full fallback to cache: {ex}", flush=True)
+        data, _ = cache_get("intel:all")
+        sessions = (data or {}).get("sessions", {})
+        sessions["note"] = "Supabase temporarily unavailable — showing cached sample"
+        return {"available": True, **sessions}
+
     if not events:
         user_count = await _sb_get_user_count()
         return {"available": True, "total_users": user_count, "total_sessions": 0,
@@ -1443,6 +1477,7 @@ async def debug_csat():
     }
 
 @app.get("/health")
+@app.head("/health")  # UptimeRobot sends HEAD requests — must support both
 async def health():
     b, bf = cache_get("batch:all")
     i, fi = cache_get("intel:all")
@@ -1465,6 +1500,18 @@ async def health():
         "call_budget":   "19 sequential calls per refresh, 1s gap each, every 2 hours",
         "ts":            datetime.utcnow().isoformat(),
     }
+
+@app.get("/api/refresh")
+async def api_refresh():
+    """Manually trigger a full data refresh.
+    Same as /cache/clear but with a clean, memorable URL.
+    Safe to call any time — protected by lock so only one runs at a time.
+    """
+    lock = get_lock()
+    if not lock.locked():
+        asyncio.create_task(full_refresh())
+        return {"status": "refresh started", "note": "Takes ~30-60s. Check /health for completion."}
+    return {"status": "refresh already running", "note": "Check /health for progress."}
 
 @app.get("/cache/clear")
 async def clear_cache():
