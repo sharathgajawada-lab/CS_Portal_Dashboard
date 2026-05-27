@@ -583,6 +583,123 @@ tr.row-active   td { background: var(--blue-dim) }
     </div>
   </div>
 
+  <!-- ── CSAT: Call Quality Survey ─────────────────────────────────────────── -->
+  <div class="section" id="csatSection">
+    <div class="section-header">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="section-title">Call quality & CSAT</div>
+        <span class="section-status loading" id="csatStatus"><span class="spinner"></span> Loading…</span>
+      </div>
+      <div class="section-sub" id="csatSub">Post-call customer satisfaction survey · filtered by selected date range</div>
+    </div>
+
+    <!-- Top KPI row -->
+    <div class="three-col" style="margin-bottom:16px" id="csatKpiRow">
+      <div class="card">
+        <div class="card-title">Overall CSAT</div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+          <div id="csatAvg" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--text1)">—</div>
+          <div style="font-size:14px;color:var(--text3)">/5</div>
+        </div>
+        <div id="csatTotal" style="font-size:12px;color:var(--text3)">— surveys</div>
+      </div>
+      <div class="card">
+        <div class="card-title">First-call resolution</div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+          <div id="csatSolved" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--green)">—</div>
+          <div style="font-size:14px;color:var(--text3)">solved</div>
+        </div>
+        <div style="font-size:12px;color:var(--text3)">Solved → avg <span id="csatAvgSolved" style="font-weight:500">—</span> · Unsolved → avg <span id="csatAvgUnsolved" style="font-weight:500;color:var(--red)">—</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Dissatisfied customers</div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+          <div id="csatLow" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--red)">—</div>
+          <div style="font-size:14px;color:var(--text3)">rated 1–2 ★</div>
+        </div>
+        <div style="font-size:12px;color:var(--text3)">93.5% of low ratings come from unsolved calls</div>
+      </div>
+    </div>
+
+    <!-- Charts row -->
+    <div class="two-col" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">CSAT trend</div>
+        <div class="card-sub">Weekly avg rating & solve rate over time</div>
+        <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
+          <canvas id="csatTrendChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Rating distribution</div>
+        <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
+        <div class="chart-wrap" style="height:200px" id="csatDistWrap">
+          <canvas id="csatDistChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Team leaderboard -->
+    <div class="card" style="padding:0;margin-bottom:16px">
+      <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
+        <div class="card-title">Team leaderboard</div>
+        <div class="card-sub">Ranked by avg CSAT · all teams with data in selected period</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="padding-left:20px">Team</th>
+              <th class="r">Surveys</th>
+              <th class="r">Avg Rating</th>
+              <th class="r">Solved %</th>
+              <th class="r">Low ratings %</th>
+            </tr>
+          </thead>
+          <tbody id="csatTeamTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Consultant tables -->
+    <div class="two-col">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
+          <div class="card-title" style="color:var(--green)">⭐ Top performers</div>
+          <div class="card-sub">Highest CSAT · min 10 surveys in period</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style="padding-left:16px">Consultant</th>
+              <th class="r">Rating</th>
+              <th class="r">Solved</th>
+              <th class="r">Surveys</th>
+            </tr></thead>
+            <tbody id="csatTopTable"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" style="padding:0">
+        <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
+          <div class="card-title" style="color:var(--red)">⚠ Needs support</div>
+          <div class="card-sub">Lowest CSAT · min 10 surveys in period</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style="padding-left:16px">Consultant</th>
+              <th class="r">Rating</th>
+              <th class="r">Solved</th>
+              <th class="r">Low %</th>
+            </tr></thead>
+            <tbody id="csatLowTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="footer">
     <span>hear.com CS Portal Analytics · <span id="footerRange">—</span></span>
     <span id="footerTs">—</span>
@@ -755,7 +872,180 @@ function getWoW(key) {
   return Math.round((cur - prev) / prev * 100);
 }
 
-// ── Chart defaults ───────────────────────────────────────────────────────────
+// ── CSAT ─────────────────────────────────────────────────────────────────────
+let csatData = null;
+
+async function loadCSAT() {
+  // Pass current date range so backend filters the 93k rows server-side
+  const url = `/api/csat?date_from=${state.from}&date_to=${state.to}`;
+  setStatus('csatStatus', 'loading', 'Loading surveys…');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { setStatus('csatStatus', 'error', 'Failed (' + r.status + ')'); return; }
+    csatData = await r.json();
+    if (!csatData.available) {
+      setStatus('csatStatus', 'error', csatData.note || 'No data');
+      document.getElementById('csatSection').style.opacity = '0.5';
+      return;
+    }
+    setStatus('csatStatus', 'loaded',
+      `${fmt(csatData.total)} surveys · ${state.from === state.to ? state.from : state.from + ' → ' + state.to}`);
+    renderCSAT(csatData);
+  } catch(e) {
+    setStatus('csatStatus', 'error', 'Error: ' + e.message);
+    console.warn('CSAT failed:', e);
+  }
+}
+
+function renderCSAT(d) {
+  if (!d || !d.available) return;
+
+  // KPI cards
+  const ratingColor = d.avg_rating >= 4.5 ? 'var(--green)' : d.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+  document.getElementById('csatAvg').textContent = d.avg_rating ?? '—';
+  document.getElementById('csatAvg').style.color = ratingColor;
+  document.getElementById('csatTotal').textContent = `${fmt(d.total)} surveys in period`;
+  document.getElementById('csatSolved').textContent = (d.solved_pct ?? '—') + '%';
+  document.getElementById('csatAvgSolved').textContent = d.avg_solved ?? '—';
+  document.getElementById('csatAvgUnsolved').textContent = d.avg_unsolved ?? '—';
+  document.getElementById('csatLow').textContent = (d.low_pct ?? '—') + '%';
+  document.getElementById('csatSub').textContent =
+    `${fmt(d.total)} surveys · ${d.date_from} → ${d.date_to} · ${d.avg_rating}/5 avg · ${d.solved_pct}% solved`;
+
+  // Trend chart
+  const trend = d.weekly_trend || [];
+  if (charts.csatTrend) charts.csatTrend.destroy();
+  if (trend.length === 0) {
+    document.getElementById('csatTrendWrap').innerHTML =
+      '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
+  } else {
+    if (!document.getElementById('csatTrendChart')) {
+      document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
+    }
+    charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
+      type: 'line',
+      data: {
+        labels: trend.map(t => fmtDate(t.week)),
+        datasets: [
+          {
+            label: 'Avg Rating',
+            data: trend.map(t => t.avg_rating),
+            borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
+            fill: true, pointRadius: 2, tension: .3, borderWidth: 2,
+            yAxisID: 'y',
+          },
+          {
+            label: 'Solved %',
+            data: trend.map(t => t.solved_pct),
+            borderColor: '#059669', backgroundColor: 'transparent',
+            pointRadius: 2, tension: .3, borderWidth: 2, borderDash: [4,3],
+            yAxisID: 'y2',
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
+          tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
+        },
+        scales: {
+          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
+          y: { min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts, title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
+          y2: { position: 'right', min: 0, max: 100, ticks: { font: { size: 10 }, callback: v => v + '%' }, grid: { display: false }, title: { display: true, text: 'Solved %', font: { size: 10 }, color: '#6b7280' } },
+        },
+        onClick: (evt, els) => {
+          if (!els.length) return;
+          const wk = trend[els[0].index]?.week;
+          if (wk) drillDate(wk); // drill into that week's Monday
+        },
+      },
+    });
+  }
+
+  // Rating distribution bar chart
+  const dist = d.rating_dist || [];
+  const distColors = { 1: '#dc2626', 2: '#f87171', 3: '#d97706', 4: '#2563eb', 5: '#059669' };
+  if (charts.csatDist) charts.csatDist.destroy();
+  if (!document.getElementById('csatDistChart')) {
+    document.getElementById('csatDistWrap').innerHTML = '<canvas id="csatDistChart"></canvas>';
+  }
+  charts.csatDist = new Chart(document.getElementById('csatDistChart'), {
+    type: 'bar',
+    data: {
+      labels: ['1 ★', '2 ★', '3 ★', '4 ★', '5 ★'],
+      datasets: [{
+        data: dist.map(d => d.count),
+        backgroundColor: dist.map(d => distColors[d.rating]),
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151',
+          callbacks: { label: ctx => `${fmt(ctx.raw)} surveys (${dist[ctx.dataIndex]?.pct}%)` },
+        },
+      },
+      scales: {
+        x: { ticks: { font: { size: 11 } }, grid: { display: false } },
+        y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+      },
+    },
+  });
+  document.getElementById('csatDistSub').textContent =
+    `${dist[4]?.pct}% gave 5★ · ${(dist[0]?.pct + dist[1]?.pct).toFixed(1)}% gave 1–2★`;
+
+  // Team leaderboard
+  const teams = d.teams || [];
+  document.getElementById('csatTeamTable').innerHTML = teams.map(t => {
+    const rClass = t.avg_rating >= 4.5 ? 'green' : t.avg_rating >= 3.5 ? 'amber' : 'red';
+    return `<tr>
+      <td style="padding-left:20px;font-size:13px;font-weight:500">${t.team}</td>
+      <td class="mono r">${fmt(t.total)}</td>
+      <td class="r">
+        <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+          <div style="width:60px;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden">
+            <div style="width:${(t.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rClass==='green'?'var(--green)':rClass==='amber'?'var(--amber)':'var(--red)'}"></div>
+          </div>
+          <span class="mono" style="font-size:12px">${t.avg_rating}</span>
+        </div>
+      </td>
+      <td class="mono r" style="color:${t.solved_pct >= 74 ? 'var(--green)' : t.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)'}">${t.solved_pct}%</td>
+      <td class="r"><span class="pill ${t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green'}">${t.low_pct}%</span></td>
+    </tr>`;
+  }).join('');
+
+  // Top consultants
+  document.getElementById('csatTopTable').innerHTML = (d.top_consultants || []).map(c =>
+    `<tr>
+      <td style="padding-left:16px">
+        <div style="font-size:13px;font-weight:500;color:var(--text1)">${c.name}</div>
+        <div style="font-size:11px;color:var(--text3)">${c.team}</div>
+      </td>
+      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--green)">${c.avg_rating}</span></td>
+      <td class="mono r" style="font-size:12px;color:var(--green)">${c.solved_pct}%</td>
+      <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
+    </tr>`
+  ).join('');
+
+  // Low consultants
+  document.getElementById('csatLowTable').innerHTML = (d.low_consultants || []).map(c =>
+    `<tr>
+      <td style="padding-left:16px">
+        <div style="font-size:13px;font-weight:500;color:var(--text1)">${c.name}</div>
+        <div style="font-size:11px;color:var(--text3)">${c.team}</div>
+      </td>
+      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${c.avg_rating < 2 ? 'var(--red)' : 'var(--amber)'}">${c.avg_rating}</span></td>
+      <td class="mono r" style="font-size:12px;color:var(--red)">${c.solved_pct}%</td>
+      <td class="r"><span class="pill ${c.low_pct > 30 ? 'red' : 'amber'}">${c.low_pct}%</span></td>
+    </tr>`
+  ).join('');
+}
+
+
 Chart.defaults.color = '#6b7280';
 Chart.defaults.borderColor = '#dde1ec';
 Chart.defaults.font.family = "'Inter', sans-serif";
@@ -779,6 +1069,8 @@ function applyFilters() {
   renderKPIs();
   renderTrend();
   renderTableIfArticleData();
+  // CSAT re-fetches from backend with new date range (server-side filtering of 93k rows)
+  loadCSAT();
 }
 
 function renderHeader() {
@@ -1468,6 +1760,7 @@ async function loadAllIntel() {
     loadVideos(),
     loadCategories(),
     loadInsights(),
+    loadCSAT(),
   ]);
 }
 

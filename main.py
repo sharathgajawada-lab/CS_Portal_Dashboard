@@ -3,8 +3,13 @@ CS Portal Analytics — main.py
 hear.com · Customer Support Intelligence
 
 CALL BUDGET:
-  Full refresh: 17 calls, fully sequential, 1s gap between each
-  Schedule: every 2 hours (not 5min/1hr separately)
+  Full refresh: 19 calls, fully sequential, 1s gap between each
+    - 9 time-series (KPIs)
+    - 5 top-n queries (articles, feedback, categories, video users, search users)
+    - 4 content timelines (top users from cs-portal-content-events)
+    - 2 feedback timelines (top 2 users from cs-portal-feedback-events)
+                        → unlocks helpful/not_helpful split per article
+  Schedule: every 2 hours
   Per page load: 0 calls — always served from cache
   On CMS error: serve stale cache, retry next cycle
 """
@@ -16,12 +21,164 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
-import httpx, os, asyncio, time, json, hashlib
+import httpx, os, asyncio, time, json, hashlib, csv
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 CMS_BASE      = "https://cms.audibene.net/api/metrics"
 API_KEY       = os.environ.get("CMS_API_KEY", "")
 DATA_START    = "2026-04-24"
+
+# ── CSAT Survey Data ────────────────────────────────────────────────────────────
+# Loaded once at startup from data/call_quality.csv
+# Each row: {rating, consultant_id, consultant_name, team, date, solved}
+_csat_rows: list = []
+
+def _load_csat_csv():
+    """Load call quality CSV from data/ directory. Silently skips if not found."""
+    global _csat_rows
+    paths = [
+        os.path.join(os.path.dirname(__file__), "data", "call_quality.csv"),
+        "/app/data/call_quality.csv",
+        "data/call_quality.csv",
+    ]
+    for path in paths:
+        if os.path.exists(path):
+            rows = []
+            with open(path, newline='', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        rows.append({
+                            "rating":   int(row["RATING"]),
+                            "cid":      row["CONSULTANT_ID"],
+                            "name":     row["CONSULTANT_NAME"],
+                            "team":     row["CONSULTANT_TEAM"].strip(),
+                            "date":     row["DATE"],
+                            "solved":   row["SOLVED"].strip().lower() == "true",
+                        })
+                    except (ValueError, KeyError):
+                        continue
+            _csat_rows = rows
+            print(f"[csat] loaded {len(rows)} survey rows from {path}", flush=True)
+            return
+    print("[csat] data/call_quality.csv not found — CSAT section will be empty", flush=True)
+
+def _compute_csat(date_from: str = "", date_to: str = "") -> dict:
+    """Compute all CSAT aggregations, optionally filtered by date range."""
+    rows = _csat_rows
+    if not rows:
+        return {"available": False, "note": "Upload data/call_quality.csv to enable CSAT section"}
+
+    # Date filter
+    if date_from and date_to:
+        rows = [r for r in rows if date_from <= r["date"] <= date_to]
+    elif date_from:
+        rows = [r for r in rows if r["date"] >= date_from]
+
+    if not rows:
+        return {"available": True, "total": 0, "filtered": True,
+                "date_from": date_from, "date_to": date_to,
+                "note": "No surveys in selected date range"}
+
+    total     = len(rows)
+    ratings   = [r["rating"] for r in rows]
+    avg       = round(sum(ratings) / total, 2)
+    solved    = sum(1 for r in rows if r["solved"])
+    solved_pct = round(solved / total * 100, 1)
+    low       = sum(1 for r in rows if r["rating"] <= 2)
+    low_pct   = round(low / total * 100, 1)
+
+    # Rating distribution
+    dist = Counter(ratings)
+    rating_dist = [{"rating": i, "count": dist.get(i, 0),
+                    "pct": round(dist.get(i, 0) / total * 100, 1)} for i in range(1, 6)]
+
+    # Solved vs unsolved avg
+    solved_rows   = [r for r in rows if r["solved"]]
+    unsolved_rows = [r for r in rows if not r["solved"]]
+    avg_solved   = round(sum(r["rating"] for r in solved_rows) / len(solved_rows), 2) if solved_rows else None
+    avg_unsolved = round(sum(r["rating"] for r in unsolved_rows) / len(unsolved_rows), 2) if unsolved_rows else None
+
+    # Weekly trend (group by ISO week)
+    week_data: dict = defaultdict(lambda: {"ratings": [], "solved": 0, "total": 0})
+    for r in rows:
+        try:
+            from datetime import date as dt_date
+            d = dt_date.fromisoformat(r["date"])
+            # Monday of that week
+            week_start = (d - __import__('datetime').timedelta(days=d.weekday())).isoformat()
+            week_data[week_start]["ratings"].append(r["rating"])
+            week_data[week_start]["total"] += 1
+            if r["solved"]:
+                week_data[week_start]["solved"] += 1
+        except Exception:
+            continue
+    weekly_trend = sorted([
+        {"week": wk,
+         "avg_rating": round(sum(v["ratings"]) / len(v["ratings"]), 2),
+         "solved_pct": round(v["solved"] / v["total"] * 100, 1),
+         "total": v["total"]}
+        for wk, v in week_data.items() if v["ratings"]
+    ], key=lambda x: x["week"])
+
+    # Team stats
+    team_data: dict = defaultdict(lambda: {"ratings": [], "solved": 0, "total": 0})
+    for r in rows:
+        t = r["team"]
+        team_data[t]["ratings"].append(r["rating"])
+        team_data[t]["total"] += 1
+        if r["solved"]:
+            team_data[t]["solved"] += 1
+    teams = sorted([
+        {"team": t,
+         "avg_rating": round(sum(v["ratings"]) / len(v["ratings"]), 2),
+         "solved_pct": round(v["solved"] / v["total"] * 100, 1),
+         "total": v["total"],
+         "low_pct": round(sum(1 for x in v["ratings"] if x <= 2) / v["total"] * 100, 1)}
+        for t, v in team_data.items()
+    ], key=lambda x: -x["total"])
+
+    # Consultant stats (min 10 surveys in range)
+    cons_data: dict = defaultdict(lambda: {"name": "", "team": "", "ratings": [], "solved": 0, "total": 0})
+    for r in rows:
+        c = r["cid"]
+        cons_data[c]["name"] = r["name"]
+        cons_data[c]["team"] = r["team"]
+        cons_data[c]["ratings"].append(r["rating"])
+        cons_data[c]["total"] += 1
+        if r["solved"]:
+            cons_data[c]["solved"] += 1
+    cons_list = [
+        {"cid": c,
+         "name": v["name"],
+         "team": v["team"],
+         "avg_rating": round(sum(v["ratings"]) / len(v["ratings"]), 2),
+         "solved_pct": round(v["solved"] / v["total"] * 100, 1),
+         "total": v["total"],
+         "low_pct": round(sum(1 for x in v["ratings"] if x <= 2) / v["total"] * 100, 1)}
+        for c, v in cons_data.items() if v["total"] >= 10
+    ]
+    top_consultants  = sorted(cons_list, key=lambda x: -x["avg_rating"])[:10]
+    low_consultants  = sorted(cons_list, key=lambda x: x["avg_rating"])[:10]
+
+    return {
+        "available":      True,
+        "filtered":       bool(date_from),
+        "date_from":      date_from,
+        "date_to":        date_to,
+        "total":          total,
+        "avg_rating":     avg,
+        "solved_pct":     solved_pct,
+        "low_pct":        low_pct,
+        "avg_solved":     avg_solved,
+        "avg_unsolved":   avg_unsolved,
+        "rating_dist":    rating_dist,
+        "weekly_trend":   weekly_trend,
+        "teams":          teams,
+        "top_consultants": top_consultants,
+        "low_consultants": low_consultants,
+    }
+
 CACHE_TTL     = 7200   # 2 hr fresh
 STALE_TTL     = 86400  # 24 hr stale — serve old data if CMS is down
 REFRESH_SEC   = 7200   # refresh every 2 hours
@@ -208,16 +365,39 @@ async def full_refresh():
                 users = users[:4]
                 break
 
-        # ── Calls 15-18: content timelines ───────────────────────────────────
+        # ── Calls 15-18: content timelines + feedback timelines ──────────────
         all_events = []
+        fb_events  = []   # feedback timeline events (separate project)
         for uid in users:
             tl = await _timeline("cs-portal-content-events", uid, limit=500)
             all_events.extend(tl)
             print(f"[refresh] timeline {uid[:16]}: {len(tl)} events", flush=True)
 
-        print(f"[refresh] intel calls done — {len(all_events)} total events", flush=True)
+        # Fetch feedback timelines for top 2 users (within call budget)
+        for uid in users[:2]:
+            tl = await _timeline("cs-portal-feedback-events", uid, limit=200)
+            fb_events.extend(tl)
+            print(f"[refresh] fb-timeline {uid[:16]}: {len(tl)} events", flush=True)
+
+        print(f"[refresh] intel calls done — {len(all_events)} content events, {len(fb_events)} feedback events", flush=True)
 
         sorted_ev = sorted(all_events, key=lambda e: e.get("timestamp", 0))
+
+        # ── Extract feedback sentiment from feedback timelines ────────────────
+        fb_helpful     = defaultdict(int)   # aid -> helpful count
+        fb_not_helpful = defaultdict(int)   # aid -> not_helpful count
+        for ev in fb_events:
+            if _etype(ev) != "article.feedback":
+                continue
+            props = _props(ev)
+            aid   = ev.get("item_id") or props.get("articleKey") or ""
+            val   = props.get("value", "")
+            if not aid:
+                continue
+            if val == "helpful":
+                fb_helpful[aid] += 1
+            elif val == "not_helpful":
+                fb_not_helpful[aid] += 1
 
         # ── Extract videos ────────────────────────────────────────────────────
         video_counter = Counter()
@@ -328,6 +508,55 @@ async def full_refresh():
             avg_dur = median_dur = p90_dur = 0
             depths = {}
 
+        # ── daily_avg: avg session duration grouped by date ───────────────────
+        daily_dur_map = defaultdict(list)  # date -> [seconds]
+        for sid, evts in sessions_map.items():
+            if sid == "nosession": continue
+            evts_s = sorted(evts, key=lambda e: e.get("timestamp", 0))
+            ts_list = [e.get("timestamp",0) for e in evts_s if e.get("timestamp")]
+            if len(ts_list) >= 2:
+                dur = min((max(ts_list)-min(ts_list))/1000, 28800)
+                d   = datetime.utcfromtimestamp(min(ts_list)/1000).strftime("%Y-%m-%d")
+                daily_dur_map[d].append(round(dur))
+        daily_avg = [
+            {"date": d, "avg_seconds": round(sum(v)/len(v))}
+            for d, v in sorted(daily_dur_map.items())
+        ]
+
+        # ── activity_breakdown: avg seconds per event type per session ────────
+        event_type_times = defaultdict(list)
+        for sid, evts in sessions_map.items():
+            if sid == "nosession": continue
+            evts_s = sorted(evts, key=lambda e: e.get("timestamp", 0))
+            # Time between consecutive events of each type
+            for i, ev in enumerate(evts_s[:-1]):
+                t0 = ev.get("timestamp", 0)
+                t1 = evts_s[i+1].get("timestamp", 0)
+                gap = (t1 - t0) / 1000
+                if 2 <= gap <= 600:  # ignore sub-2s and >10min gaps
+                    event_type_times[_etype(ev)].append(gap)
+        activity_keys = ["article.viewed", "search.performed", "video.watched", "category.viewed"]
+        activity_labels = {"article.viewed":"Reading","search.performed":"Searching",
+                           "video.watched":"Watching","category.viewed":"Browsing"}
+        total_act_time = sum(
+            sum(event_type_times[k]) for k in activity_keys if event_type_times[k]
+        )
+        activity_breakdown = []
+        for k in activity_keys:
+            times_k = event_type_times.get(k, [])
+            if not times_k: continue
+            avg_s = round(sum(times_k)/len(times_k))
+            pct   = round(sum(times_k)/max(total_act_time,1)*100)
+            activity_breakdown.append({"label": activity_labels[k], "avg_seconds": avg_s, "pct_time": pct})
+        activity_breakdown.sort(key=lambda x: -x["avg_seconds"])
+
+        # ── pct_with_logout: sessions that have an explicit logout ────────────
+        sessions_with_logout = sum(
+            1 for sid, evts in sessions_map.items()
+            if sid != "nosession" and any(_etype(e) == "auth.logout" for e in evts)
+        )
+        pct_logout = round(sessions_with_logout / max(n_sess, 1) * 100, 1)
+
         # ── KPI-derived metrics (from batch — zero extra calls) ───────────────
         def series_total(key):
             return sum(p.get("count",0) for p in batch.get(key,{}).get("series",[]))
@@ -378,22 +607,36 @@ async def full_refresh():
             revisits = article_revisits.get(aid, 0)
             next_arts = [{"id":k,"label":k.replace("-"," ").title(),"count":v}
                          for k,v in sorted(article_next.get(aid,{}).items(),key=lambda x:-x[1])[:3]]
+            # Feedback sentiment from timeline sample
+            hlp     = fb_helpful.get(aid, 0)
+            not_hlp = fb_not_helpful.get(aid, 0)
+            hlp_total = hlp + not_hlp
+            hlp_pct = round(hlp / hlp_total * 100, 1) if hlp_total > 0 else None
+            # Use timeline sentiment if available, else fall back to top-n count only
+            fb_total = hlp_total if hlp_total > 0 else fb
             # Health score: views(40) + time_spent(30) + feedback(30)
             score_v = min(40, round(views/max(total_views,1)*400))
             score_t = min(30, round(avg_t/300*30)) if avg_t else 10
-            score_f = min(30, fb * 5) if fb > 0 else 10
-            # Penalty for high bounce
+            score_f = min(30, fb_total * 5) if fb_total > 0 else 10
+            # Bonus for high helpful rate
+            if hlp_pct and hlp_pct >= 80: score_f = min(30, score_f + 5)
+            # Penalty for high bounce or low helpful rate
             if bounce_rate and bounce_rate > 60: score_t = max(0, score_t - 15)
+            if hlp_pct and hlp_pct < 40: score_f = max(0, score_f - 10)
             health = score_v + score_t + score_f
-            # Priority flag: high views + high bounce or low feedback
-            needs_attention = (views > 50 and ((bounce_rate and bounce_rate > 60) or fb == 0))
+            # Priority flag: high views + high bounce or no feedback or low helpful rating
+            needs_attention = (views > 50 and (
+                (bounce_rate and bounce_rate > 60)
+                or fb_total == 0
+                or (hlp_pct is not None and hlp_pct < 50)
+            ))
             articles.append({
                 "id": aid,
                 "label": aid.replace("-"," ").replace("_"," ").title(),
                 "views": views,
                 "share_pct": round(views/total_views*100,1) if total_views else 0,
-                "helpful": 0, "not_helpful": 0, "helpful_pct": None,
-                "total_feedback": fb,
+                "helpful": hlp, "not_helpful": not_hlp, "helpful_pct": hlp_pct,
+                "total_feedback": fb_total,
                 "avg_seconds": avg_t,
                 "min_seconds": min_t,
                 "max_seconds": max_t,
@@ -479,10 +722,10 @@ async def full_refresh():
                 "avg_seconds":     avg_dur,
                 "median_seconds":  median_dur,
                 "p90_seconds":     p90_dur,
-                "pct_with_logout": 0,
+                "pct_with_logout": pct_logout,
                 "depth_distribution": dict(depths),
-                "activity_breakdown": [],
-                "daily_avg": [],
+                "activity_breakdown": activity_breakdown,
+                "daily_avg": daily_avg,
                 "computed_at": datetime.utcnow().isoformat(),
                 "note": "From timeline sample of top video/search users.",
             },
@@ -513,6 +756,7 @@ async def _refresh_loop():
 @asynccontextmanager
 async def lifespan(app):
     load_cache_from_disk()  # restore cache immediately on startup
+    _load_csat_csv()        # load call quality survey data
     t = asyncio.create_task(_refresh_loop())
     yield
     t.cancel()
@@ -571,6 +815,11 @@ async def api_categories():
     data, _ = cache_get("intel:all")
     return (data or {}).get("categories", {"categories":[]})
 
+@app.get("/api/csat")
+async def api_csat(date_from: str = "", date_to: str = ""):
+    """Call Quality Survey data, optionally filtered by date range."""
+    return _compute_csat(date_from=date_from, date_to=date_to)
+
 @app.get("/health")
 async def health():
     b, bf = cache_get("batch:all")
@@ -591,7 +840,7 @@ async def health():
             "categories":len(intel.get("categories",{}).get("categories",[])),
             "queries":   len(intel.get("search",{}).get("top_queries",[])),
         },
-        "call_budget":   "17 sequential calls per refresh, 1s gap each, every 2 hours",
+        "call_budget":   "19 sequential calls per refresh, 1s gap each, every 2 hours",
         "ts":            datetime.utcnow().isoformat(),
     }
 
