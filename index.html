@@ -2064,15 +2064,13 @@ async function loadInsights() {
     const r = await fetch('/api/insights');
     if (!r.ok) { console.warn('Insights failed:', r.status); return; }
     const d = await r.json();
-    // Build intelData once insights have arrived
-    intelData = {
-      articles: articleData,
-      sessions: sessionData,
-      insights: d,
-    };
+    intelData = { articles: articleData, sessions: sessionData, insights: d };
     renderInsights(intelData);
-    // Also update the hour grid with real data instead of the proxy
-    renderHourGridFromInsights(d.hour_distribution || {});
+    // Use hour distribution from full sessions if available, else fall back to insights
+    const hourDist = (sessionData?.hour_distribution && Object.keys(sessionData.hour_distribution).length > 0)
+      ? sessionData.hour_distribution
+      : (d.hour_distribution || {});
+    renderHourGridFromInsights(hourDist);
   } catch(e) { console.warn('Insights failed:', e); }
 }
 
