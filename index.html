@@ -765,17 +765,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
 <script>
 'use strict';
 
-// ── Version check — force reload if browser has cached old version ────────────
-const APP_VERSION = '2.0';
-if (sessionStorage.getItem('app_version') !== APP_VERSION) {
-  sessionStorage.setItem('app_version', APP_VERSION);
-  // Only force reload once per session to avoid infinite loop
-  if (!sessionStorage.getItem('reloaded_' + APP_VERSION)) {
-    sessionStorage.setItem('reloaded_' + APP_VERSION, '1');
-    window.location.reload(true);
-  }
-}
-
 // ── Constants ────────────────────────────────────────────────────────────────
 const DATA_START = '2026-04-24';
 // Update this to the real CS portal article base URL once confirmed
