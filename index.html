@@ -30,18 +30,20 @@
   --teal:      #0d9488;
   --r:         10px;
   --r-sm:      6px;
-  --shadow:    0 2px 12px rgba(0,0,0,.08);
+  --shadow:    0 1px 8px rgba(0,0,0,.07);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0 }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
 
-body {
+html, body {
   font-family: 'Inter', sans-serif;
   background: var(--bg);
   color: var(--text1);
   font-size: 14px;
   line-height: 1.5;
   min-height: 100vh;
+  overflow-x: hidden; /* prevent horizontal scroll */
+  width: 100%;
 }
 
 /* ── Loading ── */
@@ -52,53 +54,55 @@ body {
 }
 .loading-brand { margin-bottom: 4px }
 #loading .bar-wrap { width: 220px; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden }
-#loading .bar { height: 100%; width: 0; background: #2563eb;
-  border-radius: 2px; transition: width .4s ease }
+#loading .bar { height: 100%; width: 0; background: #2563eb; border-radius: 2px; transition: width .4s ease }
 #loading p { font-size: 13px; color: var(--text2); letter-spacing: .02em; margin: 0 }
 
-/* ── Layout ── */
-.app { max-width: 1440px; margin: 0 auto; padding: 0 24px 48px }
+/* ── App wrapper ── */
+.app {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px 48px;
+  overflow-x: hidden;
+}
 
 /* ── Header ── */
 .header {
   position: sticky; top: 0; z-index: 100;
-  background: rgba(244,245,247,.95); backdrop-filter: blur(12px);
+  background: rgba(244,245,247,.96); backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
-  padding: 12px 24px; margin: 0 -24px;
-  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 10px 20px; margin: 0 -20px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  width: calc(100% + 40px);
 }
-.header-brand { display: flex; flex-direction: column; gap: 1px; min-width: 180px }
-.header-brand .title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700;
-  background: linear-gradient(135deg, #4f8ef7, #a78bfa); -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent }
-.header-brand .subtitle { font-size: 11px; color: var(--text3); letter-spacing: .04em }
-.header-right { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: wrap }
+.header-brand { display: flex; flex-direction: column; gap: 1px; min-width: 140px; flex-shrink: 0 }
+.header-brand .subtitle { font-size: 10px; color: var(--text3); letter-spacing: .04em }
+.header-right { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; flex-wrap: wrap }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green);
-  box-shadow: 0 0 8px var(--green); animation: pulse-dot 2s ease infinite }
+  box-shadow: 0 0 8px var(--green); animation: pulse-dot 2s ease infinite; flex-shrink: 0 }
 @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
 .last-updated { font-size: 11px; color: var(--text3) }
 
 /* ── Date controls ── */
-.date-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+.date-controls { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; flex: 1; min-width: 0 }
 .qbtn {
-  height: 30px; padding: 0 12px; border-radius: var(--r-sm);
+  height: 28px; padding: 0 10px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background: var(--surface2);
-  color: var(--text2); font-size: 12px; font-family: 'Inter', sans-serif;
-  cursor: pointer; transition: all .15s;
+  color: var(--text2); font-size: 12px; cursor: pointer; transition: all .15s; white-space: nowrap;
 }
 .qbtn:hover { border-color: var(--border2); color: var(--text1) }
 .qbtn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue) }
 .date-sep { color: var(--text3); font-size: 12px; padding: 0 2px }
 input[type=date] {
-  height: 30px; padding: 0 10px; border-radius: var(--r-sm);
+  height: 28px; padding: 0 8px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background: var(--surface2);
-  color: var(--text1); font-size: 12px; font-family: 'Inter', sans-serif;
-  color-scheme: light;
+  color: var(--text1); font-size: 12px; color-scheme: light;
+  min-width: 0; max-width: 130px;
 }
 .apply-btn {
-  height: 30px; padding: 0 14px; border-radius: var(--r-sm);
+  height: 28px; padding: 0 12px; border-radius: var(--r-sm);
   border: none; background: var(--blue); color: #fff;
-  font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity .15s;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity .15s; white-space: nowrap;
 }
 .apply-btn:hover { opacity: .85 }
 
@@ -112,7 +116,7 @@ input[type=date] {
 .filter-bar.visible { display: flex }
 .filter-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  background: rgba(79,142,247,.15); border: 1px solid rgba(79,142,247,.4);
+  background: rgba(37,99,235,.15); border: 1px solid rgba(37,99,235,.4);
   border-radius: 20px; padding: 2px 10px; font-size: 11px; font-weight: 500;
 }
 .filter-chip button { background: none; border: none; cursor: pointer; color: var(--blue); font-size: 12px; padding: 0 0 0 2px }
@@ -121,237 +125,219 @@ input[type=date] {
 /* ── Alert bar ── */
 .alerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px }
 .alert {
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  border-radius: var(--r-sm); font-size: 13px; cursor: pointer;
-  transition: opacity .15s;
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+  border-radius: var(--r-sm); font-size: 13px; cursor: pointer; transition: opacity .15s;
 }
 .alert:hover { opacity: .85 }
-.alert.critical { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.3); color: var(--red) }
-.alert.warning  { background: rgba(251,191,36,.1);  border: 1px solid rgba(251,191,36,.3);  color: var(--amber) }
-.alert.info     { background: rgba(79,142,247,.1);  border: 1px solid rgba(79,142,247,.3);  color: var(--blue) }
-.alert .badge { font-size: 15px }
-.alert .msg { flex: 1 }
-.alert .arrow { font-size: 11px; opacity: .6 }
+.alert.critical { background: rgba(220,38,38,.08); border: 1px solid rgba(220,38,38,.2); color: var(--red) }
+.alert.warning  { background: rgba(217,119,6,.08);  border: 1px solid rgba(217,119,6,.2);  color: var(--amber) }
+.alert.info     { background: rgba(37,99,235,.08);  border: 1px solid rgba(37,99,235,.2);  color: var(--blue) }
+.alert .badge { font-size: 14px }
+.alert .msg { flex: 1; min-width: 0 }
+.alert .arrow { font-size: 11px; opacity: .6; flex-shrink: 0 }
 
 /* ── KPI row ── */
-.kpi-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px }
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
 .kpi {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r); padding: 18px 20px; cursor: pointer;
-  transition: all .2s; position: relative; overflow: hidden;
+  border-radius: var(--r); padding: 14px 16px; cursor: pointer;
+  transition: all .2s; position: relative; overflow: hidden; min-width: 0;
 }
 .kpi::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
   background: var(--kpi-accent, var(--blue));
 }
 .kpi:hover { border-color: var(--border2); transform: translateY(-1px); box-shadow: var(--shadow) }
 .kpi.active { border-color: var(--kpi-accent, var(--blue)); background: var(--surface2) }
 .kpi.faded { opacity: .3 }
-.kpi-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 8px }
-.kpi-value { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 600; color: var(--text1); line-height: 1; margin-bottom: 6px }
-.kpi-sub { font-size: 11px; color: var(--text3); margin-bottom: 4px }
-.kpi-wow { font-size: 12px; font-weight: 500 }
+.kpi-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 6px }
+.kpi-value { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 600; color: var(--text1); line-height: 1; margin-bottom: 4px }
+.kpi-sub { font-size: 11px; color: var(--text3); margin-bottom: 3px }
+.kpi-wow { font-size: 11px; font-weight: 500 }
 .up   { color: var(--green) }
 .down { color: var(--red)   }
 .flat { color: var(--text3) }
 
-/* ── Section ── */
-.section { margin-bottom: 28px }
-.section-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px }
-.section-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; color: var(--text1) }
+/* ── Sections ── */
+.section { margin-bottom: 24px }
+.section-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap }
+.section-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 700; color: var(--text1) }
 .section-sub { font-size: 12px; color: var(--text3) }
 
 /* ── Cards ── */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r); padding: 20px; box-shadow: var(--shadow);
+  border-radius: var(--r); padding: 16px; box-shadow: var(--shadow);
+  min-width: 0; overflow: hidden;
 }
-.card-title { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600; color: var(--text1); margin-bottom: 4px }
-.card-sub   { font-size: 11px; color: var(--text3); margin-bottom: 16px }
-.two-col    { display: grid; grid-template-columns: 1fr 1fr; gap: 16px }
-.three-col  { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px }
+.card-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; color: var(--text1); margin-bottom: 3px }
+.card-sub   { font-size: 11px; color: var(--text3); margin-bottom: 12px }
+
+/* ── Grid layouts ── */
+.two-col   { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px }
+.four-col  { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px }
 
 /* ── Chart container ── */
-.chart-wrap { position: relative; width: 100% }
-.chart-wrap canvas { width: 100% !important }
+.chart-wrap { position: relative; width: 100%; min-width: 0 }
+.chart-wrap canvas { width: 100% !important; max-width: 100% }
 
 /* ── Tables ── */
-.table-wrap { overflow-x: auto; border-radius: var(--r-sm) }
-table { width: 100%; border-collapse: collapse }
+.table-wrap { overflow-x: auto; border-radius: var(--r-sm); max-width: 100% }
+table { width: 100%; border-collapse: collapse; table-layout: auto }
 th {
   text-align: left; font-size: 10px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: .1em; color: var(--text3);
-  padding: 8px 12px; border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--text3);
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+  white-space: nowrap; background: var(--surface);
+  position: sticky; top: 0; z-index: 1;
 }
 th.r { text-align: right }
-td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text2) }
+td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text2); max-width: 200px; overflow: hidden; text-overflow: ellipsis }
 td.r { text-align: right }
 td.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text1) }
 td.mono.r { text-align: right }
 tr:hover td { background: var(--surface2) }
 tr:last-child td { border-bottom: none }
-tr.row-critical td { background: rgba(248,113,113,.05) }
-tr.row-warning  td { background: rgba(251,191,36,.05) }
-tr.row-good     td { background: rgba(52,211,153,.05) }
+tr.row-critical td { background: rgba(220,38,38,.04) }
+tr.row-warning  td { background: rgba(217,119,6,.04) }
+tr.row-good     td { background: rgba(5,150,105,.04) }
 tr.row-active   td { background: var(--blue-dim) }
 
-/* ── Health score ── */
-.score { display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; border-radius: 50%; font-family: 'JetBrains Mono', monospace;
-  font-size: 12px; font-weight: 600; }
-.score.good     { background: var(--green-dim); color: var(--green) }
-.score.ok       { background: var(--amber-dim); color: var(--amber) }
-.score.bad      { background: var(--red-dim);   color: var(--red)   }
+/* ── Score badge ── */
+.score { display:inline-flex; align-items:center; justify-content:center;
+  width:32px; height:32px; border-radius:50%; font-family:'JetBrains Mono',monospace;
+  font-size:11px; font-weight:600 }
+.score.good { background:var(--green-dim); color:var(--green) }
+.score.ok   { background:var(--amber-dim); color:var(--amber) }
+.score.bad  { background:var(--red-dim);   color:var(--red)   }
 
-/* ── Pill badges ── */
-.pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
-  border-radius: 20px; font-size: 11px; font-weight: 500; white-space: nowrap }
-.pill.green  { background: var(--green-dim); color: var(--green) }
-.pill.red    { background: var(--red-dim);   color: var(--red)   }
-.pill.amber  { background: var(--amber-dim); color: var(--amber) }
-.pill.blue   { background: var(--blue-dim);  color: var(--blue)  }
-.pill.grey   { background: var(--surface3);  color: var(--text3) }
-.pill.purple { background: rgba(167,139,250,.15); color: var(--purple) }
-
-/* ── Sparkline bars ── */
-.spark { display: flex; align-items: flex-end; gap: 1px; height: 20px; padding: 2px 0 }
-.spark-bar { flex: 1; border-radius: 1px; min-height: 2px; background: var(--blue); opacity: .7 }
+/* ── Pills ── */
+.pill { display:inline-flex; align-items:center; gap:3px; padding:2px 7px;
+  border-radius:20px; font-size:11px; font-weight:500; white-space:nowrap }
+.pill.green  { background:var(--green-dim); color:var(--green) }
+.pill.red    { background:var(--red-dim);   color:var(--red)   }
+.pill.amber  { background:var(--amber-dim); color:var(--amber) }
+.pill.blue   { background:var(--blue-dim);  color:var(--blue)  }
+.pill.grey   { background:var(--surface3);  color:var(--text3) }
+.pill.purple { background:rgba(124,58,237,.12); color:var(--purple) }
 
 /* ── Share bar ── */
 .sort-arrow { font-size:10px; color:var(--text3); margin-left:2px }
 thead th:hover .sort-arrow { color:var(--text2) }
-.share-track { flex: 1; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden; min-width: 50px }
-.share-fill  { height: 100%; border-radius: 2px; background: var(--blue) }
+.share-track { flex:1; height:3px; background:var(--surface3); border-radius:2px; overflow:hidden; min-width:40px; max-width:80px }
+.share-fill  { height:100%; border-radius:2px }
+.share-bar   { display:flex; align-items:center; gap:6px }
 
 /* ── Heatmap ── */
-.heatmap { display: grid; grid-template-columns: repeat(28, 1fr); gap: 3px; margin: 8px 0 }
+.heatmap { display:grid; grid-template-columns:repeat(28,1fr); gap:2px; margin:6px 0; width:100% }
 .hm-cell {
-  aspect-ratio: 1; border-radius: 3px; background: var(--surface3);
-  cursor: pointer; transition: transform .1s; position: relative;
+  aspect-ratio:1; border-radius:2px; background:var(--surface3);
+  cursor:pointer; transition:transform .1s; position:relative; min-width:0;
 }
-.hm-cell:hover { transform: scale(1.3); z-index: 10 }
+.hm-cell:hover { transform:scale(1.3); z-index:10 }
 .hm-cell:hover::after {
-  content: attr(data-tip); position: absolute; bottom: calc(100% + 4px); left: 50%;
-  transform: translateX(-50%); background: var(--surface3); border: 1px solid var(--border);
-  color: var(--text1); font-size: 10px; padding: 3px 7px; border-radius: 4px;
-  white-space: nowrap; pointer-events: none; z-index: 20;
+  content:attr(data-tip); position:absolute; bottom:calc(100% + 4px); left:50%;
+  transform:translateX(-50%); background:var(--surface); border:1px solid var(--border);
+  color:var(--text1); font-size:10px; padding:3px 7px; border-radius:4px;
+  white-space:nowrap; pointer-events:none; z-index:20;
 }
-.hm-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); margin-top: 4px }
+.hm-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--text3); margin-top:3px }
 
-/* ── Hour heatmap ── */
-.hour-grid { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px }
-.hour-cell {
-  height: 24px; border-radius: 3px; background: var(--surface3);
-  cursor: default; position: relative;
-}
-.hour-cell:hover::after {
-  content: attr(data-tip); position: absolute; bottom: calc(100% + 4px); left: 50%;
-  transform: translateX(-50%); background: var(--surface3); border: 1px solid var(--border);
-  color: var(--text1); font-size: 10px; padding: 3px 7px; border-radius: 4px;
-  white-space: nowrap; pointer-events: none; z-index: 20;
-}
-.hour-labels { display: grid; grid-template-columns: repeat(24,1fr); gap: 2px; margin-top: 3px }
-.hour-label  { font-size: 9px; color: var(--text3); text-align: center }
-
-/* ── Article drawer ── */
+/* ── Drawer ── */
 .drawer-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.6);
-  backdrop-filter: blur(4px); z-index: 200; display: none;
+  position:fixed; inset:0; background:rgba(0,0,0,.5);
+  backdrop-filter:blur(4px); z-index:200; display:none;
 }
-.drawer-overlay.open { display: block }
+.drawer-overlay.open { display:block }
 .drawer {
-  position: fixed; right: 0; top: 0; bottom: 0; width: min(540px,100vw);
-  background: var(--surface); border-left: 1px solid var(--border);
-  z-index: 201; overflow-y: auto; padding: 24px;
-  transform: translateX(100%); transition: transform .25s ease;
+  position:fixed; right:0; top:0; bottom:0; width:min(520px,95vw);
+  background:var(--surface); border-left:1px solid var(--border);
+  z-index:201; overflow-y:auto; padding:20px;
+  transform:translateX(100%); transition:transform .25s ease;
 }
-.drawer.open { transform: translateX(0) }
-.drawer-close { position: absolute; top: 16px; right: 16px; background: var(--surface2);
-  border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
-  color: var(--text2); cursor: pointer; font-size: 13px }
-.drawer-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 4px; padding-right: 48px }
-.drawer-sub   { font-size: 12px; color: var(--text3); margin-bottom: 20px }
-.drawer-section { margin-bottom: 20px }
-.drawer-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 10px }
-.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
-.stat-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px }
-.stat-box .label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px }
-.stat-box .value { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 600 }
+.drawer.open { transform:translateX(0) }
+.drawer-close { position:absolute; top:14px; right:14px; background:var(--surface2);
+  border:1px solid var(--border); border-radius:6px; padding:3px 10px;
+  color:var(--text2); cursor:pointer; font-size:12px }
+.drawer-title { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; margin-bottom:4px; padding-right:44px }
+.drawer-sub   { font-size:12px; color:var(--text3); margin-bottom:16px }
+.drawer-section { margin-bottom:16px }
+.drawer-section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:8px }
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px }
+.stat-box { background:var(--surface2); border:1px solid var(--border); border-radius:var(--r-sm); padding:10px }
+.stat-box .label { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px }
+.stat-box .value { font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:600 }
 
-/* ── Export button ── */
+/* ── Export ── */
 .export-btn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;
-  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-sm);
-  color: var(--text2); font-size: 12px; cursor: pointer; transition: all .15s; margin-left: auto;
+  display:inline-flex; align-items:center; gap:5px; padding:5px 12px;
+  background:var(--surface2); border:1px solid var(--border); border-radius:var(--r-sm);
+  color:var(--text2); font-size:12px; cursor:pointer; transition:all .15s; white-space:nowrap;
 }
-.export-btn:hover { border-color: var(--border2); color: var(--text1) }
+.export-btn:hover { border-color:var(--border2); color:var(--text1) }
 
-/* ── Section note ── */
-.note { font-size: 11px; color: var(--text3); background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--r-sm); padding: 8px 12px; margin-top: 12px; display: flex; gap: 6px; align-items: flex-start }
+/* ── Notes ── */
+.note { font-size:11px; color:var(--text3); background:var(--surface2); border:1px solid var(--border);
+  border-radius:var(--r-sm); padding:7px 10px; margin-top:10px; display:flex; gap:6px; align-items:flex-start }
 
 /* ── Empty state ── */
-.empty { text-align: center; padding: 40px 20px; color: var(--text3); font-size: 13px }
-.empty span { font-size: 32px; display: block; margin-bottom: 8px }
+.empty { text-align:center; padding:32px 16px; color:var(--text3); font-size:12px }
+.empty span { font-size:28px; display:block; margin-bottom:6px }
 
-/* ── Trend line mini ── */
-.trend-line { display: inline-flex; align-items: center; gap: 3px; font-size: 11px }
-
-/* ── Section status indicators ── */
+/* ── Status badges ── */
 .section-status {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 11px; padding: 3px 10px; border-radius: 20px;
-  font-weight: 500; margin-left: 8px;
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:11px; padding:2px 9px; border-radius:20px; font-weight:500;
 }
-.section-status.loading {
-  background: rgba(79,142,247,.15); color: var(--blue);
-  border: 1px solid rgba(79,142,247,.3);
-}
-.section-status.loaded {
-  background: var(--green-dim); color: var(--green);
-  border: 1px solid rgba(52,211,153,.3);
-}
-.section-status.error {
-  background: var(--red-dim); color: var(--red);
-  border: 1px solid rgba(248,113,113,.3);
-}
+.section-status.loading { background:rgba(37,99,235,.12); color:var(--blue); border:1px solid rgba(37,99,235,.25) }
+.section-status.loaded  { background:var(--green-dim); color:var(--green); border:1px solid rgba(5,150,105,.25) }
+.section-status.error   { background:var(--red-dim); color:var(--red); border:1px solid rgba(220,38,38,.25) }
 .spinner {
-  width: 10px; height: 10px; border-radius: 50%;
-  border: 2px solid currentColor; border-top-color: transparent;
-  animation: spin .7s linear infinite; display: inline-block;
+  width:9px; height:9px; border-radius:50%;
+  border:2px solid currentColor; border-top-color:transparent;
+  animation:spin .7s linear infinite; display:inline-block;
 }
-@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes spin { to { transform:rotate(360deg) } }
 
-/* ── Insights row ── */
-.insights-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-bottom:24px }
-.insight-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:16px 20px }
-.insight-card .label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:6px }
-.insight-card .value { font-family:'JetBrains Mono',monospace; font-size:24px; font-weight:600; color:var(--text1); margin-bottom:4px }
+/* ── Insights ── */
+.insights-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; margin-bottom:20px }
+.insight-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px }
+.insight-card .label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:5px }
+.insight-card .value { font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:600; color:var(--text1); margin-bottom:3px }
 .insight-card .sub { font-size:11px; color:var(--text3) }
-.digest-card { background:var(--surface2); border:1px solid var(--border); border-radius:var(--r); padding:16px 20px; margin-bottom:24px; font-size:13px; color:var(--text2); line-height:1.6 }
-.digest-card .title { font-family:'Syne',sans-serif; font-size:14px; font-weight:700; color:var(--text1); margin-bottom:8px }
-.priority-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border) }
-.priority-issue { font-size:11px; padding:2px 8px; border-radius:20px; font-weight:500 }
-.priority-issue.bounce { background:rgba(248,113,113,.15); color:var(--red) }
-.priority-issue.no-feedback { background:rgba(251,191,36,.15); color:var(--amber) }
-.priority-issue.low-time { background:rgba(167,139,250,.15); color:var(--purple) }
-.priority-issue.watch { background:var(--surface3); color:var(--text3) }
+.digest-card { background:var(--surface2); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; margin-bottom:20px; font-size:12px; color:var(--text2); line-height:1.6 }
+.digest-card .title { font-family:'Syne',sans-serif; font-size:13px; font-weight:700; color:var(--text1); margin-bottom:6px }
+.priority-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border) }
+.priority-issue { font-size:11px; padding:2px 7px; border-radius:20px; font-weight:500 }
+.priority-issue.bounce      { background:rgba(220,38,38,.12); color:var(--red) }
+.priority-issue.no-feedback { background:rgba(217,119,6,.12); color:var(--amber) }
+.priority-issue.low-time    { background:rgba(124,58,237,.12); color:var(--purple) }
+.priority-issue.watch       { background:var(--surface3); color:var(--text3) }
 
 /* ── Footer ── */
-.footer { padding: 24px 0; border-top: 1px solid var(--border); display: flex;
-  align-items: center; justify-content: space-between; font-size: 11px; color: var(--text3) }
+.footer { padding:20px 0; border-top:1px solid var(--border); display:flex;
+  align-items:center; justify-content:space-between; font-size:11px; color:var(--text3) }
 
 /* ── Responsive ── */
-@media (max-width: 900px) {
-  .two-col, .three-col { grid-template-columns: 1fr }
-  .kpi-row { grid-template-columns: repeat(2, 1fr) }
+@media (max-width: 1024px) {
+  .three-col { grid-template-columns: 1fr 1fr }
+  .four-col  { grid-template-columns: 1fr 1fr }
 }
-@media (max-width: 600px) {
+@media (max-width: 768px) {
+  .two-col, .three-col, .four-col { grid-template-columns: 1fr }
+  .kpi-row { grid-template-columns: repeat(2,1fr) }
   .app { padding: 0 12px 32px }
-  .header { padding: 10px 12px; margin: 0 -12px }
+  .header { padding: 8px 12px; margin: 0 -12px; width: calc(100% + 24px) }
+}
+@media (max-width: 480px) {
   .kpi-row { grid-template-columns: 1fr 1fr }
-  .heatmap { grid-template-columns: repeat(14, 1fr) }
+  .heatmap { grid-template-columns: repeat(14,1fr) }
 }
 </style>
 </head>
@@ -472,14 +458,14 @@ thead th:hover .sort-arrow { color:var(--text2) }
   </div>
 
   <!-- Categories + Videos -->
+  <!-- Content categories + Key insights -->
   <div class="two-col section" id="catVideoSection">
-    <!-- Categories + Videos -->
     <div>
       <div class="section-header">
         <div class="section-title">Content categories</div>
-        <span class="section-status loading" id="catStatus"><span class="spinner"></span> Loading…</span>
+        <span class="section-status loading" id="catStatus"><span class="spinner"></span> Loading&hellip;</span>
       </div>
-      <div class="card" style="margin-bottom:16px">
+      <div class="card" style="margin-bottom:14px">
         <div class="card-title">Top categories</div>
         <div class="card-sub">Where users browse</div>
         <div class="chart-wrap" style="height:180px">
@@ -488,42 +474,37 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
       <div class="card">
         <div class="card-title">Top videos</div>
-        <div class="card-sub" id="videoSub">By watch count</div>
-        <div class="table-wrap">
+        <div class="card-sub" id="videoSub">From timeline sample</div>
+        <div class="table-wrap" style="max-height:240px;overflow-y:auto">
           <table>
             <thead><tr><th>#</th><th>Title</th><th class="r">Plays</th></tr></thead>
             <tbody id="videoTable"></tbody>
           </table>
         </div>
       </div>
-  </div>
-
-    <!-- Weekly digest + key insights -->
-  <div class="section" id="insightsSection" style="display:none">
-    <div class="section-header">
-      <div class="section-title">Key insights</div>
-      <div class="section-sub" id="insightsSub">Computed from all available data</div>
     </div>
-    <!-- Weekly digest -->
-    <div class="digest-card" id="digestCard">
-      <div class="title">📋 Weekly snapshot</div>
-      <div id="digestText">Loading…</div>
-    </div>
-    <!-- Insight KPIs -->
-    <div class="insights-grid" id="insightsGrid"></div>
-    <!-- Article priority list -->
-    <div class="two-col">
-      <div class="card">
-        <div class="card-title">🚨 Articles needing attention</div>
-        <div class="card-sub">High views + high bounce or no feedback</div>
-        <div id="priorityList" style="margin-top:8px"></div>
+    <div id="insightsSection" style="display:none">
+      <div class="section-header">
+        <div class="section-title">Key insights</div>
+        <div class="section-sub" id="insightsSub">Computed at <span id="insightsTs"></span></div>
       </div>
-      <!-- Hour of day -->
-      <div class="card">
-        <div class="card-title">⏰ Peak usage hours (UTC)</div>
-        <div class="card-sub">When users are most active</div>
-        <div class="chart-wrap" style="height:160px;margin-top:8px">
-          <canvas id="hourInsightChart"></canvas>
+      <div class="digest-card" id="digestCard">
+        <div class="title">&#x1F4CB; Weekly snapshot</div>
+        <div id="digestText">Loading&hellip;</div>
+      </div>
+      <div class="insights-grid" id="insightsGrid"></div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title">&#x1F6A8; Articles needing attention</div>
+          <div class="card-sub">High views + high bounce or no feedback</div>
+          <div id="priorityList" style="margin-top:8px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">&#x23F0; Peak usage hours (UTC)</div>
+          <div class="card-sub">When users are most active</div>
+          <div class="chart-wrap" style="height:150px;margin-top:8px">
+            <canvas id="hourInsightChart"></canvas>
+          </div>
         </div>
       </div>
     </div>
@@ -534,61 +515,59 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="section-header">
       <div style="display:flex;align-items:center;gap:8px">
         <div class="section-title">Session analytics</div>
-        <span class="section-status loading" id="sessionStatus"><span class="spinner"></span> Loading…</span>
+        <span class="section-status loading" id="sessionStatus"><span class="spinner"></span> Loading&hellip;</span>
       </div>
-      <div class="section-sub" id="sessionSub">Derived from user timeline sample · top active users</div>
+      <div class="section-sub" id="sessionSub">Derived from user timeline sample &middot; top active users</div>
     </div>
-    <!-- Top stat row -->
-    <div class="three-col" style="margin-bottom:16px">
+    <div class="three-col" style="margin-bottom:14px">
       <div class="card">
         <div class="card-title">Typical session</div>
-        <div class="kpi-value" id="sMedian" style="font-family:'JetBrains Mono',monospace;font-size:32px;margin:8px 0">—</div>
-        <div style="font-size:12px;color:var(--text3)" id="sAvg">avg —</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:4px">Median is more reliable · avg skews with outliers</div>
+        <div class="kpi-value" id="sMedian" style="font-family:'JetBrains Mono',monospace;font-size:30px;margin:8px 0">&#8212;</div>
+        <div style="font-size:12px;color:var(--text3)" id="sAvg">avg &#8212;</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">Median is more reliable</div>
       </div>
       <div class="card">
         <div class="card-title">P90 session duration</div>
-        <div class="kpi-value" id="sP90" style="font-family:'JetBrains Mono',monospace;font-size:32px;margin:8px 0">—</div>
-        <div style="font-size:12px;color:var(--text3)">90th percentile — longest typical session</div>
+        <div class="kpi-value" id="sP90" style="font-family:'JetBrains Mono',monospace;font-size:30px;margin:8px 0">&#8212;</div>
+        <div style="font-size:12px;color:var(--text3)">Longest typical session</div>
       </div>
       <div class="card">
         <div class="card-title">Engagement depth</div>
-        <div id="depthBadges" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></div>
-        <div id="depthChart" style="margin:8px 0 4px"></div>
-        <div style="font-size:12px;color:var(--text3)" id="sPctLogout">—</div>
+        <div id="depthBadges" style="display:flex;gap:5px;flex-wrap:wrap;margin:8px 0"></div>
+        <div id="depthChart" style="margin:6px 0 3px"></div>
+        <div style="font-size:12px;color:var(--text3)" id="sPctLogout">&#8212;</div>
       </div>
     </div>
-    <!-- Charts row -->
     <div class="two-col">
       <div class="card">
         <div class="card-title">Session duration over time</div>
         <div class="card-sub">Average session length by day</div>
-        <div class="chart-wrap" style="height:180px" id="sessionTrendWrap">
+        <div class="chart-wrap" style="height:170px" id="sessionTrendWrap">
           <canvas id="sessionTrendChart"></canvas>
         </div>
       </div>
       <div class="card">
         <div class="card-title">Time by activity</div>
         <div class="card-sub">Where users spend time per session</div>
-        <div class="chart-wrap" style="height:180px" id="sessionActivityWrap">
+        <div class="chart-wrap" style="height:170px" id="sessionActivityWrap">
           <canvas id="sessionActivityChart"></canvas>
         </div>
       </div>
     </div>
-    <div class="note" id="sessionNote" style="margin-top:12px">ℹ️ Session data is sampled from top active users' timelines (top 4 by video/search activity). Median duration is the most reliable metric — the mean is easily skewed by a single long session. Full population analytics require a CMS bulk-timeline API endpoint.</div>
+    <div class="note" id="sessionNote" style="margin-top:10px">&#x2139;&#xFE0F; Session data is sampled from top active users. Median is the most reliable metric.</div>
   </div>
 
-  <!-- Heatmaps -->
+  <!-- Activity heatmap + Hour of day -->
   <div class="two-col section">
     <div class="card">
-      <div class="card-title">Activity heatmap — last 28 days</div>
-      <div class="card-sub">Article views · darker = more activity · click to drill in</div>
+      <div class="card-title">Activity heatmap &mdash; last 28 days</div>
+      <div class="card-sub">Article views &middot; darker = more activity &middot; click to drill in</div>
       <div class="heatmap" id="heatmap"></div>
-      <div class="hm-labels"><span id="hmFrom">—</span><span id="hmTo">—</span></div>
+      <div class="hm-labels"><span id="hmFrom">&#8212;</span><span id="hmTo">&#8212;</span></div>
     </div>
     <div class="card">
       <div class="card-title">Hour of day pattern</div>
-      <div class="card-sub" id="hourSub">When users are most active (UTC) · from session data</div>
+      <div class="card-sub" id="hourSub">When users are most active (UTC) &middot; from session data</div>
       <div class="chart-wrap" id="hourChartWrap" style="height:160px;margin-top:8px">
         <canvas id="hourChart"></canvas>
       </div>
