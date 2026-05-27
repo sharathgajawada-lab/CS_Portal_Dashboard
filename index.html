@@ -1061,7 +1061,7 @@ function renderCSAT(d) {
     charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
       type: 'line',
       data: {
-        labels: trend.map(t => fmtDate(t.week)),
+        labels: trend.map(t => new Date(t.week).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})),
         datasets: [
           {
             label: 'Avg Rating',
