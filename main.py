@@ -1589,6 +1589,14 @@ async def dashboard():
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache"})
 
+@app.get("/csat", response_class=HTMLResponse)
+async def csat_page():
+    """Call Quality & CSAT page — served from csat.html."""
+    with open("csat.html") as f: html = f.read()
+    return HTMLResponse(content=html,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                 "Pragma": "no-cache"})
+
 @app.get("/sw.js")
 async def service_worker():
     with open("sw.js") as f: content = f.read()

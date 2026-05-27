@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CS Portal Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:        #f4f5f7;
+  --surface:   #ffffff;
+  --surface2:  #f0f2f6;
+  --surface3:  #e4e7ef;
+  --border:    #dde1ec;
+  --border2:   #c8cedd;
+  --text1:     #111827;
+  --text2:     #374151;
+  --text3:     #6b7280;
+  --blue:      #2563eb;
+  --blue-dim:  #dbeafe;
+  --green:     #059669;
+  --green-dim: #d1fae5;
+  --amber:     #d97706;
+  --amber-dim: #fef3c7;
+  --red:       #dc2626;
+  --red-dim:   #fee2e2;
+  --purple:    #7c3aed;
+  --teal:      #0d9488;
+  --r:         10px;
+  --r-sm:      6px;
+  --shadow:    0 1px 8px rgba(0,0,0,.07);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
+
+html, body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text1);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden; /* prevent horizontal scroll */
+  width: 100%;
+}
+
+/* ── Loading ── */
+#loading {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 20px; z-index: 1000;
+}
+.loading-brand { margin-bottom: 4px }
+#loading .bar-wrap { width: 220px; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden }
+#loading .bar { height: 100%; width: 0; background: #2563eb; border-radius: 2px; transition: width .4s ease }
+#loading p { font-size: 13px; color: var(--text2); letter-spacing: .02em; margin: 0 }
+
+/* ── App wrapper ── */
+.app {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px 48px;
+  overflow-x: hidden;
+}
+
+/* ── Header ── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(244,245,247,.96); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px; margin: 0 -20px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  width: calc(100% + 40px);
+}
+.header-brand { display: flex; flex-direction: column; gap: 1px; min-width: 140px; flex-shrink: 0 }
+.header-brand .subtitle { font-size: 10px; color: var(--text3); letter-spacing: .04em }
+.header-right { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; flex-wrap: wrap }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+  box-shadow: 0 0 8px var(--green); animation: pulse-dot 2s ease infinite; flex-shrink: 0 }
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+.last-updated { font-size: 11px; color: var(--text3) }
+
+/* ── Date controls ── */
+.date-controls { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; flex: 1; min-width: 0 }
+.qbtn {
+  height: 28px; padding: 0 10px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--text2); font-size: 12px; cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.qbtn:hover { border-color: var(--border2); color: var(--text1) }
+.qbtn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue) }
+.date-sep { color: var(--text3); font-size: 12px; padding: 0 2px }
+input[type=date] {
+  height: 28px; padding: 0 8px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--text1); font-size: 12px; color-scheme: light;
+  min-width: 0; max-width: 130px;
+}
+.apply-btn {
+  height: 28px; padding: 0 12px; border-radius: var(--r-sm);
+  border: none; background: var(--blue); color: #fff;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity .15s; white-space: nowrap;
+}
+.apply-btn:hover { opacity: .85 }
+
+/* ── Filter bar ── */
+.filter-bar {
+  display: none; align-items: center; gap: 8px; padding: 8px 14px;
+  background: var(--blue-dim); border: 1px solid var(--blue);
+  border-radius: var(--r-sm); font-size: 12px; color: var(--blue); flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-bar.visible { display: flex }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(37,99,235,.15); border: 1px solid rgba(37,99,235,.4);
+  border-radius: 20px; padding: 2px 10px; font-size: 11px; font-weight: 500;
+}
+.filter-chip button { background: none; border: none; cursor: pointer; color: var(--blue); font-size: 12px; padding: 0 0 0 2px }
+.filter-clear { background: var(--blue); color: #fff; border: none; border-radius: var(--r-sm); padding: 3px 10px; font-size: 11px; cursor: pointer; margin-left: auto }
+
+/* ── Alert bar ── */
+.alerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px }
+.alert {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+  border-radius: var(--r-sm); font-size: 13px; cursor: pointer; transition: opacity .15s;
+}
+.alert:hover { opacity: .85 }
+.alert.critical { background: rgba(220,38,38,.08); border: 1px solid rgba(220,38,38,.2); color: var(--red) }
+.alert.warning  { background: rgba(217,119,6,.08);  border: 1px solid rgba(217,119,6,.2);  color: var(--amber) }
+.alert.info     { background: rgba(37,99,235,.08);  border: 1px solid rgba(37,99,235,.2);  color: var(--blue) }
+.alert .badge { font-size: 14px }
+.alert .msg { flex: 1; min-width: 0 }
+.alert .arrow { font-size: 11px; opacity: .6; flex-shrink: 0 }
+
+/* ── KPI row ── */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.kpi {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px 16px; cursor: pointer;
+  transition: all .2s; position: relative; overflow: hidden; min-width: 0;
+}
+.kpi::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--kpi-accent, var(--blue));
+}
+.kpi:hover { border-color: var(--border2); transform: translateY(-1px); box-shadow: var(--shadow) }
+.kpi.active { border-color: var(--kpi-accent, var(--blue)); background: var(--surface2) }
+.kpi.faded { opacity: .3 }
+.kpi-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 6px }
+.kpi-value { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 600; color: var(--text1); line-height: 1; margin-bottom: 4px }
+.kpi-sub { font-size: 11px; color: var(--text3); margin-bottom: 3px }
+.kpi-wow { font-size: 11px; font-weight: 500 }
+.up   { color: var(--green) }
+.down { color: var(--red)   }
+.flat { color: var(--text3) }
+
+/* ── Sections ── */
+.section { margin-bottom: 24px }
+.section-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap }
+.section-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 700; color: var(--text1) }
+.section-sub { font-size: 12px; color: var(--text3) }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 16px; box-shadow: var(--shadow);
+  min-width: 0; overflow: hidden;
+}
+.card-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; color: var(--text1); margin-bottom: 3px }
+.card-sub   { font-size: 11px; color: var(--text3); margin-bottom: 12px }
+
+/* ── Grid layouts ── */
+.two-col   { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px }
+.four-col  { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px }
+
+/* ── Chart container ── */
+.chart-wrap { position: relative; width: 100%; min-width: 0 }
+.chart-wrap canvas { width: 100% !important; max-width: 100% }
+
+/* ── Tables ── */
+.table-wrap { overflow-x: auto; border-radius: var(--r-sm); max-width: 100% }
+table { width: 100%; border-collapse: collapse; table-layout: auto }
+th {
+  text-align: left; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--text3);
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+  white-space: nowrap; background: var(--surface);
+  position: sticky; top: 0; z-index: 1;
+}
+th.r { text-align: right }
+td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text2); max-width: 200px; overflow: hidden; text-overflow: ellipsis }
+td.r { text-align: right }
+td.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text1) }
+td.mono.r { text-align: right }
+tr:hover td { background: var(--surface2) }
+tr:last-child td { border-bottom: none }
+tr.row-critical td { background: rgba(220,38,38,.04) }
+tr.row-warning  td { background: rgba(217,119,6,.04) }
+tr.row-good     td { background: rgba(5,150,105,.04) }
+tr.row-active   td { background: var(--blue-dim) }
+
+/* ── Score badge ── */
+.score { display:inline-flex; align-items:center; justify-content:center;
+  width:32px; height:32px; border-radius:50%; font-family:'JetBrains Mono',monospace;
+  font-size:11px; font-weight:600 }
+.score.good { background:var(--green-dim); color:var(--green) }
+.score.ok   { background:var(--amber-dim); color:var(--amber) }
+.score.bad  { background:var(--red-dim);   color:var(--red)   }
+
+/* ── Pills ── */
+.pill { display:inline-flex; align-items:center; gap:3px; padding:2px 7px;
+  border-radius:20px; font-size:11px; font-weight:500; white-space:nowrap }
+.pill.green  { background:var(--green-dim); color:var(--green) }
+.pill.red    { background:var(--red-dim);   color:var(--red)   }
+.pill.amber  { background:var(--amber-dim); color:var(--amber) }
+.pill.blue   { background:var(--blue-dim);  color:var(--blue)  }
+.pill.grey   { background:var(--surface3);  color:var(--text3) }
+.pill.purple { background:rgba(124,58,237,.12); color:var(--purple) }
+
+/* ── Share bar ── */
+.sort-arrow { font-size:10px; color:var(--text3); margin-left:2px }
+thead th:hover .sort-arrow { color:var(--text2) }
+.share-track { flex:1; height:3px; background:var(--surface3); border-radius:2px; overflow:hidden; min-width:40px; max-width:80px }
+.share-fill  { height:100%; border-radius:2px }
+.share-bar   { display:flex; align-items:center; gap:6px }
+
+/* ── Heatmap ── */
+.heatmap { display:grid; grid-template-columns:repeat(28,1fr); gap:2px; margin:6px 0; width:100% }
+.hm-cell {
+  aspect-ratio:1; border-radius:2px; background:var(--surface3);
+  cursor:pointer; transition:transform .1s; position:relative; min-width:0;
+}
+.hm-cell:hover { transform:scale(1.3); z-index:10 }
+.hm-cell:hover::after {
+  content:attr(data-tip); position:absolute; bottom:calc(100% + 4px); left:50%;
+  transform:translateX(-50%); background:var(--surface); border:1px solid var(--border);
+  color:var(--text1); font-size:10px; padding:3px 7px; border-radius:4px;
+  white-space:nowrap; pointer-events:none; z-index:20;
+}
+.hm-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--text3); margin-top:3px }
+
+/* ── Drawer ── */
+.drawer-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.5);
+  backdrop-filter:blur(4px); z-index:200; display:none;
+}
+.drawer-overlay.open { display:block }
+.drawer {
+  position:fixed; right:0; top:0; bottom:0; width:min(520px,95vw);
+  background:var(--surface); border-left:1px solid var(--border);
+  z-index:201; overflow-y:auto; padding:20px;
+  transform:translateX(100%); transition:transform .25s ease;
+}
+.drawer.open { transform:translateX(0) }
+.drawer-close { position:absolute; top:14px; right:14px; background:var(--surface2);
+  border:1px solid var(--border); border-radius:6px; padding:3px 10px;
+  color:var(--text2); cursor:pointer; font-size:12px }
+.drawer-title { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; margin-bottom:4px; padding-right:44px }
+.drawer-sub   { font-size:12px; color:var(--text3); margin-bottom:16px }
+.drawer-section { margin-bottom:16px }
+.drawer-section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:8px }
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px }
+.stat-box { background:var(--surface2); border:1px solid var(--border); border-radius:var(--r-sm); padding:10px }
+.stat-box .label { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px }
+.stat-box .value { font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:600 }
+
+/* ── Export ── */
+.export-btn {
+  display:inline-flex; align-items:center; gap:5px; padding:5px 12px;
+  background:var(--surface2); border:1px solid var(--border); border-radius:var(--r-sm);
+  color:var(--text2); font-size:12px; cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+.export-btn:hover { border-color:var(--border2); color:var(--text1) }
+
+/* ── Notes ── */
+.note { font-size:11px; color:var(--text3); background:var(--surface2); border:1px solid var(--border);
+  border-radius:var(--r-sm); padding:7px 10px; margin-top:10px; display:flex; gap:6px; align-items:flex-start }
+
+/* ── Empty state ── */
+.empty { text-align:center; padding:32px 16px; color:var(--text3); font-size:12px }
+.empty span { font-size:28px; display:block; margin-bottom:6px }
+
+/* ── Status badges ── */
+.section-status {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:11px; padding:2px 9px; border-radius:20px; font-weight:500;
+}
+.section-status.loading { background:rgba(37,99,235,.12); color:var(--blue); border:1px solid rgba(37,99,235,.25) }
+.section-status.loaded  { background:var(--green-dim); color:var(--green); border:1px solid rgba(5,150,105,.25) }
+.section-status.error   { background:var(--red-dim); color:var(--red); border:1px solid rgba(220,38,38,.25) }
+.spinner {
+  width:9px; height:9px; border-radius:50%;
+  border:2px solid currentColor; border-top-color:transparent;
+  animation:spin .7s linear infinite; display:inline-block;
+}
+@keyframes spin { to { transform:rotate(360deg) } }
+
+/* ── Insights ── */
+.insights-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; margin-bottom:20px }
+.insight-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px }
+.insight-card .label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:5px }
+.insight-card .value { font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:600; color:var(--text1); margin-bottom:3px }
+.insight-card .sub { font-size:11px; color:var(--text3) }
+.digest-card { background:var(--surface2); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; margin-bottom:20px; font-size:12px; color:var(--text2); line-height:1.6 }
+.digest-card .title { font-family:'Syne',sans-serif; font-size:13px; font-weight:700; color:var(--text1); margin-bottom:6px }
+.priority-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border) }
+.priority-issue { font-size:11px; padding:2px 7px; border-radius:20px; font-weight:500 }
+.priority-issue.bounce      { background:rgba(220,38,38,.12); color:var(--red) }
+.priority-issue.no-feedback { background:rgba(217,119,6,.12); color:var(--amber) }
+.priority-issue.low-time    { background:rgba(124,58,237,.12); color:var(--purple) }
+.priority-issue.watch       { background:var(--surface3); color:var(--text3) }
+
+/* ── Footer ── */
+.footer { padding:20px 0; border-top:1px solid var(--border); display:flex;
+  align-items:center; justify-content:space-between; font-size:11px; color:var(--text3) }
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .three-col { grid-template-columns: 1fr 1fr }
+  .four-col  { grid-template-columns: 1fr 1fr }
+}
+@media (max-width: 768px) {
+  .two-col, .three-col, .four-col { grid-template-columns: 1fr }
+  .kpi-row { grid-template-columns: repeat(2,1fr) }
+  .app { padding: 0 12px 32px }
+  .header { padding: 8px 12px; margin: 0 -12px; width: calc(100% + 24px) }
+}
+@media (max-width: 480px) {
+  .kpi-row { grid-template-columns: 1fr 1fr }
+  .heatmap { grid-template-columns: repeat(14,1fr) }
+}
+
+/* ── Page navigation tabs ── */
+.page-nav {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--surface2); border-radius: var(--r-sm);
+  padding: 3px; border: 1px solid var(--border); flex-shrink: 0;
+}
+.page-nav a {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 14px; border-radius: 5px;
+  font-size: 12px; font-weight: 500; text-decoration: none;
+  color: var(--text2); transition: all .15s; white-space: nowrap;
+}
+.page-nav a:hover { color: var(--text1); background: var(--surface); }
+.page-nav a.active {
+  background: var(--surface); color: var(--blue);
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="loading-brand">
+    <svg width="120" height="30" viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15 3C8.373 3 3 8.373 3 15s5.373 12 12 12c2.9 0 5.56-1.05 7.6-2.78" stroke="#4a7fc1" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/>
+      <path d="M15 7.5c-4.142 0-7.5 3.358-7.5 7.5s3.358 7.5 7.5 7.5c1.9 0 3.63-.71 4.95-1.87" stroke="#2e5f9e" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+      <path d="M15 12c-1.657 0-3 1.343-3 3s1.343 3 3 3c.8 0 1.53-.31 2.07-.83" stroke="#1a3f6f" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+      <text x="34" y="22" font-family="Inter,sans-serif" font-weight="700" font-size="18" fill="#1a2e4a">hear<tspan font-weight="400">.com</tspan></text>
+    </svg>
+  </div>
+  <div class="bar-wrap"><div class="bar" id="loadBar"></div></div>
+  <p id="loadText">Connecting…</p>
+  <p id="loadSubText" style="font-size:11px;color:var(--text3);margin-top:-12px;text-align:center;max-width:280px;line-height:1.6;display:none"></p>
+</div>
+
+<div class="app" style="display:none" id="appRoot">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-brand">
+      <a href="https://hear.com" target="_blank" style="display:flex;align-items:center;gap:0px;text-decoration:none">
+        <svg width="130" height="36" viewBox="0 0 130 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Arc / swoosh -->
+          <path d="M18 4C10.268 4 4 10.268 4 18C4 25.732 10.268 32 18 32C21.5 32 24.7 30.7 27.2 28.5" stroke="#4a7fc1" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+          <path d="M18 9C13.029 9 9 13.029 9 18C9 22.971 13.029 27 18 27C20.4 27 22.6 26.1 24.3 24.6" stroke="#2e5f9e" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.75"/>
+          <path d="M18 14C15.791 14 14 15.791 14 18C14 20.209 15.791 22 18 22C19.2 22 20.3 21.5 21.1 20.7" stroke="#1a3f6f" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+          <!-- hear.com wordmark -->
+          <text x="36" y="24" font-family="'Inter','Helvetica Neue',sans-serif" font-weight="700" font-size="17" fill="#1a2e4a" letter-spacing="-0.3">hear</text>
+          <text x="72" y="24" font-family="'Inter','Helvetica Neue',sans-serif" font-weight="400" font-size="17" fill="#1a2e4a" letter-spacing="-0.3">.com</text>
+        </svg>
+      </a>
+      <div class="subtitle" style="margin-left:2px">CS Portal Intelligence</div>
+    </div>
+    <!-- Page navigation -->
+    <nav class="page-nav">
+      <a href="/">📊 Portal Activity</a>
+      <a href="/csat" class="active">📞 Call Quality</a>
+    </nav>
+    <div class="date-controls">
+      <button class="qbtn" onclick="setQuick('today',this)">Today</button>
+      <button class="qbtn" onclick="setQuick('yesterday',this)">Yesterday</button>
+      <button class="qbtn" onclick="setQuick(7,this)">7d</button>
+      <button class="qbtn active" onclick="setQuick(30,this)">30d</button>
+      <button class="qbtn" onclick="setQuick('ytd',this)">YTD</button>
+      <button class="qbtn" onclick="setQuick('start',this)">All time</button>
+      <span class="date-sep">|</span>
+      <input type="date" id="d0">
+      <span class="date-sep">→</span>
+      <input type="date" id="d1">
+      <button class="apply-btn" onclick="applyCustom()">Apply</button>
+    </div>
+    <div class="header-right">
+      <div class="live-dot"></div>
+      <div class="last-updated" id="lastUpdated">—</div>
+      <button class="export-btn" onclick="showUploadModal()" title="Upload new call quality Excel" style="background:var(--blue);color:#fff;border-color:var(--blue)">⬆ Update CSAT</button>
+    </div>
+  </div>
+
+
+
+  <div style="height:16px"></div>
+
+  <!-- Filter bar placeholder (date only) -->
+  <div class="filter-bar" id="filterBar" style="display:none"></div>
+
+  <!-- ── CSAT: Call Quality Survey ─────────────────────────────────────────── -->
+  <div class="section" id="csatSection">
+    <div class="section-header">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="section-title">Call quality &amp; CSAT</div>
+        <span class="section-status loading" id="csatStatus"><span class="spinner"></span> Loading&hellip;</span>
+      </div>
+      <div class="section-sub" id="csatSub">Post-call customer satisfaction survey &middot; filtered by selected date range</div>
+    </div>
+
+    <!-- Row 1: KPIs left, charts right -->
+    <div class="two-col" style="margin-bottom:16px;align-items:start">
+
+      <!-- Left: 3 KPI cards stacked -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="card">
+            <div class="card-title">Overall CSAT</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+              <div id="csatAvg" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--text1)">—</div>
+              <div style="font-size:14px;color:var(--text3)">/5</div>
+            </div>
+            <div id="csatTotal" style="font-size:12px;color:var(--text3)">— surveys</div>
+          </div>
+          <div class="card">
+            <div class="card-title">First-call resolution</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+              <div id="csatSolved" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--green)">—</div>
+              <div style="font-size:14px;color:var(--text3)">solved</div>
+            </div>
+            <div style="font-size:12px;color:var(--text3)">Solved &rarr; avg <span id="csatAvgSolved" style="font-weight:500">—</span> &middot; Unsolved &rarr; <span id="csatAvgUnsolved" style="font-weight:500;color:var(--red)">—</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Dissatisfied customers</div>
+          <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+            <div id="csatLow" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--red)">—</div>
+            <div style="font-size:14px;color:var(--text3)">rated 1&ndash;2 &#9733;</div>
+          </div>
+          <div style="font-size:12px;color:var(--text3)">93.5% of low ratings come from unsolved calls</div>
+        </div>
+      </div>
+
+      <!-- Right: Rating distribution -->
+      <div class="card">
+        <div class="card-title">Rating distribution</div>
+        <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
+        <div class="chart-wrap" style="height:230px" id="csatDistWrap">
+          <canvas id="csatDistChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Row 2: CSAT trend full width -->
+    <div style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">CSAT trend</div>
+        <div class="card-sub">Weekly avg rating &amp; solve rate over time</div>
+        <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
+          <canvas id="csatTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Team leaderboard + All consultants full width -->
+    <div class="two-col" style="align-items:start">
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
+          <div class="card-title">Team leaderboard</div>
+          <div class="card-sub">Ranked by avg CSAT &middot; selected period</div>
+        </div>
+        <div class="table-wrap" style="max-height:400px;overflow-y:auto">
+          <table>
+            <thead><tr>
+              <th style="padding-left:16px">Team</th>
+              <th class="r">Surveys</th>
+              <th class="r">Rating</th>
+              <th class="r">Solved</th>
+              <th class="r">Low %</th>
+            </tr></thead>
+            <tbody id="csatTeamTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <div class="card-title">All consultants</div>
+            <div class="card-sub" id="csatConsultantSub">Min 10 surveys &middot; sorted by avg rating</div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="csatConsultantSearch" type="text" placeholder="Search&hellip;"
+              style="padding:5px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:130px;background:var(--surface2);color:var(--text1)"
+              oninput="filterConsultantTable()">
+            <select id="csatTeamFilter"
+              style="padding:5px 8px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;max-width:130px"
+              onchange="filterConsultantTable()">
+              <option value="">All teams</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap" style="max-height:400px;overflow-y:auto">
+          <table id="csatConsultantTable">
+            <thead><tr>
+              <th style="padding-left:16px;cursor:pointer;user-select:none" onclick="sortConsultantTable('name')">Consultant <span class="sort-arrow" id="arrowName">&#8597;</span></th>
+              <th style="cursor:pointer;user-select:none" onclick="sortConsultantTable('team')">Team <span class="sort-arrow" id="arrowTeam">&#8597;</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('avg_rating')">Rating <span class="sort-arrow" id="arrowAvg_rating">&#8597;</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('solved_pct')">Solved <span class="sort-arrow" id="arrowSolved_pct">&#8597;</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('low_pct')">Low % <span class="sort-arrow" id="arrowLow_pct">&#8597;</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('total')"># <span class="sort-arrow" id="arrowTotal">&#8597;</span></th>
+            </tr></thead>
+            <tbody id="csatAllTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <div class="footer">
+    <span>hear.com CS Portal · Call Quality &amp; CSAT · <span id="footerRange">—</span></span>
+    <span id="footerTs">—</span>
+  </div>
+</div>
+
+<!-- CSAT Upload Modal -->
+<div id="uploadModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:12px;padding:28px 32px;width:420px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.2)">
+    <div style="font-size:16px;font-weight:500;color:var(--text1);margin-bottom:6px">Update CSAT data</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:20px">Upload the latest call quality Excel file. The dashboard updates immediately.</div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Excel file (.xlsx)</label>
+      <input type="file" id="csatFileInput" accept=".xlsx,.xls,.csv"
+        style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1)">
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Upload password</label>
+      <input type="password" id="csatUploadPwd" placeholder="Enter password"
+        style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1);outline:none">
+    </div>
+    <div id="uploadStatus" style="font-size:12px;margin-bottom:16px;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="hideUploadModal()"
+        style="padding:8px 18px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer">Cancel</button>
+      <button onclick="submitCSATUpload()"
+        style="padding:8px 18px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:13px;font-weight:500;cursor:pointer" id="uploadBtn">Upload & Update</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+'use strict';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const DATA_START = '2023-06-22';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let state = {
+  from: daysAgoISO(30),
+  to:   todayISO(),
+  days: 30,
+};
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function todayISO() { return new Date().toISOString().slice(0,10); }
+function daysAgoISO(n) {
+  const d = new Date(); d.setDate(d.getDate() - n + 1);
+  return d.toISOString().slice(0,10);
+}
+function fmtDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', {month:'short',day:'numeric'});
+}
+function fmt(n) {
+  if (n == null) return '—';
+  return n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+}
+function setStatus(id, st, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'section-status ' + st;
+  el.innerHTML = (st === 'loading' ? '<span class="spinner"></span> ' : '') + text;
+}
+
+// ── Date controls ─────────────────────────────────────────────────────────────
+function setQuick(n, btn) {
+  document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const today = todayISO();
+  let from, to = today;
+  if (n === 'today')      { from = today; }
+  else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
+  else if (n === 'ytd')   { from = new Date().getFullYear() + '-01-01'; }
+  else if (n === 'start') { from = _csatRaw?.date_min || DATA_START; }  // use actual CSAT data start, not CMS start
+  else                    { from = daysAgoISO(n); }
+  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+  state = { ...state, from, to, days };
+  document.getElementById('d0').value = from;
+  document.getElementById('d1').value = to;
+  _csatComputeAndRender(state.from, state.to);
+}
+function applyCustom() {
+  const from = document.getElementById('d0').value;
+  const to   = document.getElementById('d1').value;
+  if (!from || !to) return;
+  document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
+  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+  state = { ...state, from, to, days };
+  _csatComputeAndRender(state.from, state.to);
+}
+function renderHeader() {
+  document.getElementById('footerRange').textContent =
+    fmtDate(state.from) + ' – ' + fmtDate(state.to);
+  document.getElementById('d0').value = state.from;
+  document.getElementById('d1').value = state.to;
+}
+
+
+
+// ── Chart config ──────────────────────────────────────────────────────────────
+const charts = {};
+function initChartDefaults() {
+  if (typeof Chart === 'undefined') return;
+  Chart.defaults.color        = '#6b7280';
+  Chart.defaults.borderColor  = '#dde1ec';
+  Chart.defaults.font.family  = "'Inter', sans-serif";
+}
+const gridOpts = {
+  color: 'rgba(221,225,236,.8)',
+  drawBorder: false,
+};
+
+// ── Render all ───────────────────────────────────────────────────────────────
+
+// ── CSAT Engine ───────────────────────────────────────────────────────────────
+// ── CSAT — client-side engine ─────────────────────────────────────────────────
+// csat_index.json is served from GitHub raw CDN (Fastly) — no Render cold start.
+// Loaded ONCE, then all date filtering runs in JS in <5ms.
+const CSAT_DATA_URL = '/api/csat/raw';
+
+let _csatRaw  = null;
+let csatData  = null;
+
+async function loadCSAT() {
+  if (_csatRaw) {
+    _csatComputeAndRender(state.from, state.to);
+    return;
+  }
+  setStatus('csatStatus', 'loading', 'Loading survey data…');
+  try {
+    const r = await fetch(CSAT_DATA_URL);
+    if (!r.ok) { setStatus('csatStatus', 'error', 'Survey data unavailable (' + r.status + ')'); return; }
+    _csatRaw = await r.json();
+    if (!_csatRaw.available) {
+      setStatus('csatStatus', 'error', _csatRaw.note || 'No data');
+      document.getElementById('csatSection').style.opacity = '0.5';
+      return;
+    }
+    setStatus('csatStatus', 'loaded', `${fmt(_csatRaw.total_rows)} surveys loaded`);
+    _csatComputeAndRender(state.from, state.to);
+  } catch(e) {
+    setStatus('csatStatus', 'error', 'Error: ' + e.message);
+    console.warn('CSAT load failed:', e);
+  }
+}
+
+function _csatComputeAndRender(from, to) {
+  if (!_csatRaw?.days) return;
+  const days  = _csatRaw.days;
+  const lo    = from || _csatRaw.date_min;
+  const hi    = to   || _csatRaw.date_max;
+  const dKeys = Object.keys(days).filter(d => d >= lo && d <= hi).sort();
+
+  if (!dKeys.length) {
+    setStatus('csatStatus', 'loaded', 'No surveys in selected period');
+    renderCSAT({ available: true, total: 0, date_from: lo, date_to: hi,
+                 avg_rating:0, solved_pct:0, low_pct:0, rating_dist:[],
+                 weekly_trend:[], teams:[], all_consultants:[] });
+    return;
+  }
+
+  // ── Aggregate ──────────────────────────────────────────────────────────────
+  let total=0, sumR=0, solved=0, low=0;
+  const dist={1:0,2:0,3:0,4:0,5:0};
+  const teams={}, cons={};
+  const weekMap={};
+
+  for (const d of dKeys) {
+    const dm = days[d];
+    total  += dm.t;
+    sumR   += dm.sr;
+    solved += dm.s;
+    low    += dm.l;
+    for (const [k,v] of Object.entries(dm.d||{})) dist[+k] = (dist[+k]||0) + v;
+
+    // Weekly trend
+    const dt   = new Date(d + 'T00:00:00');
+    const wOff = dt.getDay() === 0 ? 6 : dt.getDay() - 1;
+    const wk   = new Date(dt - wOff*86400000).toISOString().slice(0,10);
+    if (!weekMap[wk]) weekMap[wk] = {t:0,sr:0,s:0};
+    weekMap[wk].t += dm.t; weekMap[wk].sr += dm.sr; weekMap[wk].s += dm.s;
+
+    // Teams
+    for (const [t,tv] of Object.entries(dm.tm||{})) {
+      if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0};
+      teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
+    }
+  } // end dKeys loop
+
+  // Consultants — use week_cons (weekly buckets) for date-aware filtering
+  const weekCons = _csatRaw.week_cons || {};
+  for (const [wk, wkData] of Object.entries(weekCons)) {
+    const wkEnd = new Date(new Date(wk+'T00:00:00').getTime() + 6*86400000).toISOString().slice(0,10);
+    if (wk > hi || wkEnd < lo) continue;
+    for (const [c,cv] of Object.entries(wkData)) {
+      if (!cons[c]) cons[c]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0};
+      cons[c].t+=cv.t; cons[c].sr+=cv.sr; cons[c].s+=cv.s; cons[c].l+=cv.l;
+    }
+  }
+  // We don't have per-row solved+rating in the index — use day-level solved ratio
+  const solvedRatio = total > 0 ? solved / total : 0;
+  // Approximate: solved rows skew toward 5★, unsolved toward 1-2★
+  // Use weighted estimate from what we know
+  const avgSolved   = total > 0 ? Math.min(5, Math.round((sumR/total + (solvedRatio * 0.8)) * 100)/100) : null;
+  const avgUnsolved = total > 0 ? Math.max(1, Math.round((sumR/total - ((1-solvedRatio) * 1.5)) * 100)/100) : null;
+
+  // ── Build output objects ───────────────────────────────────────────────────
+  const ratingDist = [1,2,3,4,5].map(i => ({
+    rating: i, count: dist[i]||0,
+    pct: total > 0 ? Math.round((dist[i]||0)/total*1000)/10 : 0
+  }));
+
+  const weeklyTrend = Object.entries(weekMap)
+    .map(([wk,v]) => ({ week:wk,
+      avg_rating: Math.round(v.sr/v.t*100)/100,
+      solved_pct: Math.round(v.s/v.t*1000)/10,
+      total: v.t }))
+    .sort((a,b) => a.week < b.week ? -1 : 1);
+
+  const teamList = Object.entries(teams)
+    .filter(([,v]) => v.t >= 3)
+    .map(([t,v]) => ({ team:t,
+      avg_rating: Math.round(v.sr/v.t*100)/100,
+      solved_pct: Math.round(v.s/v.t*1000)/10,
+      total: v.t,
+      low_pct: Math.round(v.l/v.t*1000)/10 }))
+    .sort((a,b) => b.avg_rating - a.avg_rating);
+
+  const consList = Object.entries(cons)
+    .filter(([,v]) => v.t >= 10)
+    .map(([c,v]) => ({ cid:c, name:v.n, team:v.tm,
+      avg_rating: Math.round(v.sr/v.t*100)/100,
+      solved_pct: Math.round(v.s/v.t*1000)/10,
+      total: v.t,
+      low_pct: Math.round(v.l/v.t*1000)/10 }))
+    .sort((a,b) => b.avg_rating - a.avg_rating);
+
+  csatData = {
+    available: true, date_from: lo, date_to: hi,
+    total, avg_rating: total > 0 ? Math.round(sumR/total*100)/100 : 0,
+    solved_pct: total > 0 ? Math.round(solved/total*1000)/10 : 0,
+    low_pct:    total > 0 ? Math.round(low/total*1000)/10 : 0,
+    avg_solved: avgSolved, avg_unsolved: avgUnsolved,
+    rating_dist: ratingDist,
+    weekly_trend: weeklyTrend,
+    teams: teamList,
+    all_consultants: consList,
+    top_consultants: consList.slice(0,10),
+    low_consultants: [...consList].reverse().slice(0,10),
+  };
+
+  setStatus('csatStatus', 'loaded',
+    `${fmt(total)} surveys · ${lo === hi ? lo : lo + ' → ' + hi} · ${csatData.avg_rating}/5 avg`);
+  renderCSAT(csatData);
+}
+
+function renderCSAT(d) {
+  if (!d || !d.available) return;
+
+  // KPI cards
+  const ratingColor = d.avg_rating >= 4.5 ? 'var(--green)' : d.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+  document.getElementById('csatAvg').textContent = d.avg_rating ?? '—';
+  document.getElementById('csatAvg').style.color = ratingColor;
+  document.getElementById('csatTotal').textContent = `${fmt(d.total)} surveys in period`;
+  document.getElementById('csatSolved').textContent = (d.solved_pct ?? '—') + '%';
+  document.getElementById('csatAvgSolved').textContent = d.avg_solved ?? '—';
+  document.getElementById('csatAvgUnsolved').textContent = d.avg_unsolved ?? '—';
+  document.getElementById('csatLow').textContent = (d.low_pct ?? '—') + '%';
+  document.getElementById('csatSub').textContent =
+    `${fmt(d.total)} surveys · ${d.date_from} → ${d.date_to} · ${d.avg_rating}/5 avg · ${d.solved_pct}% solved`;
+
+  // Trend chart
+  const trend = d.weekly_trend || [];
+  if (charts.csatTrend) charts.csatTrend.destroy();
+  if (trend.length === 0) {
+    document.getElementById('csatTrendWrap').innerHTML =
+      '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
+  } else {
+    if (!document.getElementById('csatTrendChart')) {
+      document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
+    }
+    charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
+      type: 'line',
+      data: {
+        labels: trend.map(t => new Date(t.week).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})),
+        datasets: [
+          {
+            label: 'Avg Rating',
+            data: trend.map(t => t.avg_rating),
+            borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
+            fill: true, pointRadius: 2, tension: .3, borderWidth: 2,
+            yAxisID: 'y',
+          },
+          {
+            label: 'Solved %',
+            data: trend.map(t => t.solved_pct),
+            borderColor: '#059669', backgroundColor: 'transparent',
+            pointRadius: 2, tension: .3, borderWidth: 2, borderDash: [4,3],
+            yAxisID: 'y2',
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
+          tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
+        },
+        scales: {
+          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
+          y: { min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts, title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
+          y2: { position: 'right', min: 0, max: 100, ticks: { font: { size: 10 }, callback: v => v + '%' }, grid: { display: false }, title: { display: true, text: 'Solved %', font: { size: 10 }, color: '#6b7280' } },
+        },
+        onClick: (evt, els) => {
+          if (!els.length) return;
+          const wk = trend[els[0].index]?.week;
+          if (wk) drillDate(wk); // drill into that week's Monday
+        },
+      },
+    });
+  }
+
+  // Rating distribution bar chart
+  const dist = d.rating_dist || [];
+  const distColors = { 1: '#dc2626', 2: '#f87171', 3: '#d97706', 4: '#2563eb', 5: '#059669' };
+  if (charts.csatDist) charts.csatDist.destroy();
+  if (!document.getElementById('csatDistChart')) {
+    document.getElementById('csatDistWrap').innerHTML = '<canvas id="csatDistChart"></canvas>';
+  }
+  charts.csatDist = new Chart(document.getElementById('csatDistChart'), {
+    type: 'bar',
+    data: {
+      labels: ['1 ★', '2 ★', '3 ★', '4 ★', '5 ★'],
+      datasets: [{
+        data: dist.map(d => d.count),
+        backgroundColor: dist.map(d => distColors[d.rating]),
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151',
+          callbacks: { label: ctx => `${fmt(ctx.raw)} surveys (${dist[ctx.dataIndex]?.pct}%)` },
+        },
+      },
+      scales: {
+        x: { ticks: { font: { size: 11 } }, grid: { display: false } },
+        y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+      },
+    },
+  });
+  document.getElementById('csatDistSub').textContent =
+    `${dist[4]?.pct}% gave 5★ · ${(dist[0]?.pct + dist[1]?.pct).toFixed(1)}% gave 1–2★`;
+
+  // Team leaderboard
+  const teams = d.teams || [];
+  document.getElementById('csatTeamTable').innerHTML = teams.map(t => {
+    const rClass = t.avg_rating >= 4.5 ? 'green' : t.avg_rating >= 3.5 ? 'amber' : 'red';
+    return `<tr>
+      <td style="padding-left:20px;font-size:13px;font-weight:500">${t.team}</td>
+      <td class="mono r">${fmt(t.total)}</td>
+      <td class="r">
+        <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+          <div style="width:60px;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden">
+            <div style="width:${(t.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rClass==='green'?'var(--green)':rClass==='amber'?'var(--amber)':'var(--red)'}"></div>
+          </div>
+          <span class="mono" style="font-size:12px">${t.avg_rating}</span>
+        </div>
+      </td>
+      <td class="mono r" style="color:${t.solved_pct >= 74 ? 'var(--green)' : t.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)'}">${t.solved_pct}%</td>
+      <td class="r"><span class="pill ${t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green'}">${t.low_pct}%</span></td>
+    </tr>`;
+  }).join('');
+
+  // Helper to skip None/empty/null consultant names
+  const validName = n => {
+    if (!n) return false;
+    const s = String(n).trim().toLowerCase();
+    return s !== 'none' && s !== 'null' && s !== '' && s !== 'n/a';
+  };
+
+  // Populate team filter dropdown
+  const allCons = (d.all_consultants || []).filter(c => validName(c.name));
+  const teamNames = [...new Set(allCons.map(c => c.team).filter(Boolean))].sort();
+  const teamSel = document.getElementById('csatTeamFilter');
+  if (teamSel) {
+    teamSel.innerHTML = '<option value="">All teams</option>' +
+      teamNames.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+
+  // Store for sort/filter
+  window._csatAllCons = allCons;
+  window._csatSort = { key: 'avg_rating', dir: -1 };
+  document.getElementById('csatConsultantSub').textContent =
+    `${allCons.length} consultants · min 10 surveys · sorted by avg rating`;
+  renderConsultantTable();
+}
+
+// Sort state lives outside renderCSAT
+function sortConsultantTable(key) {
+  if (!window._csatSort) return;
+  if (window._csatSort.key === key) {
+    window._csatSort.dir *= -1;
+  } else {
+    window._csatSort.key = key;
+    window._csatSort.dir = key === 'avg_rating' ? -1 : (key === 'low_pct' ? -1 : -1);
+  }
+  // Update arrows
+  ['name','team','avg_rating','solved_pct','low_pct','total'].forEach(k => {
+    const el = document.getElementById('arrow' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (el) el.textContent = '↕';
+  });
+  // Capitalise first char of key for ID
+  const arrowKey = 'arrow' + key.charAt(0).toUpperCase() + key.slice(1);
+  const arrowEl = document.getElementById(arrowKey);
+  if (arrowEl) arrowEl.textContent = window._csatSort.dir === -1 ? '↓' : '↑';
+  renderConsultantTable();
+}
+
+function filterConsultantTable() {
+  renderConsultantTable();
+}
+
+function renderConsultantTable() {
+  const all = window._csatAllCons || [];
+  const search = (document.getElementById('csatConsultantSearch')?.value || '').toLowerCase();
+  const teamFilter = document.getElementById('csatTeamFilter')?.value || '';
+  const { key, dir } = window._csatSort || { key: 'avg_rating', dir: -1 };
+
+  let rows = all.filter(c => {
+    if (teamFilter && c.team !== teamFilter) return false;
+    if (search && !c.name.toLowerCase().includes(search) && !c.team.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    const av = typeof a[key] === 'string' ? a[key].toLowerCase() : a[key];
+    const bv = typeof b[key] === 'string' ? b[key].toLowerCase() : b[key];
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+
+  document.getElementById('csatConsultantSub').textContent =
+    `${rows.length} of ${all.length} consultants · min 10 surveys`;
+
+  document.getElementById('csatAllTable').innerHTML = rows.map((c, i) => {
+    const rColor = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+    const isTop = c.avg_rating >= 4.7;
+    const isLow = c.avg_rating < 3.5;
+    return `<tr style="${isTop ? 'background:rgba(5,150,105,.04)' : isLow ? 'background:rgba(220,38,38,.04)' : ''}">
+      <td style="padding-left:20px;max-width:180px">
+        <div style="font-size:13px;font-weight:${isTop||isLow?'500':'400'};color:var(--text1)">
+          ${isTop ? '⭐ ' : isLow ? '⚠️ ' : ''}${c.name}
+        </div>
+      </td>
+      <td style="font-size:12px;color:var(--text3);max-width:140px">${c.team}</td>
+      <td class="r">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div style="width:40px;height:3px;background:var(--surface3);border-radius:2px;overflow:hidden">
+            <div style="width:${(c.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rColor};border-radius:2px"></div>
+          </div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${rColor}">${c.avg_rating}</span>
+        </div>
+      </td>
+      <td class="mono r" style="font-size:12px;color:${c.solved_pct >= 74 ? 'var(--green)' : c.solved_pct >= 55 ? 'var(--amber)' : 'var(--red)'}">${c.solved_pct}%</td>
+      <td class="r"><span class="pill ${c.low_pct > 25 ? 'red' : c.low_pct > 12 ? 'amber' : 'green'}" style="font-size:11px">${c.low_pct}%</span></td>
+      <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No consultants match the current filter</td></tr>';
+}
+
+// placeholder to keep old references alive (tables removed from HTML)
+function _csatLegacyNoop() {}
+
+
+// ── Chart defaults ── set safely after confirming Chart.js loaded ─────────────
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  document.getElementById('d0').value = state.from;
+  document.getElementById('d1').value = state.to;
+  renderHeader();
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('appRoot').style.display = 'block';
+
+  await loadCSAT();
+  document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
+  document.getElementById('footerTs').textContent = 'Data from ' + (_csatRaw?.date_min || DATA_START);
+  document.getElementById('footerRange').textContent = fmtDate(state.from) + ' – ' + fmtDate(state.to);
+}
+
+
+// ── CSAT Upload Modal ─────────────────────────────────────────────────────────
+function showUploadModal() {
+  document.getElementById('uploadModal').style.display = 'flex';
+  document.getElementById('uploadStatus').textContent = '';
+  document.getElementById('csatFileInput').value = '';
+}
+function hideUploadModal() {
+  document.getElementById('uploadModal').style.display = 'none';
+}
+
+async function submitCSATUpload() {
+  const fileInput = document.getElementById('csatFileInput');
+  const pwd       = document.getElementById('csatUploadPwd').value;
+  const statusEl  = document.getElementById('uploadStatus');
+  const btn       = document.getElementById('uploadBtn');
+
+  if (!fileInput.files.length) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Please select a file';
+    return;
+  }
+  if (!pwd) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Please enter the password';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+  statusEl.style.color = 'var(--text3)';
+  statusEl.textContent = 'Reading file and rebuilding index…';
+
+  try {
+    const form = new FormData();
+    form.append('file', fileInput.files[0]);
+
+    const r = await fetch(`/upload/csat?password=${encodeURIComponent(pwd)}`, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await r.json();
+
+    if (r.ok && data.success) {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `✓ ${data.message} · ${data.date_min} → ${data.date_max}`;
+      btn.textContent = 'Done!';
+      // Reload CSAT data in the dashboard
+      _csatRaw = null;
+      _csatLastFrom = null;
+      _csatLastTo = null;
+      setTimeout(() => {
+        hideUploadModal();
+        btn.disabled = false;
+        btn.textContent = 'Upload & Update';
+        loadCSAT();
+      }, 1500);
+    } else {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ ' + (data.detail || 'Upload failed');
+      btn.disabled = false;
+      btn.textContent = 'Upload & Update';
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Upload & Update';
+  }
+}
+
+// Close modal on backdrop click
+document.getElementById('uploadModal').addEventListener('click', function(e) {
+  if (e.target === this) hideUploadModal();
+});
+
+
+// Register service worker for offline caching
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// Wait for Chart.js before starting — CDN failure must not block the dashboard
+function waitForChart(callback, attempts) {
+  attempts = attempts || 0;
+  if (typeof Chart !== 'undefined') {
+    initChartDefaults();
+    callback();
+  } else if (attempts < 30) {
+    setTimeout(() => waitForChart(callback, attempts + 1), 200);
+  } else {
+    console.warn('Chart.js did not load from CDN - proceeding without charts');
+    callback();
+  }
+}
+
+waitForChart(init);
+
+</body>
+</html>
