@@ -1151,14 +1151,34 @@ function renderAll() {
   renderHeatmap();
   renderHourGrid();
   applyFilters();
+  // CSAT reloads only when date range changes — tracked separately
+  _csatLoadForDate(state.from, state.to);
 }
 
 function applyFilters() {
   renderKPIs();
   renderTrend();
   renderTableIfArticleData();
-  // CSAT re-fetches from backend with new date range (server-side filtering of 93k rows)
-  loadCSAT();
+  // NOTE: loadCSAT is NOT called here — only date changes trigger it
+}
+
+// ── CSAT date-aware loader ────────────────────────────────────────────────────
+// Only fetches from backend when the date range actually changes.
+// Debounced so rapid date-picker changes don't fire multiple requests.
+let _csatLastFrom = null;
+let _csatLastTo   = null;
+let _csatDebounce = null;
+
+function _csatLoadForDate(from, to) {
+  // Skip if same date range already loaded
+  if (from === _csatLastFrom && to === _csatLastTo) return;
+  // Debounce — wait 300ms for date picker to settle
+  clearTimeout(_csatDebounce);
+  _csatDebounce = setTimeout(() => {
+    _csatLastFrom = from;
+    _csatLastTo   = to;
+    loadCSAT();
+  }, 300);
 }
 
 function renderHeader() {
@@ -1848,7 +1868,6 @@ async function loadAllIntel() {
     loadVideos(),
     loadCategories(),
     loadInsights(),
-    loadCSAT(),
   ]);
 }
 
