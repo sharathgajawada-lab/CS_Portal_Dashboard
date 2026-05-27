@@ -605,119 +605,138 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <div class="section-sub" id="csatSub">Post-call customer satisfaction survey · filtered by selected date range</div>
     </div>
 
-    <!-- Top KPI row -->
-    <div class="three-col" style="margin-bottom:16px" id="csatKpiRow">
-      <div class="card">
-        <div class="card-title">Overall CSAT</div>
-        <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
-          <div id="csatAvg" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--text1)">—</div>
-          <div style="font-size:14px;color:var(--text3)">/5</div>
-        </div>
-        <div id="csatTotal" style="font-size:12px;color:var(--text3)">— surveys</div>
-      </div>
-      <div class="card">
-        <div class="card-title">First-call resolution</div>
-        <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
-          <div id="csatSolved" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--green)">—</div>
-          <div style="font-size:14px;color:var(--text3)">solved</div>
-        </div>
-        <div style="font-size:12px;color:var(--text3)">Solved → avg <span id="csatAvgSolved" style="font-weight:500">—</span> · Unsolved → avg <span id="csatAvgUnsolved" style="font-weight:500;color:var(--red)">—</span></div>
-      </div>
-      <div class="card">
-        <div class="card-title">Dissatisfied customers</div>
-        <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
-          <div id="csatLow" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--red)">—</div>
-          <div style="font-size:14px;color:var(--text3)">rated 1–2 ★</div>
-        </div>
-        <div style="font-size:12px;color:var(--text3)">93.5% of low ratings come from unsolved calls</div>
-      </div>
-    </div>
+    <!-- Two-column layout: left = stats/charts, right = leaderboard/consultants -->
+    <div class="two-col" style="align-items:start">
 
-    <!-- Charts row -->
-    <div class="two-col" style="margin-bottom:16px">
-      <div class="card">
-        <div class="card-title">CSAT trend</div>
-        <div class="card-sub">Weekly avg rating & solve rate over time</div>
-        <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
-          <canvas id="csatTrendChart"></canvas>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title">Rating distribution</div>
-        <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
-        <div class="chart-wrap" style="height:200px" id="csatDistWrap">
-          <canvas id="csatDistChart"></canvas>
-        </div>
-      </div>
-    </div>
+      <!-- LEFT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:16px">
 
-    <!-- Team leaderboard -->
-    <div class="card" style="padding:0;margin-bottom:16px">
-      <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
-        <div class="card-title">Team leaderboard</div>
-        <div class="card-sub">Ranked by avg CSAT · all teams with data in selected period</div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="padding-left:20px">Team</th>
-              <th class="r">Surveys</th>
-              <th class="r">Avg Rating</th>
-              <th class="r">Solved %</th>
-              <th class="r">Low ratings %</th>
-            </tr>
-          </thead>
-          <tbody id="csatTeamTable"></tbody>
-        </table>
-      </div>
-    </div>
-
-
-    <!-- All consultants sortable table -->
-    <div class="card" style="padding:0">
-      <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div>
-          <div class="card-title">All consultants</div>
-          <div class="card-sub" id="csatConsultantSub">Min 10 surveys · sorted by avg rating</div>
+        <!-- KPI cards -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="card">
+            <div class="card-title">Overall CSAT</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+              <div id="csatAvg" style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:500;color:var(--text1)">—</div>
+              <div style="font-size:13px;color:var(--text3)">/5</div>
+            </div>
+            <div id="csatTotal" style="font-size:12px;color:var(--text3)">— surveys</div>
+          </div>
+          <div class="card">
+            <div class="card-title">First-call resolution</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
+              <div id="csatSolved" style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:500;color:var(--green)">—</div>
+              <div style="font-size:13px;color:var(--text3)">solved</div>
+            </div>
+            <div style="font-size:12px;color:var(--text3)">Solved → avg <span id="csatAvgSolved" style="font-weight:500">—</span> · Unsolved → <span id="csatAvgUnsolved" style="font-weight:500;color:var(--red)">—</span></div>
+          </div>
         </div>
-        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input id="csatConsultantSearch" type="text" placeholder="Search name or team…"
-            style="padding:5px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:180px;background:var(--surface2);color:var(--text1)"
-            oninput="filterConsultantTable()">
-          <select id="csatTeamFilter"
-            style="padding:5px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none"
-            onchange="filterConsultantTable()">
-            <option value="">All teams</option>
-          </select>
+
+        <!-- Dissatisfied full width -->
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:24px">
+            <div>
+              <div class="card-title">Dissatisfied customers</div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin:6px 0">
+                <div id="csatLow" style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:500;color:var(--red)">—</div>
+                <div style="font-size:13px;color:var(--text3)">rated 1–2 ★</div>
+              </div>
+              <div style="font-size:12px;color:var(--text3)">93.5% of low ratings come from unsolved calls</div>
+            </div>
+          </div>
         </div>
+
+        <!-- CSAT trend -->
+        <div class="card">
+          <div class="card-title">CSAT trend</div>
+          <div class="card-sub">Weekly avg rating & solve rate over time</div>
+          <div class="chart-wrap" style="height:180px" id="csatTrendWrap">
+            <canvas id="csatTrendChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Rating distribution -->
+        <div class="card">
+          <div class="card-title">Rating distribution</div>
+          <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
+          <div class="chart-wrap" style="height:180px" id="csatDistWrap">
+            <canvas id="csatDistChart"></canvas>
+          </div>
+        </div>
+
       </div>
-      <div class="table-wrap" style="max-height:480px;overflow-y:auto">
-        <table id="csatConsultantTable">
-          <thead>
-            <tr>
-              <th style="padding-left:20px;cursor:pointer;user-select:none" onclick="sortConsultantTable('name')" id="csatSortName">
-                Consultant <span class="sort-arrow" id="arrowName">↕</span>
-              </th>
-              <th style="cursor:pointer;user-select:none" onclick="sortConsultantTable('team')" id="csatSortTeam">
-                Team <span class="sort-arrow" id="arrowTeam">↕</span>
-              </th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('avg_rating')">
-                Avg Rating <span class="sort-arrow" id="arrowAvg_rating">↕</span>
-              </th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('solved_pct')">
-                Solved % <span class="sort-arrow" id="arrowSolved_pct">↕</span>
-              </th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('low_pct')">
-                Low % <span class="sort-arrow" id="arrowLow_pct">↕</span>
-              </th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('total')">
-                Surveys <span class="sort-arrow" id="arrowTotal">↕</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody id="csatAllTable"></tbody>
-        </table>
+
+      <!-- RIGHT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+
+        <!-- Team leaderboard -->
+        <div class="card" style="padding:0">
+          <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
+            <div class="card-title">Team leaderboard</div>
+            <div class="card-sub">Ranked by avg CSAT · selected period</div>
+          </div>
+          <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+            <table>
+              <thead>
+                <tr>
+                  <th style="padding-left:16px">Team</th>
+                  <th class="r">Surveys</th>
+                  <th class="r">Rating</th>
+                  <th class="r">Solved</th>
+                  <th class="r">Low %</th>
+                </tr>
+              </thead>
+              <tbody id="csatTeamTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- All consultants -->
+        <div class="card" style="padding:0">
+          <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div>
+              <div class="card-title">All consultants</div>
+              <div class="card-sub" id="csatConsultantSub">Min 10 surveys · sorted by avg rating</div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input id="csatConsultantSearch" type="text" placeholder="Search…"
+                style="padding:5px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:130px;background:var(--surface2);color:var(--text1)"
+                oninput="filterConsultantTable()">
+              <select id="csatTeamFilter"
+                style="padding:5px 8px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;max-width:130px"
+                onchange="filterConsultantTable()">
+                <option value="">All teams</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap" style="max-height:480px;overflow-y:auto">
+            <table id="csatConsultantTable">
+              <thead>
+                <tr>
+                  <th style="padding-left:16px;cursor:pointer;user-select:none" onclick="sortConsultantTable('name')">
+                    Consultant <span class="sort-arrow" id="arrowName">↕</span>
+                  </th>
+                  <th style="cursor:pointer;user-select:none" onclick="sortConsultantTable('team')">
+                    Team <span class="sort-arrow" id="arrowTeam">↕</span>
+                  </th>
+                  <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('avg_rating')">
+                    Rating <span class="sort-arrow" id="arrowAvg_rating">↕</span>
+                  </th>
+                  <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('solved_pct')">
+                    Solved <span class="sort-arrow" id="arrowSolved_pct">↕</span>
+                  </th>
+                  <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('low_pct')">
+                    Low % <span class="sort-arrow" id="arrowLow_pct">↕</span>
+                  </th>
+                  <th class="r" style="cursor:pointer;user-select:none" onclick="sortConsultantTable('total')">
+                    # <span class="sort-arrow" id="arrowTotal">↕</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="csatAllTable"></tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -766,7 +785,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 'use strict';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const DATA_START = '2026-04-24';
+const DATA_START = '2023-06-22';
 // Update this to the real CS portal article base URL once confirmed
 // Article URL will be: ARTICLE_BASE_URL + article_slug
 const ARTICLE_BASE_URL = 'https://cs.hear.com/article/';
