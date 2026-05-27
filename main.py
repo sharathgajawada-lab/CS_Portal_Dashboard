@@ -34,13 +34,19 @@ DATA_START    = "2026-04-24"
 _csat_rows: list = []
 
 def _load_csat_csv():
-    """Load call quality CSV from data/ directory. Silently skips if not found."""
+    """Load call quality CSV. Checks root and data/ subfolder."""
     global _csat_rows
     paths = [
-        os.path.join(os.path.dirname(__file__), "data", "call_quality.csv"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "call_quality.csv"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "call_quality.csv"),
+        os.path.join(os.getcwd(), "call_quality.csv"),
+        os.path.join(os.getcwd(), "data", "call_quality.csv"),
+        "/app/call_quality.csv",
         "/app/data/call_quality.csv",
+        "call_quality.csv",
         "data/call_quality.csv",
     ]
+    print(f"[csat] looking for call_quality.csv in: {paths}", flush=True)
     for path in paths:
         if os.path.exists(path):
             rows = []
@@ -819,6 +825,25 @@ async def api_categories():
 async def api_csat(date_from: str = "", date_to: str = ""):
     """Call Quality Survey data, optionally filtered by date range."""
     return _compute_csat(date_from=date_from, date_to=date_to)
+
+@app.get("/debug/csat")
+async def debug_csat():
+    """Check whether call_quality.csv was loaded successfully."""
+    paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "call_quality.csv"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "call_quality.csv"),
+        os.path.join(os.getcwd(), "call_quality.csv"),
+        os.path.join(os.getcwd(), "data", "call_quality.csv"),
+        "/app/call_quality.csv",
+        "/app/data/call_quality.csv",
+    ]
+    return {
+        "rows_loaded": len(_csat_rows),
+        "available": len(_csat_rows) > 0,
+        "cwd": os.getcwd(),
+        "paths_checked": {p: os.path.exists(p) for p in paths},
+        "sample": _csat_rows[:2] if _csat_rows else [],
+    }
 
 @app.get("/health")
 async def health():
