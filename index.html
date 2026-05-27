@@ -620,6 +620,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const DATA_START = '2023-06-22';
+let _isAllTime = false;  // true when 'All time' is selected — suppresses WoW comparisons
 // Update this to the real CS portal article base URL once confirmed
 // Article URL will be: ARTICLE_BASE_URL + article_slug
 const ARTICLE_BASE_URL = 'https://cs.hear.com/article/';
@@ -691,8 +692,9 @@ function setQuick(n, btn) {
       if (series.length && series[0].date < earliest) earliest = series[0].date;
     }
     from = earliest;
+    _isAllTime = true;
   }
-  else                   { from = daysAgoISO(n); }
+  else                   { from = daysAgoISO(n); _isAllTime = false; }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
   document.getElementById('d0').value = from;
@@ -705,6 +707,7 @@ function applyCustom() {
   const to   = document.getElementById('d1').value;
   if (!from || !to) return;
   document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
+  _isAllTime = false;
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
   renderAll();
@@ -764,6 +767,7 @@ function getAvgPerDay(key) {
   return Math.round(s.reduce((a,p) => a + (p.count||0), 0) / s.length);
 }
 function getWoW(key) {
+  if (_isAllTime) return null;  // no meaningful comparison for All time
   const all = rawData[key]?.series || [];
   const endDate    = new Date(state.to);
   const startDate  = new Date(state.from);
@@ -835,6 +839,7 @@ function renderHeader() {
 
 // ── Alerts ───────────────────────────────────────────────────────────────────
 function renderAlerts() {
+  if (_isAllTime) { document.getElementById('alertsRow').innerHTML = ''; return; }  // no alerts for All time
   const alerts = [];
 
   // Check WoW drops

@@ -558,6 +558,22 @@ thead th:hover .sort-arrow { color:var(--text2) }
   </div>
 </div>
 
+
+<!-- Consultant/Team detail popup -->
+<div id="csatDetailOverlay" onclick="closeCsatDetail()"
+  style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);backdrop-filter:blur(3px);z-index:300"></div>
+<div id="csatDetailPanel"
+  style="display:none;position:fixed;right:0;top:0;bottom:0;width:min(400px,95vw);
+         background:var(--surface);border-left:1px solid var(--border);z-index:301;
+         overflow-y:auto;padding:24px;transform:translateX(100%);transition:transform .25s ease">
+  <button onclick="closeCsatDetail()"
+    style="position:absolute;top:14px;right:14px;background:var(--surface2);border:1px solid var(--border);
+           border-radius:6px;padding:3px 10px;color:var(--text2);cursor:pointer;font-size:12px">✕ Close</button>
+  <div id="csatDetailTitle" style="font-size:17px;font-weight:700;color:var(--text1);margin-bottom:2px;padding-right:50px"></div>
+  <div id="csatDetailSub" style="font-size:12px;color:var(--text3);margin-bottom:20px"></div>
+  <div id="csatDetailContent"></div>
+</div>
+
 <!-- CSAT Upload Modal -->
 <div id="uploadModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center">
   <div style="background:var(--surface);border-radius:12px;padding:28px 32px;width:420px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.2)">
@@ -922,7 +938,8 @@ function renderCSAT(d) {
   document.getElementById('csatTeamTable').innerHTML = teams.map(t => {
     const rClass = t.avg_rating >= 4.5 ? 'green' : t.avg_rating >= 3.5 ? 'amber' : 'red';
     return `<tr>
-      <td style="padding-left:20px;font-size:13px;font-weight:500">${t.team}</td>
+      <td style="padding-left:20px;font-size:13px;font-weight:500;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted"
+        onclick="openCsatDetail('team', ${JSON.stringify(t).replace(/'/g, '&#39;')})">${t.team}</td>
       <td class="mono r">${fmt(t.total)}</td>
       <td class="r">
         <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
@@ -1027,8 +1044,8 @@ function renderConsultantTable() {
     const isTop = c.avg_rating >= 4.7;
     const isLow = c.avg_rating < 3.5;
     return `<tr style="${isTop ? 'background:rgba(5,150,105,.04)' : isLow ? 'background:rgba(220,38,38,.04)' : ''}">
-      <td style="padding-left:20px;max-width:180px">
-        <div style="font-size:13px;font-weight:${isTop||isLow?'500':'400'};color:var(--text1)">
+      <td style="padding-left:20px;max-width:180px;cursor:pointer" onclick="openCsatDetail('consultant', ${JSON.stringify(c).replace(/'/g, '&#39;')})">
+        <div style="font-size:13px;font-weight:${isTop||isLow?'500':'400'};color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">
           ${isTop ? '⭐ ' : isLow ? '⚠️ ' : ''}${c.name}
         </div>
       </td>
@@ -1068,6 +1085,71 @@ function _csatLegacyNoop() {}
 
 
 // ── Chart defaults ── set safely after confirming Chart.js loaded ─────────────
+
+
+// ── Consultant / Team detail panel ────────────────────────────────────────────
+function openCsatDetail(type, data) {
+  const overlay = document.getElementById('csatDetailOverlay');
+  const panel   = document.getElementById('csatDetailPanel');
+  const title   = document.getElementById('csatDetailTitle');
+  const sub     = document.getElementById('csatDetailSub');
+  const body    = document.getElementById('csatDetailContent');
+
+  title.textContent = data.name || data.team;
+  sub.textContent   = type === 'consultant'
+    ? `${data.team} · ${data.total} surveys · avg ${data.avg_rating}★`
+    : `${data.total} surveys · avg ${data.avg_rating}★`;
+
+  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+  const barLabels = {1:'1★ Very bad',2:'2★ Bad',3:'3★ OK',4:'4★ Good',5:'5★ Excellent'};
+  const dist = data.dist || [];
+  const maxCount = Math.max(...dist.map(d => d.count), 1);
+
+  body.innerHTML = `
+    <div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:12px">Rating breakdown</div>
+      ${dist.map(d => `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="width:80px;font-size:12px;color:var(--text2);flex-shrink:0">${barLabels[d.r]}</div>
+          <div style="flex:1;height:20px;background:var(--surface2);border-radius:4px;overflow:hidden">
+            <div style="width:${Math.round(d.count/maxCount*100)}%;height:100%;background:${barColors[d.r]};border-radius:4px;transition:width .4s ease"></div>
+          </div>
+          <div style="width:60px;text-align:right;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text1)">${d.pct}%</div>
+          <div style="width:40px;text-align:right;font-size:11px;color:var(--text3)">${d.count}</div>
+        </div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px">Avg Rating</div>
+        <div style="font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;color:${data.avg_rating>=4.5?'var(--green)':data.avg_rating>=3.5?'var(--amber)':'var(--red)'}">${data.avg_rating}</div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px">Solved</div>
+        <div style="font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;color:${data.solved_pct>=74?'var(--green)':data.solved_pct>=55?'var(--amber)':'var(--red)'}">${data.solved_pct}%</div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px">Low Ratings</div>
+        <div style="font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;color:${data.low_pct>20?'var(--red)':data.low_pct>10?'var(--amber)':'var(--green)'}">${data.low_pct}%</div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px">Total Surveys</div>
+        <div style="font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--text1)">${data.total}</div>
+      </div>
+    </div>`;
+
+  overlay.style.display = 'block';
+  panel.style.display   = 'block';
+  requestAnimationFrame(() => panel.style.transform = 'translateX(0)');
+}
+
+function closeCsatDetail() {
+  const panel = document.getElementById('csatDetailPanel');
+  panel.style.transform = 'translateX(100%)';
+  setTimeout(() => {
+    document.getElementById('csatDetailOverlay').style.display = 'none';
+    panel.style.display = 'none';
+  }, 260);
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
