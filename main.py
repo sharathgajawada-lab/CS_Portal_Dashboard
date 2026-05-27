@@ -14,14 +14,15 @@ CALL BUDGET:
   On CMS error: serve stale cache, retry next cycle
 """
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi.responses import HTMLResponse, Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
-import httpx, os, asyncio, time, json, hashlib, csv
+import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 CMS_BASE      = "https://cms.audibene.net/api/metrics"
@@ -30,12 +31,100 @@ DATA_START    = "2026-04-24"
 
 # ── CSAT Survey Data ────────────────────────────────────────────────────────────
 # Loaded once at startup from call_quality.csv
+# Also rebuilt on-demand via POST /upload/csat
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
 
-def _load_csat_csv():
-    """Load call quality CSV and pre-index for fast date-range queries."""
+# Upload password — set CSAT_UPLOAD_PASSWORD env var on Render
+# Default is "hearcom2024" — change it in Render environment variables
+UPLOAD_PASSWORD = os.environ.get("CSAT_UPLOAD_PASSWORD", "hearcom2024")
+
+# Path where csat_index.json is saved for serving
+CSAT_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "csat_index.json")
+
+
+def _build_csat_index(rows: list) -> dict:
+    """Build the pre-aggregated day/week index from raw survey rows.
+    Used by both startup CSV loading and the upload endpoint.
+    """
     global _csat_rows, _csat_index
+
+    rows.sort(key=lambda r: r["date"])
+    _csat_rows = rows
+
+    BAD_NAMES = {"none", "null", "", "n/a"}
+    day_map   = {}
+    week_cons = {}
+
+    import bisect, datetime as _dt_mod
+
+    for r in rows:
+        d    = r["date"]
+        team = r["team"]
+        cid  = r["cid"]
+        name = r["name"]
+        bad_team = not team or team.strip().lower() in BAD_NAMES
+        bad_name = (not name or name.strip().lower() in BAD_NAMES or
+                    name.strip().lower().startswith("frank ai"))
+
+        if d not in day_map:
+            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{}}
+        dm = day_map[d]
+        dm["t"]  += 1
+        dm["sr"] += r["rating"]
+        dm["s"]  += int(r["solved"])
+        dm["l"]  += int(r["rating"] <= 2)
+        dm["d"][r["rating"]] = dm["d"].get(r["rating"], 0) + 1
+
+        if not bad_team:
+            t = team.strip()
+            if t not in dm["tm"]:
+                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0}
+            dm["tm"][t]["t"]  += 1
+            dm["tm"][t]["sr"] += r["rating"]
+            dm["tm"][t]["s"]  += int(r["solved"])
+            dm["tm"][t]["l"]  += int(r["rating"] <= 2)
+
+        if not bad_name:
+            try:
+                parts = d.split("-")
+                dt  = _dt_mod.date(int(parts[0]), int(parts[1]), int(parts[2]))
+                wk  = (dt - _dt_mod.timedelta(days=dt.weekday())).isoformat()
+            except Exception:
+                continue
+            if wk not in week_cons:
+                week_cons[wk] = {}
+            if cid not in week_cons[wk]:
+                week_cons[wk][cid] = {"n":name,"tm":team,"t":0,"sr":0,"s":0,"l":0}
+            week_cons[wk][cid]["t"]  += 1
+            week_cons[wk][cid]["sr"] += r["rating"]
+            week_cons[wk][cid]["s"]  += int(r["solved"])
+            week_cons[wk][cid]["l"]  += int(r["rating"] <= 2)
+
+    dates     = sorted(day_map.keys())
+    index_data = {
+        "available":  True,
+        "date_min":   dates[0]  if dates else "",
+        "date_max":   dates[-1] if dates else "",
+        "days":       day_map,
+        "week_cons":  week_cons,
+        "total_rows": len(rows),
+        "generated":  datetime.utcnow().isoformat() + "Z",
+    }
+
+    # Also keep the old _csat_index format for the /api/csat endpoint
+    _csat_index["day_map"]   = day_map
+    _csat_index["date_min"]  = index_data["date_min"]
+    _csat_index["date_max"]  = index_data["date_max"]
+    _csat_index["dates"]     = [r["date"] for r in rows]
+    _csat_index["rows"]      = rows
+    _csat_index["index_data"] = index_data   # cached for /api/csat/raw
+
+    print(f"[csat] index built: {len(rows):,} rows · {len(day_map)} days · {len(week_cons)} weeks", flush=True)
+    return index_data
+
+def _load_csat_csv():
+    """Load call quality CSV at startup and build index."""
     paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "call_quality.csv"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "call_quality.csv"),
@@ -46,10 +135,93 @@ def _load_csat_csv():
         "call_quality.csv",
         "data/call_quality.csv",
     ]
-    print(f"[csat] searching for call_quality.csv …", flush=True)
     for path in paths:
         if not os.path.exists(path):
             continue
+        rows = []
+        with open(path, newline='', encoding='utf-8') as f:
+            for row in csv.DictReader(f):
+                try:
+                    rows.append({
+                        "rating": int(row["RATING"]),
+                        "cid":    row["CONSULTANT_ID"],
+                        "name":   row["CONSULTANT_NAME"],
+                        "team":   row["CONSULTANT_TEAM"].strip(),
+                        "date":   row["DATE"],
+                        "solved": row["SOLVED"].strip().lower() == "true",
+                    })
+                except (ValueError, KeyError):
+                    continue
+        _build_csat_index(rows)
+        # Save JSON for serving
+        _save_csat_json()
+        print(f"[csat] loaded from {path}", flush=True)
+        return
+    print("[csat] call_quality.csv not found — upload via dashboard", flush=True)
+
+
+def _parse_excel_bytes(data: bytes) -> list:
+    """Parse Excel file bytes into survey rows. Returns list of row dicts."""
+    import datetime as _dt_mod
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        raise RuntimeError("openpyxl not installed — add to requirements.txt")
+
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    ws = wb.active
+    raw_rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+
+    if not raw_rows:
+        raise ValueError("Empty workbook")
+
+    headers = [str(h).strip().upper() if h else "" for h in raw_rows[0]]
+    col     = {name: i for i, name in enumerate(headers)}
+    required = {"RATING", "CONSULTANT_ID", "CONSULTANT_NAME", "CONSULTANT_TEAM", "DATETIME", "SOLVED"}
+    missing  = required - set(col.keys())
+    if missing:
+        raise ValueError(f"Missing columns: {missing}")
+
+    rows = []
+    for row in raw_rows[1:]:
+        try:
+            rating  = int(row[col["RATING"]])
+            cid     = str(row[col["CONSULTANT_ID"]] or "").strip()
+            name    = str(row[col["CONSULTANT_NAME"]] or "").strip()
+            team    = str(row[col["CONSULTANT_TEAM"]] or "").strip()
+            dt_val  = row[col["DATETIME"]]
+            solved  = str(row[col["SOLVED"]] or "").strip().lower() == "true"
+            if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
+                date_str = dt_val.strftime("%Y-%m-%d")
+            elif isinstance(dt_val, (int, float)):
+                date_str = (_dt_mod.date(1899, 12, 30) +
+                            _dt_mod.timedelta(days=float(dt_val))).strftime("%Y-%m-%d")
+            else:
+                date_str = str(dt_val)[:10]
+            if not (1 <= rating <= 5) or not cid or not date_str:
+                continue
+            rows.append({"rating":rating,"cid":cid,"name":name,
+                         "team":team,"date":date_str,"solved":solved})
+        except (TypeError, ValueError):
+            continue
+    return rows
+
+
+def _save_csat_json():
+    """Save the current index to data/csat_index.json for serving."""
+    index_data = _csat_index.get("index_data")
+    if not index_data:
+        return
+    try:
+        os.makedirs(os.path.dirname(CSAT_JSON_PATH), exist_ok=True)
+        with open(CSAT_JSON_PATH, "w", encoding="utf-8") as f:
+            json.dump(index_data, f, separators=(",",":"))
+        print(f"[csat] saved index to {CSAT_JSON_PATH}", flush=True)
+    except Exception as e:
+        print(f"[csat] failed to save JSON: {e}", flush=True)
+
+
         rows = []
         with open(path, newline='', encoding='utf-8') as f:
             for row in csv.DictReader(f):
@@ -894,13 +1066,80 @@ async def api_categories():
     data, _ = cache_get("intel:all")
     return (data or {}).get("categories", {"categories":[]})
 
-@app.get("/api/csat")
-async def api_csat(date_from: str = "", date_to: str = ""):
-    """Call Quality Survey data, optionally filtered by date range."""
-    return _compute_csat(date_from=date_from, date_to=date_to)
-
 @app.get("/api/csat/raw")
 async def api_csat_raw():
+    """Serve pre-built csat_index.json — used by frontend for client-side filtering."""
+    # Try serving from disk first (fastest)
+    if os.path.exists(CSAT_JSON_PATH):
+        return FileResponse(CSAT_JSON_PATH, media_type="application/json")
+    # Fall back to in-memory index
+    index_data = _csat_index.get("index_data")
+    if index_data:
+        return index_data
+    return {"available": False, "note": "Upload call_quality.xlsx via the dashboard"}
+
+
+@app.post("/upload/csat")
+async def upload_csat(file: UploadFile = File(...), password: str = ""):
+    """Upload a new call quality Excel file. Rebuilds the CSAT index immediately.
+    Protected by CSAT_UPLOAD_PASSWORD environment variable.
+    """
+    # Password check
+    if not secrets.compare_digest(password, UPLOAD_PASSWORD):
+        raise HTTPException(status_code=401, detail="Wrong password")
+
+    # Validate file type
+    fname = file.filename or ""
+    if not fname.lower().endswith((".xlsx", ".xls", ".csv")):
+        raise HTTPException(status_code=400, detail="File must be .xlsx, .xls, or .csv")
+
+    try:
+        data = await file.read()
+        print(f"[upload] received {fname} ({len(data)//1024} KB)", flush=True)
+
+        if fname.lower().endswith(".csv"):
+            # Parse CSV directly
+            rows = []
+            for row in csv.DictReader(io.StringIO(data.decode("utf-8"))):
+                try:
+                    rows.append({
+                        "rating": int(row["RATING"]),
+                        "cid":    row["CONSULTANT_ID"].strip(),
+                        "name":   row["CONSULTANT_NAME"].strip(),
+                        "team":   row["CONSULTANT_TEAM"].strip(),
+                        "date":   row["DATE"].strip(),
+                        "solved": row["SOLVED"].strip().lower() == "true",
+                    })
+                except (KeyError, ValueError):
+                    continue
+        else:
+            rows = _parse_excel_bytes(data)
+
+        if len(rows) < 100:
+            raise HTTPException(status_code=400,
+                detail=f"Only {len(rows)} valid rows found — check file format")
+
+        # Rebuild index in memory
+        index_data = _build_csat_index(rows)
+
+        # Save to disk so it persists and gets served via /api/csat/raw
+        _save_csat_json()
+
+        return {
+            "success":    True,
+            "rows":       len(rows),
+            "date_min":   index_data["date_min"],
+            "date_max":   index_data["date_max"],
+            "generated":  index_data["generated"],
+            "message":    f"✓ CSAT data updated: {len(rows):,} surveys loaded",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+
     """Return full pre-indexed CSAT data for client-side filtering.
     Fetched ONCE on page load — all date filtering happens in the browser.
     Payload: day_map keyed by date, plus consultant/team lookup tables.

@@ -401,7 +401,8 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="header-right">
       <div class="live-dot"></div>
       <div class="last-updated" id="lastUpdated">—</div>
-      <button class="export-btn" onclick="exportCSV()">⬇ Export</button>
+      <button class="export-btn" onclick="exportCSV()" style="margin-right:4px">⬇ Export</button>
+      <button class="export-btn" onclick="showUploadModal()" title="Upload new call quality Excel" style="background:var(--blue);color:#fff;border-color:var(--blue)">⬆ Update CSAT</button>
     </div>
   </div>
 
@@ -722,6 +723,31 @@ thead th:hover .sort-arrow { color:var(--text2) }
   </div>
 </div>
 
+<!-- CSAT Upload Modal -->
+<div id="uploadModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:12px;padding:28px 32px;width:420px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.2)">
+    <div style="font-size:16px;font-weight:500;color:var(--text1);margin-bottom:6px">Update CSAT data</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:20px">Upload the latest call quality Excel file. The dashboard updates immediately.</div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Excel file (.xlsx)</label>
+      <input type="file" id="csatFileInput" accept=".xlsx,.xls,.csv"
+        style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1)">
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Upload password</label>
+      <input type="password" id="csatUploadPwd" placeholder="Enter password"
+        style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1);outline:none">
+    </div>
+    <div id="uploadStatus" style="font-size:12px;margin-bottom:16px;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="hideUploadModal()"
+        style="padding:8px 18px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer">Cancel</button>
+      <button onclick="submitCSATUpload()"
+        style="padding:8px 18px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:13px;font-weight:500;cursor:pointer" id="uploadBtn">Upload & Update</button>
+    </div>
+  </div>
+</div>
+
 <!-- Article drawer -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
 <div class="drawer" id="drawer">
@@ -889,21 +915,22 @@ function getWoW(key) {
 }
 
 // ── CSAT — client-side engine ─────────────────────────────────────────────────
-// _csatRaw is loaded ONCE from /api/csat/raw on page load.
-// All date filtering, aggregation, charts happen in JS — zero network calls.
-let _csatRaw  = null;   // full day-map from server
-let csatData  = null;   // last computed result
+// csat_index.json is served from GitHub raw CDN (Fastly) — no Render cold start.
+// Loaded ONCE, then all date filtering runs in JS in <5ms.
+const CSAT_DATA_URL = '/api/csat/raw';
+
+let _csatRaw  = null;
+let csatData  = null;
 
 async function loadCSAT() {
   if (_csatRaw) {
-    // Already loaded — just recompute for new date range instantly
     _csatComputeAndRender(state.from, state.to);
     return;
   }
   setStatus('csatStatus', 'loading', 'Loading survey data…');
   try {
-    const r = await fetch('/api/csat/raw');
-    if (!r.ok) { setStatus('csatStatus', 'error', 'Failed (' + r.status + ')'); return; }
+    const r = await fetch(CSAT_DATA_URL);
+    if (!r.ok) { setStatus('csatStatus', 'error', 'Survey data unavailable (' + r.status + ')'); return; }
     _csatRaw = await r.json();
     if (!_csatRaw.available) {
       setStatus('csatStatus', 'error', _csatRaw.note || 'No data');
@@ -914,7 +941,7 @@ async function loadCSAT() {
     _csatComputeAndRender(state.from, state.to);
   } catch(e) {
     setStatus('csatStatus', 'error', 'Error: ' + e.message);
-    console.warn('CSAT failed:', e);
+    console.warn('CSAT load failed:', e);
   }
 }
 
@@ -959,14 +986,18 @@ function _csatComputeAndRender(from, to) {
       if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0};
       teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
     }
-    // Consultants
-    for (const [c,cv] of Object.entries(dm.cn||{})) {
+  } // end dKeys loop
+
+  // Consultants — use week_cons (weekly buckets) for date-aware filtering
+  const weekCons = _csatRaw.week_cons || {};
+  for (const [wk, wkData] of Object.entries(weekCons)) {
+    const wkEnd = new Date(new Date(wk+'T00:00:00').getTime() + 6*86400000).toISOString().slice(0,10);
+    if (wk > hi || wkEnd < lo) continue;
+    for (const [c,cv] of Object.entries(wkData)) {
       if (!cons[c]) cons[c]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0};
       cons[c].t+=cv.t; cons[c].sr+=cv.sr; cons[c].s+=cv.s; cons[c].l+=cv.l;
     }
   }
-
-  // ── Solved/unsolved split (estimated from distribution correlation) ─────────
   // We don't have per-row solved+rating in the index — use day-level solved ratio
   const solvedRatio = total > 0 ? solved / total : 0;
   // Approximate: solved rows skew toward 5★, unsolved toward 1-2★
@@ -2085,7 +2116,82 @@ async function loadCategories() {
   }
 }
 
-// ── Boot ─────────────────────────────────────────────────────────────────────
+// ── CSAT Upload Modal ─────────────────────────────────────────────────────────
+function showUploadModal() {
+  document.getElementById('uploadModal').style.display = 'flex';
+  document.getElementById('uploadStatus').textContent = '';
+  document.getElementById('csatFileInput').value = '';
+}
+function hideUploadModal() {
+  document.getElementById('uploadModal').style.display = 'none';
+}
+
+async function submitCSATUpload() {
+  const fileInput = document.getElementById('csatFileInput');
+  const pwd       = document.getElementById('csatUploadPwd').value;
+  const statusEl  = document.getElementById('uploadStatus');
+  const btn       = document.getElementById('uploadBtn');
+
+  if (!fileInput.files.length) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Please select a file';
+    return;
+  }
+  if (!pwd) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Please enter the password';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+  statusEl.style.color = 'var(--text3)';
+  statusEl.textContent = 'Reading file and rebuilding index…';
+
+  try {
+    const form = new FormData();
+    form.append('file', fileInput.files[0]);
+
+    const r = await fetch(`/upload/csat?password=${encodeURIComponent(pwd)}`, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await r.json();
+
+    if (r.ok && data.success) {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `✓ ${data.message} · ${data.date_min} → ${data.date_max}`;
+      btn.textContent = 'Done!';
+      // Reload CSAT data in the dashboard
+      _csatRaw = null;
+      _csatLastFrom = null;
+      _csatLastTo = null;
+      setTimeout(() => {
+        hideUploadModal();
+        btn.disabled = false;
+        btn.textContent = 'Upload & Update';
+        loadCSAT();
+      }, 1500);
+    } else {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '✗ ' + (data.detail || 'Upload failed');
+      btn.disabled = false;
+      btn.textContent = 'Upload & Update';
+    }
+  } catch(e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '✗ Network error: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Upload & Update';
+  }
+}
+
+// Close modal on backdrop click
+document.getElementById('uploadModal').addEventListener('click', function(e) {
+  if (e.target === this) hideUploadModal();
+});
+
+
 // Register service worker for offline caching
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
