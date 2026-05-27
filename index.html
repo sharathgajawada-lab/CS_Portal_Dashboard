@@ -50,14 +50,11 @@ body {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 20px; z-index: 1000;
 }
-#loading .logo { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800;
-  background: linear-gradient(135deg, #4f8ef7, #a78bfa); -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent }
-#loading .bar-wrap { width: 200px; height: 2px; background: var(--surface3); border-radius: 2px; overflow: hidden }
-#loading .bar { height: 100%; width: 0; background: linear-gradient(90deg,#4f8ef7,#a78bfa);
-  border-radius: 2px; transition: width .3s ease; animation: loading-pulse 1.5s ease infinite }
-@keyframes loading-pulse { 0%{width:0%} 70%{width:100%} 100%{width:100%} }
-#loading p { font-size: 12px; color: var(--text3); letter-spacing: .05em }
+.loading-brand { margin-bottom: 4px }
+#loading .bar-wrap { width: 220px; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden }
+#loading .bar { height: 100%; width: 0; background: #2563eb;
+  border-radius: 2px; transition: width .4s ease }
+#loading p { font-size: 13px; color: var(--text2); letter-spacing: .02em; margin: 0 }
 
 /* ── Layout ── */
 .app { max-width: 1440px; margin: 0 auto; padding: 0 24px 48px }
@@ -362,9 +359,17 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
 <!-- Loading overlay -->
 <div id="loading">
-  <div class="logo">CS Intelligence</div>
+  <div class="loading-brand">
+    <svg width="120" height="30" viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15 3C8.373 3 3 8.373 3 15s5.373 12 12 12c2.9 0 5.56-1.05 7.6-2.78" stroke="#4a7fc1" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/>
+      <path d="M15 7.5c-4.142 0-7.5 3.358-7.5 7.5s3.358 7.5 7.5 7.5c1.9 0 3.63-.71 4.95-1.87" stroke="#2e5f9e" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+      <path d="M15 12c-1.657 0-3 1.343-3 3s1.343 3 3 3c.8 0 1.53-.31 2.07-.83" stroke="#1a3f6f" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+      <text x="34" y="22" font-family="Inter,sans-serif" font-weight="700" font-size="18" fill="#1a2e4a">hear<tspan font-weight="400">.com</tspan></text>
+    </svg>
+  </div>
   <div class="bar-wrap"><div class="bar" id="loadBar"></div></div>
-  <p id="loadText">Connecting to data…</p>
+  <p id="loadText">Connecting…</p>
+  <p id="loadSubText" style="font-size:11px;color:var(--text3);margin-top:-12px;text-align:center;max-width:280px;line-height:1.6;display:none"></p>
 </div>
 
 <div class="app" style="display:none" id="appRoot">
@@ -1965,24 +1970,65 @@ function renderInsights(intel) {
 }
 
 async function init() {
-  // Set initial date inputs
   document.getElementById('d0').value = state.from;
   document.getElementById('d1').value = state.to;
 
   const setLoad = (pct, text) => {
-    document.getElementById('loadBar').style.width  = pct + '%';
+    document.getElementById('loadBar').style.width = pct + '%';
     document.getElementById('loadText').textContent = text;
+  };
+  const setSub = (text) => {
+    const el = document.getElementById('loadSubText');
+    el.style.display = text ? 'block' : 'none';
+    el.textContent = text;
+  };
+
+  // ── Cold-start timer ──────────────────────────────────────────────────────
+  // Shows a helpful message if server takes >4 seconds to respond
+  let elapsed = 0;
+  const startTime = Date.now();
+  const coldStartTimer = setInterval(() => {
+    elapsed = Math.round((Date.now() - startTime) / 1000);
+    if (elapsed >= 4 && elapsed < 15) {
+      setLoad(10, `Waking up server… ${elapsed}s`);
+      setSub('The server was asleep — this takes up to 30 seconds on first visit.\nSubsequent loads will be instant.');
+    } else if (elapsed >= 15 && elapsed < 40) {
+      setLoad(15 + elapsed * 0.5, `Almost ready… ${elapsed}s`);
+      setSub('Server is starting up. Thank you for your patience.');
+    } else if (elapsed >= 40) {
+      setLoad(30, `Still loading… ${elapsed}s`);
+      setSub('Taking longer than usual. Check your connection or try refreshing.');
+    }
+  }, 1000);
+
+  // ── Fetch with retry ──────────────────────────────────────────────────────
+  const fetchWithRetry = async (url, retries = 3, delayMs = 3000) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const r = await fetch(url);
+        if (r.ok) return r;
+        if (r.status >= 500 && i < retries - 1) {
+          await new Promise(res => setTimeout(res, delayMs));
+          continue;
+        }
+        throw new Error(`HTTP ${r.status}`);
+      } catch(e) {
+        if (i === retries - 1) throw e;
+        await new Promise(res => setTimeout(res, delayMs));
+      }
+    }
   };
 
   try {
-    setLoad(20, 'Fetching event data…');
-    const r = await fetch('/api/metrics/batch');
-    if (!r.ok) throw new Error('Batch failed: ' + r.status);
+    setLoad(5, 'Connecting…');
+    const r = await fetchWithRetry('/api/metrics/batch');
+    clearInterval(coldStartTimer);
+
     const batch = await r.json();
     rawData = batch;
-    setLoad(50, 'Rendering charts…');
+    setLoad(80, 'Rendering…');
+    setSub('');
 
-    // Hide loading, show app
     document.getElementById('loading').style.display = 'none';
     document.getElementById('appRoot').style.display = 'block';
 
@@ -1990,12 +2036,13 @@ async function init() {
     document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
     document.getElementById('footerTs').textContent = 'Data from ' + DATA_START;
 
-    // Load all intel in parallel (non-blocking)
-    setLoad(70, 'Loading intelligence…');
     loadAllIntel();
 
   } catch (err) {
-    document.getElementById('loadText').textContent = 'Error loading data — ' + err.message;
+    clearInterval(coldStartTimer);
+    setLoad(100, 'Failed to connect');
+    setSub('Could not reach the server. Please refresh the page.\nIf this keeps happening, the server may be down.');
+    document.getElementById('loadBar').style.background = '#dc2626';
     console.error(err);
   }
 }
