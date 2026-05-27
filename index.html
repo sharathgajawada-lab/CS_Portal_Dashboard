@@ -750,7 +750,6 @@ const EVENTS = [
   {key:'category.viewed',        label:'Category views', color:'#1a4fdb'},
   {key:'article.feedback',       label:'Feedback',       color:'#0f6e56'},
   {key:'order_supplies.visited', label:'Supplies visits',color:'#b45309'},
-  {key:'auth.logout',            label:'Logouts',        color:'#6b7280'},
   {key:'scheduling.started',     label:'Scheduling',     color:'#7c3aed'},
 ];
 
@@ -1451,18 +1450,21 @@ function renderArticleTable() {
   const articles = articleData?.articles || [];
   const note     = articleData?.note || '';
 
-  // Views filtered by current date range using time-series data
-  const articleViewSeries = rawData['article.viewed']?.series || [];
-  const filteredTotal = articleViewSeries
+  // Scale article views to the selected date range using time-series ratio
+  const articleViewSeries  = rawData['article.viewed']?.series || [];
+  const allTimeSeries      = articleViewSeries.reduce((a, p) => a + (p.count || 0), 0);
+  const filteredSeries     = articleViewSeries
     .filter(p => p.date >= state.from && p.date <= state.to)
     .reduce((a, p) => a + (p.count || 0), 0);
-
-  // Per-article views are all-time from top-n; show filtered total alongside
+  const ratio    = allTimeSeries > 0 ? filteredSeries / allTimeSeries : 1;
+  const isAllTime = ratio >= 0.99;
   const allTimeTotal = articleData?.total_views || 1;
 
-  document.getElementById('articleSub').textContent =
-    `${articles.length} articles · ${fmt(allTimeTotal)} total views (all time) · ${fmt(filteredTotal)} in selected period`;
-  document.getElementById('articleNote').textContent = `ℹ️ ${note} Time/bounce from timeline sample of top users.`;
+  document.getElementById('articleSub').textContent = isAllTime
+    ? `${articles.length} articles · ${fmt(allTimeTotal)} total views · all time`
+    : `${articles.length} articles · est. ${fmt(Math.round(filteredSeries))} views · ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
+  document.getElementById('articleNote').textContent =
+    `ℹ️ ${note}${isAllTime ? '' : ' Views estimated for selected period using daily time-series.'} Time/bounce from timeline sample.`;
 
   if (!articles.length) {
     document.getElementById('articleTable').innerHTML =
@@ -1471,11 +1473,12 @@ function renderArticleTable() {
   }
 
   document.getElementById('articleTable').innerHTML = articles.map((a, i) => {
-    const hlpPct   = a.helpful_pct;
-    const hlpClass = hlpPct === null ? 'grey' : hlpPct >= 70 ? 'green' : hlpPct >= 40 ? 'amber' : 'red';
-    const rowClass = a.needs_attention ? 'row-warning' : '';
-    // Build article URL from slug
-    const articleUrl = ARTICLE_BASE_URL + a.id;
+    const hlpPct      = a.helpful_pct;
+    const hlpClass    = hlpPct === null ? 'grey' : hlpPct >= 70 ? 'green' : hlpPct >= 40 ? 'amber' : 'red';
+    const rowClass    = a.needs_attention ? 'row-warning' : '';
+    const scaledViews = isAllTime ? a.views : Math.max(1, Math.round(a.views * ratio));
+    const scaledShare = isAllTime ? a.share_pct : Math.round(scaledViews / Math.max(filteredSeries, 1) * 1000) / 10;
+    const articleUrl  = ARTICLE_BASE_URL + a.id;
 
     return `<tr class="${rowClass}" style="cursor:pointer" title="Click for details">
       <td style="padding-left:20px;max-width:260px" onclick="openDrawer(${i})">
@@ -1490,7 +1493,7 @@ function renderArticleTable() {
           </div>
         </div>
       </td>
-      <td class="mono r" onclick="openDrawer(${i})">${fmt(a.views)}</td>
+      <td class="mono r" onclick="openDrawer(${i})">${fmt(scaledViews)}${isAllTime ? '' : '<span style="font-size:9px;color:var(--text3);margin-left:2px">est</span>'}</td>
       <td class="mono r" onclick="openDrawer(${i})">${a.avg_seconds != null ? fmtDur(a.avg_seconds) : '<span style="color:var(--text3)">—</span>'}</td>
       <td class="r" onclick="openDrawer(${i})"><span class="pill green">${fmt(a.helpful)} 👍</span></td>
       <td class="r" onclick="openDrawer(${i})"><span class="pill ${a.not_helpful > 0 ? 'red' : 'grey'}">${fmt(a.not_helpful)} 👎</span></td>
@@ -1501,8 +1504,8 @@ function renderArticleTable() {
       </td>
       <td class="r" style="min-width:130px" onclick="openDrawer(${i})">
         <div class="share-bar">
-          <div class="share-track"><div class="share-fill" style="width:${a.share_pct}%;background:var(--blue)"></div></div>
-          <span style="font-size:11px;color:var(--text3);min-width:36px">${a.share_pct}%</span>
+          <div class="share-track"><div class="share-fill" style="width:${scaledShare}%;background:var(--blue)"></div></div>
+          <span style="font-size:11px;color:var(--text3);min-width:36px">${scaledShare}%</span>
         </div>
       </td>
     </tr>`;
