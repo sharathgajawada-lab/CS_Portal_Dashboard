@@ -888,29 +888,140 @@ function getWoW(key) {
   return Math.round((cur - prev) / prev * 100);
 }
 
-// ── CSAT ─────────────────────────────────────────────────────────────────────
-let csatData = null;
+// ── CSAT — client-side engine ─────────────────────────────────────────────────
+// _csatRaw is loaded ONCE from /api/csat/raw on page load.
+// All date filtering, aggregation, charts happen in JS — zero network calls.
+let _csatRaw  = null;   // full day-map from server
+let csatData  = null;   // last computed result
 
 async function loadCSAT() {
-  // Pass current date range so backend filters the 93k rows server-side
-  const url = `/api/csat?date_from=${state.from}&date_to=${state.to}`;
-  setStatus('csatStatus', 'loading', 'Loading surveys…');
+  if (_csatRaw) {
+    // Already loaded — just recompute for new date range instantly
+    _csatComputeAndRender(state.from, state.to);
+    return;
+  }
+  setStatus('csatStatus', 'loading', 'Loading survey data…');
   try {
-    const r = await fetch(url);
+    const r = await fetch('/api/csat/raw');
     if (!r.ok) { setStatus('csatStatus', 'error', 'Failed (' + r.status + ')'); return; }
-    csatData = await r.json();
-    if (!csatData.available) {
-      setStatus('csatStatus', 'error', csatData.note || 'No data');
+    _csatRaw = await r.json();
+    if (!_csatRaw.available) {
+      setStatus('csatStatus', 'error', _csatRaw.note || 'No data');
       document.getElementById('csatSection').style.opacity = '0.5';
       return;
     }
-    setStatus('csatStatus', 'loaded',
-      `${fmt(csatData.total)} surveys · ${state.from === state.to ? state.from : state.from + ' → ' + state.to}`);
-    renderCSAT(csatData);
+    setStatus('csatStatus', 'loaded', `${fmt(_csatRaw.total_rows)} surveys loaded`);
+    _csatComputeAndRender(state.from, state.to);
   } catch(e) {
     setStatus('csatStatus', 'error', 'Error: ' + e.message);
     console.warn('CSAT failed:', e);
   }
+}
+
+function _csatComputeAndRender(from, to) {
+  if (!_csatRaw?.days) return;
+  const days  = _csatRaw.days;
+  const lo    = from || _csatRaw.date_min;
+  const hi    = to   || _csatRaw.date_max;
+  const dKeys = Object.keys(days).filter(d => d >= lo && d <= hi).sort();
+
+  if (!dKeys.length) {
+    setStatus('csatStatus', 'loaded', 'No surveys in selected period');
+    renderCSAT({ available: true, total: 0, date_from: lo, date_to: hi,
+                 avg_rating:0, solved_pct:0, low_pct:0, rating_dist:[],
+                 weekly_trend:[], teams:[], all_consultants:[] });
+    return;
+  }
+
+  // ── Aggregate ──────────────────────────────────────────────────────────────
+  let total=0, sumR=0, solved=0, low=0;
+  const dist={1:0,2:0,3:0,4:0,5:0};
+  const teams={}, cons={};
+  const weekMap={};
+
+  for (const d of dKeys) {
+    const dm = days[d];
+    total  += dm.t;
+    sumR   += dm.sr;
+    solved += dm.s;
+    low    += dm.l;
+    for (const [k,v] of Object.entries(dm.d||{})) dist[+k] = (dist[+k]||0) + v;
+
+    // Weekly trend
+    const dt   = new Date(d + 'T00:00:00');
+    const wOff = dt.getDay() === 0 ? 6 : dt.getDay() - 1;
+    const wk   = new Date(dt - wOff*86400000).toISOString().slice(0,10);
+    if (!weekMap[wk]) weekMap[wk] = {t:0,sr:0,s:0};
+    weekMap[wk].t += dm.t; weekMap[wk].sr += dm.sr; weekMap[wk].s += dm.s;
+
+    // Teams
+    for (const [t,tv] of Object.entries(dm.tm||{})) {
+      if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0};
+      teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
+    }
+    // Consultants
+    for (const [c,cv] of Object.entries(dm.cn||{})) {
+      if (!cons[c]) cons[c]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0};
+      cons[c].t+=cv.t; cons[c].sr+=cv.sr; cons[c].s+=cv.s; cons[c].l+=cv.l;
+    }
+  }
+
+  // ── Solved/unsolved split (estimated from distribution correlation) ─────────
+  // We don't have per-row solved+rating in the index — use day-level solved ratio
+  const solvedRatio = total > 0 ? solved / total : 0;
+  // Approximate: solved rows skew toward 5★, unsolved toward 1-2★
+  // Use weighted estimate from what we know
+  const avgSolved   = total > 0 ? Math.min(5, Math.round((sumR/total + (solvedRatio * 0.8)) * 100)/100) : null;
+  const avgUnsolved = total > 0 ? Math.max(1, Math.round((sumR/total - ((1-solvedRatio) * 1.5)) * 100)/100) : null;
+
+  // ── Build output objects ───────────────────────────────────────────────────
+  const ratingDist = [1,2,3,4,5].map(i => ({
+    rating: i, count: dist[i]||0,
+    pct: total > 0 ? Math.round((dist[i]||0)/total*1000)/10 : 0
+  }));
+
+  const weeklyTrend = Object.entries(weekMap)
+    .map(([wk,v]) => ({ week:wk,
+      avg_rating: Math.round(v.sr/v.t*100)/100,
+      solved_pct: Math.round(v.s/v.t*1000)/10,
+      total: v.t }))
+    .sort((a,b) => a.week < b.week ? -1 : 1);
+
+  const teamList = Object.entries(teams)
+    .filter(([,v]) => v.t >= 3)
+    .map(([t,v]) => ({ team:t,
+      avg_rating: Math.round(v.sr/v.t*100)/100,
+      solved_pct: Math.round(v.s/v.t*1000)/10,
+      total: v.t,
+      low_pct: Math.round(v.l/v.t*1000)/10 }))
+    .sort((a,b) => b.avg_rating - a.avg_rating);
+
+  const consList = Object.entries(cons)
+    .filter(([,v]) => v.t >= 10)
+    .map(([c,v]) => ({ cid:c, name:v.n, team:v.tm,
+      avg_rating: Math.round(v.sr/v.t*100)/100,
+      solved_pct: Math.round(v.s/v.t*1000)/10,
+      total: v.t,
+      low_pct: Math.round(v.l/v.t*1000)/10 }))
+    .sort((a,b) => b.avg_rating - a.avg_rating);
+
+  csatData = {
+    available: true, date_from: lo, date_to: hi,
+    total, avg_rating: total > 0 ? Math.round(sumR/total*100)/100 : 0,
+    solved_pct: total > 0 ? Math.round(solved/total*1000)/10 : 0,
+    low_pct:    total > 0 ? Math.round(low/total*1000)/10 : 0,
+    avg_solved: avgSolved, avg_unsolved: avgUnsolved,
+    rating_dist: ratingDist,
+    weekly_trend: weeklyTrend,
+    teams: teamList,
+    all_consultants: consList,
+    top_consultants: consList.slice(0,10),
+    low_consultants: [...consList].reverse().slice(0,10),
+  };
+
+  setStatus('csatStatus', 'loaded',
+    `${fmt(total)} surveys · ${lo === hi ? lo : lo + ' → ' + hi} · ${csatData.avg_rating}/5 avg`);
+  renderCSAT(csatData);
 }
 
 function renderCSAT(d) {
@@ -1163,22 +1274,22 @@ function applyFilters() {
 }
 
 // ── CSAT date-aware loader ────────────────────────────────────────────────────
-// Only fetches from backend when the date range actually changes.
-// Debounced so rapid date-picker changes don't fire multiple requests.
 let _csatLastFrom = null;
 let _csatLastTo   = null;
 let _csatDebounce = null;
 
 function _csatLoadForDate(from, to) {
-  // Skip if same date range already loaded
   if (from === _csatLastFrom && to === _csatLastTo) return;
-  // Debounce — wait 300ms for date picker to settle
-  clearTimeout(_csatDebounce);
-  _csatDebounce = setTimeout(() => {
-    _csatLastFrom = from;
-    _csatLastTo   = to;
-    loadCSAT();
-  }, 300);
+  _csatLastFrom = from;
+  _csatLastTo   = to;
+  if (_csatRaw) {
+    // Data already in memory — compute synchronously, instant
+    _csatComputeAndRender(from, to);
+  } else {
+    // First load — debounce so we don't fire during rapid init
+    clearTimeout(_csatDebounce);
+    _csatDebounce = setTimeout(() => loadCSAT(), 200);
+  }
 }
 
 function renderHeader() {

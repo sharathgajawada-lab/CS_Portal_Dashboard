@@ -899,6 +899,42 @@ async def api_csat(date_from: str = "", date_to: str = ""):
     """Call Quality Survey data, optionally filtered by date range."""
     return _compute_csat(date_from=date_from, date_to=date_to)
 
+@app.get("/api/csat/raw")
+async def api_csat_raw():
+    """Return full pre-indexed CSAT data for client-side filtering.
+    Fetched ONCE on page load — all date filtering happens in the browser.
+    Payload: day_map keyed by date, plus consultant/team lookup tables.
+    """
+    if not _csat_index.get("day_map"):
+        return {"available": False, "note": "Upload call_quality.csv to enable CSAT section"}
+
+    day_map = _csat_index["day_map"]
+
+    # Flatten day_map to a compact array for smaller payload
+    # Each entry: [date, total, sum_rating, solved, low, dist{1-5}, teams{}, cons{}]
+    days_payload = {}
+    for date, dm in day_map.items():
+        days_payload[date] = {
+            "t":  dm["total"],
+            "sr": dm["sum_r"],
+            "s":  dm["solved"],
+            "l":  dm["low"],
+            "d":  dm.get("dist", {}),
+            "tm": {t: {"t":v["total"],"sr":v["sum_r"],"s":v["solved"],"l":v["low"]}
+                   for t, v in dm.get("teams", {}).items()},
+            "cn": {c: {"n":v["name"],"tm":v["team"],"t":v["total"],
+                       "sr":v["sum_r"],"s":v["solved"],"l":v["low"]}
+                   for c, v in dm.get("cons", {}).items()},
+        }
+
+    return {
+        "available":  True,
+        "date_min":   _csat_index.get("date_min", ""),
+        "date_max":   _csat_index.get("date_max", ""),
+        "days":       days_payload,
+        "total_rows": len(_csat_rows),
+    }
+
 @app.get("/debug/csat")
 async def debug_csat():
     """Check whether call_quality.csv was loaded successfully."""
