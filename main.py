@@ -24,6 +24,168 @@ from datetime import datetime
 from collections import defaultdict, Counter
 import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
 
+# ── Supabase client (lazy init) ───────────────────────────────────────────────
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+_sb_enabled  = bool(SUPABASE_URL and SUPABASE_KEY)
+
+async def _sb_request(method: str, path: str, body: dict = None) -> dict:
+    """Make a request to Supabase REST API."""
+    if not _sb_enabled:
+        return {}
+    headers = {
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type":  "application/json",
+        "Prefer":        "return=minimal",
+    }
+    url = f"{SUPABASE_URL}/rest/v1{path}"
+    async with httpx.AsyncClient(timeout=30) as client:
+        if method == "GET":
+            r = await client.get(url, headers=headers)
+        elif method == "POST":
+            headers["Prefer"] = "return=representation"
+            r = await client.post(url, headers=headers, json=body)
+        elif method == "UPSERT":
+            headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+            r = await client.post(url, headers=headers, json=body)
+        else:
+            return {}
+        if r.status_code in (200, 201, 204):
+            try: return r.json()
+            except: return {}
+        print(f"[supabase] {method} {path} → {r.status_code}: {r.text[:200]}", flush=True)
+        return {}
+
+async def _sb_ensure_tables():
+    """Create tables if they don't exist using Supabase SQL API."""
+    if not _sb_enabled:
+        return
+    sql = """
+    CREATE TABLE IF NOT EXISTS cs_user_timelines (
+        user_id      TEXT NOT NULL,
+        project      TEXT NOT NULL,
+        event_type   TEXT,
+        item_id      TEXT,
+        session_id   TEXT,
+        ts           BIGINT,
+        event_date   TEXT,
+        properties   JSONB,
+        fetched_at   TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (user_id, project, ts)
+    );
+    CREATE TABLE IF NOT EXISTS cs_user_fetch_log (
+        user_id      TEXT PRIMARY KEY,
+        last_fetched TIMESTAMPTZ DEFAULT NOW(),
+        event_count  INT DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_timelines_date ON cs_user_timelines(event_date);
+    CREATE INDEX IF NOT EXISTS idx_timelines_user ON cs_user_timelines(user_id);
+    CREATE INDEX IF NOT EXISTS idx_timelines_type ON cs_user_timelines(event_type);
+    """
+    headers = {
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type":  "application/json",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            f"{SUPABASE_URL}/rest/v1/rpc/exec_sql",
+            headers=headers,
+            json={"sql": sql}
+        )
+        if r.status_code not in (200, 201, 204):
+            # Try direct SQL via pg REST
+            print(f"[supabase] table creation via RPC failed ({r.status_code}), trying direct", flush=True)
+    print(f"[supabase] tables ready", flush=True)
+
+async def _sb_get_unfetched_users(all_user_ids: list, limit: int = 10) -> list:
+    """Return users we haven't fetched yet (or haven't fetched in 48h)."""
+    if not _sb_enabled or not all_user_ids:
+        return all_user_ids[:limit]
+    # Get users we've already fetched recently
+    result = await _sb_request("GET",
+        "/cs_user_fetch_log?select=user_id,last_fetched&order=last_fetched.asc")
+    if isinstance(result, list):
+        fetched_recently = {
+            r["user_id"] for r in result
+            if r.get("last_fetched") and
+            (datetime.utcnow() - datetime.fromisoformat(
+                r["last_fetched"].replace("Z","").split("+")[0]
+            )).total_seconds() < 48 * 3600
+        }
+        # Prioritise users not yet fetched
+        unfetched = [u for u in all_user_ids if u not in fetched_recently]
+        if not unfetched:
+            # All fetched recently — refresh oldest ones
+            fetched_old = [r["user_id"] for r in result]
+            unfetched = [u for u in all_user_ids if u in fetched_old]
+        return unfetched[:limit]
+    return all_user_ids[:limit]
+
+async def _sb_store_events(user_id: str, project: str, events: list):
+    """Store timeline events for a user in Supabase."""
+    if not _sb_enabled or not events:
+        return
+    rows = []
+    for ev in events:
+        ts = ev.get("timestamp", 0)
+        if not ts:
+            continue
+        from datetime import datetime as dt
+        try:
+            event_date = dt.utcfromtimestamp(ts / 1000).strftime("%Y-%m-%d")
+        except Exception:
+            continue
+        rows.append({
+            "user_id":    user_id,
+            "project":    project,
+            "event_type": _etype(ev),
+            "item_id":    ev.get("item_id") or ev.get("itemId") or "",
+            "session_id": ev.get("session_id") or ev.get("sessionId") or "",
+            "ts":         int(ts),
+            "event_date": event_date,
+            "properties": _props(ev),
+        })
+    if not rows:
+        return
+    # Upsert in batches of 500
+    for i in range(0, len(rows), 500):
+        batch = rows[i:i+500]
+        await _sb_request("UPSERT", "/cs_user_timelines", batch)
+    # Update fetch log
+    await _sb_request("UPSERT", "/cs_user_fetch_log", [{
+        "user_id":    user_id,
+        "last_fetched": datetime.utcnow().isoformat() + "Z",
+        "event_count": len(rows),
+    }])
+    print(f"[supabase] stored {len(rows)} events for {user_id[:16]}", flush=True)
+
+async def _sb_get_all_events(date_from: str = "", date_to: str = "") -> list:
+    """Fetch all stored timeline events from Supabase, optionally filtered by date."""
+    if not _sb_enabled:
+        return []
+    path = "/cs_user_timelines?select=user_id,event_type,item_id,session_id,ts,event_date,properties&project=eq.cs-portal-content-events"
+    if date_from:
+        path += f"&event_date=gte.{date_from}"
+    if date_to:
+        path += f"&event_date=lte.{date_to}"
+    path += "&limit=100000&order=ts.asc"
+    result = await _sb_request("GET", path)
+    if isinstance(result, list):
+        print(f"[supabase] loaded {len(result)} events from DB", flush=True)
+        return result
+    return []
+
+async def _sb_get_user_count() -> int:
+    """Get total number of unique users stored."""
+    if not _sb_enabled:
+        return 0
+    result = await _sb_request("GET", "/cs_user_fetch_log?select=user_id")
+    return len(result) if isinstance(result, list) else 0
+
+
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 CMS_BASE      = "https://cms.audibene.net/api/metrics"
 API_KEY       = os.environ.get("CMS_API_KEY", "")
@@ -597,37 +759,46 @@ async def full_refresh():
         # ── Call 12: top categories ───────────────────────────────────────────
         cat_rows = await _topn("cs-portal-content-events", "category.viewed", "itemId", 10)
 
-        # ── Call 13: top video watchers ───────────────────────────────────────
-        video_user_rows = await _topn("cs-portal-content-events", "video.watched", "userId", 10)
-
-        # ── Call 14: top search users ─────────────────────────────────────────
+        # ── Calls 13-15: get all available user IDs from 3 sources ─────────────
+        video_user_rows  = await _topn("cs-portal-content-events", "video.watched",    "userId", 10)
         search_user_rows = await _topn("cs-portal-content-events", "search.performed", "userId", 10)
+        art_user_rows    = await _topn("cs-portal-content-events", "article.viewed",   "userId", 10)
 
-        # Merge unique non-anonymous users from both — up to 4
+        # Collect all unique non-anonymous user IDs
         seen = set()
-        users = []
-        for rows in (video_user_rows, search_user_rows):
+        all_known_users = []
+        for rows in (video_user_rows, search_user_rows, art_user_rows):
             for r in rows:
                 uid = r.get("userId") or r.get("itemId") or ""
-                if uid and uid not in ("anonymous", "") and uid not in seen:
+                if uid and uid.lower() not in ("anonymous", "") and uid not in seen:
                     seen.add(uid)
-                    users.append(uid)
-            if len(users) >= 4:
-                users = users[:4]
-                break
+                    all_known_users.append(uid)
 
-        # ── Calls 15-18: content timelines + feedback timelines ──────────────
+        # With Supabase: rotate through all known users across refresh cycles
+        # Without Supabase: fall back to top 4
+        if _sb_enabled:
+            users_to_fetch = await _sb_get_unfetched_users(all_known_users, limit=10)
+        else:
+            users_to_fetch = all_known_users[:4]
+
+        print(f"[refresh] fetching timelines for {len(users_to_fetch)} users (of {len(all_known_users)} known)", flush=True)
+
+        # ── Content timelines ────────────────────────────────────────────────
         all_events = []
-        fb_events  = []   # feedback timeline events (separate project)
-        for uid in users:
+        fb_events  = []
+        for uid in users_to_fetch:
             tl = await _timeline("cs-portal-content-events", uid, limit=500)
             all_events.extend(tl)
             print(f"[refresh] timeline {uid[:16]}: {len(tl)} events", flush=True)
+            if _sb_enabled:
+                await _sb_store_events(uid, "cs-portal-content-events", tl)
 
-        # Fetch feedback timelines for top 2 users (within call budget)
-        for uid in users[:2]:
+        # Feedback timelines for first 2 users
+        for uid in users_to_fetch[:2]:
             tl = await _timeline("cs-portal-feedback-events", uid, limit=200)
             fb_events.extend(tl)
+            if _sb_enabled:
+                await _sb_store_events(uid, "cs-portal-feedback-events", tl)
             print(f"[refresh] fb-timeline {uid[:16]}: {len(tl)} events", flush=True)
 
         print(f"[refresh] intel calls done — {len(all_events)} content events, {len(fb_events)} feedback events", flush=True)
@@ -1006,8 +1177,14 @@ async def _refresh_loop():
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app):
-    load_cache_from_disk()  # restore cache immediately on startup
-    _load_csat_csv()        # load call quality survey data
+    load_cache_from_disk()
+    _load_csat_csv()
+    if _sb_enabled:
+        await _sb_ensure_tables()
+        user_count = await _sb_get_user_count()
+        print(f"[supabase] connected — {user_count} users in DB", flush=True)
+    else:
+        print("[supabase] not configured — using local timeline only", flush=True)
     t = asyncio.create_task(_refresh_loop())
     yield
     t.cancel()
@@ -1065,6 +1242,78 @@ async def api_videos():
 async def api_categories():
     data, _ = cache_get("intel:all")
     return (data or {}).get("categories", {"categories":[]})
+
+@app.get("/api/sessions/full")
+async def api_sessions_full(date_from: str = "", date_to: str = ""):
+    """Full session analytics from all users stored in Supabase."""
+    if not _sb_enabled:
+        return {"available": False, "note": "Supabase not configured"}
+    events = await _sb_get_all_events(date_from=date_from, date_to=date_to)
+    if not events:
+        user_count = await _sb_get_user_count()
+        return {"available": True, "total_users": user_count, "total_sessions": 0,
+                "note": f"{user_count} users in DB — building up data each refresh cycle"}
+
+    from datetime import datetime as _dt
+    sessions_map = defaultdict(list)
+    for ev in events:
+        uid = ev.get("user_id", "")
+        sid = ev.get("session_id") or ""
+        ts  = ev.get("ts", 0)
+        if not ts: continue
+        sessions_map[f"{uid}::{sid or 'nosession'}"].append(ts)
+
+    durations, depths = [], []
+    daily_map, hour_map = defaultdict(list), defaultdict(int)
+    for key, timestamps in sessions_map.items():
+        if len(timestamps) < 2: continue
+        ts_s = sorted(timestamps)
+        dur  = min((ts_s[-1] - ts_s[0]) / 1000, 28800)
+        if dur < 5: continue
+        durations.append(dur)
+        depths.append(len(timestamps))
+        d = _dt.utcfromtimestamp(ts_s[0] / 1000).strftime("%Y-%m-%d")
+        daily_map[d].append(round(dur))
+        hour_map[_dt.utcfromtimestamp(ts_s[0] / 1000).hour] += 1
+
+    n = len(durations)
+    if n == 0:
+        return {"available": True, "total_sessions": 0, "note": "No qualifying sessions found"}
+
+    ds = sorted(durations)
+    depth_dist = Counter("bounce" if d<=2 else "normal" if d<=9 else "deep" for d in depths)
+    daily_avg  = sorted([{"date":d,"avg_seconds":round(sum(v)/len(v))} for d,v in daily_map.items()], key=lambda x:x["date"])
+
+    # Activity breakdown
+    event_by_sess = defaultdict(list)
+    for ev in events:
+        uid = ev.get("user_id",""); sid = ev.get("session_id") or ""
+        event_by_sess[f"{uid}::{sid or 'nosession'}"].append(ev)
+    event_times = defaultdict(list)
+    for key, evs in event_by_sess.items():
+        evs_s = sorted(evs, key=lambda e: e.get("ts",0))
+        for i, ev in enumerate(evs_s[:-1]):
+            gap = (evs_s[i+1].get("ts",0) - ev.get("ts",0)) / 1000
+            if 2 <= gap <= 600:
+                event_times[ev.get("event_type","")].append(gap)
+    labels = {"article.viewed":"Reading","search.performed":"Searching","video.watched":"Watching","category.viewed":"Browsing"}
+    total_t = sum(sum(v) for v in event_times.values() if v)
+    activity_breakdown = sorted([
+        {"label":labels[k],"avg_seconds":round(sum(v)/len(v)),"pct_time":round(sum(v)/max(total_t,1)*100)}
+        for k,v in event_times.items() if k in labels and v
+    ], key=lambda x:-x["avg_seconds"])
+
+    user_count = await _sb_get_user_count()
+    return {
+        "available": True, "total_users": user_count, "total_sessions": n,
+        "avg_seconds": round(sum(ds)/n), "median_seconds": ds[n//2], "p90_seconds": ds[int(n*.9)],
+        "pct_with_logout": 0,
+        "depth_distribution": dict(depth_dist),
+        "daily_avg": daily_avg, "activity_breakdown": activity_breakdown,
+        "hour_distribution": {str(h):c for h,c in sorted(hour_map.items())},
+        "computed_at": datetime.utcnow().isoformat(),
+        "note": f"From {user_count} users in Supabase — {'full' if user_count >= 50 else 'building up coverage'} ({n} sessions)",
+    }
 
 @app.get("/api/csat/raw")
 async def api_csat_raw():

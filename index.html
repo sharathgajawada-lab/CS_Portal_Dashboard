@@ -2114,22 +2114,36 @@ async function loadSearch() {
 }
 
 async function loadSessions() {
-  setStatus('sessionStatus', 'loading', 'Computing… (10-20s)');
-  document.getElementById('sessionSub').textContent = 'Fetching timelines for top-10 users…';
+  setStatus('sessionStatus', 'loading', 'Loading sessions…');
   try {
-    const r = await fetch('/api/sessions');
-    if (!r.ok) { setStatus('sessionStatus', 'error', 'Failed (' + r.status + ')'); return; }
-    sessionData = await r.json();
-    const n = sessionData?.total_sessions || 0;
-    if (n === 0) {
-      setStatus('sessionStatus', 'error', '0 sessions — CMS may be unavailable');
-    } else {
-      setStatus('sessionStatus', 'loaded', n + ' sessions analysed');
+    // Try Supabase-backed full sessions first (all users)
+    const r = await fetch('/api/sessions/full');
+    if (r.ok) {
+      const d = await r.json();
+      if (d.available && d.total_sessions > 0) {
+        sessionData = d;
+        const coverage = d.total_users >= 50 ? 'full coverage' : d.total_users + ' users so far — building up';
+        setStatus('sessionStatus', 'loaded', fmt(d.total_sessions) + ' sessions · ' + fmt(d.total_users) + ' users · ' + coverage);
+        document.getElementById('sessionSub').textContent = d.note || '';
+        renderSessionSection(d);
+        return;
+      }
+      if (d.available && d.total_users > 0) {
+        setStatus('sessionStatus', 'loading', d.total_users + ' users in DB — data building up each refresh…');
+        document.getElementById('sessionSub').textContent = 'Check back in 2 hours for more data';
+      }
     }
-    renderSessionSection();
-  } catch (e) {
+    // Fall back to legacy sample
+    const r2 = await fetch('/api/sessions');
+    if (!r2.ok) { setStatus('sessionStatus', 'error', 'Failed (' + r2.status + ')'); return; }
+    sessionData = await r2.json();
+    const n = sessionData?.total_sessions || 0;
+    setStatus('sessionStatus', n > 0 ? 'loaded' : 'error',
+      n > 0 ? n + ' sessions · timeline sample (Supabase building up)' : '0 sessions');
+    document.getElementById('sessionSub').textContent = sessionData?.note || '';
+    renderSessionSection(sessionData);
+  } catch(e) {
     setStatus('sessionStatus', 'error', 'Error: ' + e.message);
-    document.getElementById('sessionSub').textContent = 'Session data unavailable';
     console.warn('Sessions failed:', e);
   }
 }
