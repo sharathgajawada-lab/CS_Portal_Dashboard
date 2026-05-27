@@ -1257,7 +1257,8 @@ async def debug_cms():
 async def dashboard():
     with open("index.html") as f: html = f.read()
     return HTMLResponse(content=html,
-        headers={"Cache-Control":"public, max-age=300, stale-while-revalidate=3600"})
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                 "Pragma": "no-cache"})
 
 @app.get("/sw.js")
 async def service_worker():
