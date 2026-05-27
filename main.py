@@ -29,13 +29,13 @@ API_KEY       = os.environ.get("CMS_API_KEY", "")
 DATA_START    = "2026-04-24"
 
 # ── CSAT Survey Data ────────────────────────────────────────────────────────────
-# Loaded once at startup from data/call_quality.csv
-# Each row: {rating, consultant_id, consultant_name, team, date, solved}
+# Loaded once at startup from call_quality.csv
 _csat_rows: list = []
+_csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
 
 def _load_csat_csv():
-    """Load call quality CSV. Checks root and data/ subfolder."""
-    global _csat_rows
+    """Load call quality CSV and pre-index for fast date-range queries."""
+    global _csat_rows, _csat_index
     paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "call_quality.csv"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "call_quality.csv"),
@@ -46,152 +46,217 @@ def _load_csat_csv():
         "call_quality.csv",
         "data/call_quality.csv",
     ]
-    print(f"[csat] looking for call_quality.csv in: {paths}", flush=True)
+    print(f"[csat] searching for call_quality.csv …", flush=True)
     for path in paths:
-        if os.path.exists(path):
-            rows = []
-            with open(path, newline='', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        rows.append({
-                            "rating":   int(row["RATING"]),
-                            "cid":      row["CONSULTANT_ID"],
-                            "name":     row["CONSULTANT_NAME"],
-                            "team":     row["CONSULTANT_TEAM"].strip(),
-                            "date":     row["DATE"],
-                            "solved":   row["SOLVED"].strip().lower() == "true",
-                        })
-                    except (ValueError, KeyError):
-                        continue
-            _csat_rows = rows
-            print(f"[csat] loaded {len(rows)} survey rows from {path}", flush=True)
-            return
-    print("[csat] data/call_quality.csv not found — CSAT section will be empty", flush=True)
+        if not os.path.exists(path):
+            continue
+        rows = []
+        with open(path, newline='', encoding='utf-8') as f:
+            for row in csv.DictReader(f):
+                try:
+                    rows.append({
+                        "rating": int(row["RATING"]),
+                        "cid":    row["CONSULTANT_ID"],
+                        "name":   row["CONSULTANT_NAME"],
+                        "team":   row["CONSULTANT_TEAM"].strip(),
+                        "date":   row["DATE"],
+                        "solved": row["SOLVED"].strip().lower() == "true",
+                    })
+                except (ValueError, KeyError):
+                    continue
+
+        # Sort by date once — enables O(log n) binary search per query
+        rows.sort(key=lambda r: r["date"])
+        _csat_rows = rows
+
+        # Pre-build per-day index: date -> list of row indices
+        # Also pre-build week index for trend chart
+        from datetime import date as _dt, timedelta as _td
+        import bisect
+        dates = [r["date"] for r in rows]
+        _csat_index["dates"]      = dates          # sorted date strings
+        _csat_index["rows"]       = rows
+        _csat_index["date_min"]   = dates[0]  if dates else ""
+        _csat_index["date_max"]   = dates[-1] if dates else ""
+
+        # Pre-aggregate EVERYTHING per day: {date: {total, sum_rating, solved, low, by_team, by_cons}}
+        day_map: dict = {}
+        for r in rows:
+            d = r["date"]
+            if d not in day_map:
+                day_map[d] = {"total":0,"sum_r":0,"solved":0,"low":0,"teams":{},"cons":{}}
+            dm = day_map[d]
+            dm["total"]   += 1
+            dm["sum_r"]   += r["rating"]
+            dm["solved"]  += int(r["solved"])
+            dm["low"]     += int(r["rating"] <= 2)
+            dm["dist"] = dm.get("dist", {r["rating"]:0})
+            dm["dist"][r["rating"]] = dm["dist"].get(r["rating"], 0) + 1
+            # team
+            t = r["team"]
+            if t and t.strip().lower() not in ("none","null","","n/a"):
+                if t not in dm["teams"]:
+                    dm["teams"][t] = {"total":0,"sum_r":0,"solved":0,"low":0}
+                dm["teams"][t]["total"]  += 1
+                dm["teams"][t]["sum_r"]  += r["rating"]
+                dm["teams"][t]["solved"] += int(r["solved"])
+                dm["teams"][t]["low"]    += int(r["rating"] <= 2)
+            # consultant
+            c = r["cid"]
+            bad_name = (not r["name"] or
+                        r["name"].strip().lower() in ("none","null","","n/a") or
+                        r["name"].strip().lower().startswith("frank ai"))
+            if not bad_name:
+                if c not in dm["cons"]:
+                    dm["cons"][c] = {"name":r["name"],"team":r["team"],
+                                     "total":0,"sum_r":0,"solved":0,"low":0}
+                dm["cons"][c]["total"]  += 1
+                dm["cons"][c]["sum_r"]  += r["rating"]
+                dm["cons"][c]["solved"] += int(r["solved"])
+                dm["cons"][c]["low"]    += int(r["rating"] <= 2)
+
+        _csat_index["day_map"] = day_map
+
+        print(f"[csat] loaded {len(rows)} rows, indexed {len(day_map)} days from {path}", flush=True)
+        return
+
+    print("[csat] call_quality.csv not found — CSAT section will be empty", flush=True)
+
 
 def _compute_csat(date_from: str = "", date_to: str = "") -> dict:
-    """Compute all CSAT aggregations, optionally filtered by date range."""
-    rows = _csat_rows
-    if not rows:
-        return {"available": False, "note": "Upload data/call_quality.csv to enable CSAT section"}
+    """Compute CSAT aggregations using pre-built day index — O(days) not O(rows)."""
+    if not _csat_index.get("day_map"):
+        return {"available": False, "note": "Upload call_quality.csv to enable CSAT section"}
 
-    # Date filter
-    if date_from and date_to:
-        rows = [r for r in rows if date_from <= r["date"] <= date_to]
-    elif date_from:
-        rows = [r for r in rows if r["date"] >= date_from]
+    day_map  = _csat_index["day_map"]
+    date_min = _csat_index["date_min"]
+    date_max = _csat_index["date_max"]
 
-    if not rows:
+    # Select days in range
+    lo = date_from if date_from else date_min
+    hi = date_to   if date_to   else date_max
+    days = [d for d in day_map if lo <= d <= hi]
+
+    if not days:
         return {"available": True, "total": 0, "filtered": True,
-                "date_from": date_from, "date_to": date_to,
+                "date_from": lo, "date_to": hi,
                 "note": "No surveys in selected date range"}
 
-    total     = len(rows)
-    ratings   = [r["rating"] for r in rows]
-    avg       = round(sum(ratings) / total, 2)
-    solved    = sum(1 for r in rows if r["solved"])
-    solved_pct = round(solved / total * 100, 1)
-    low       = sum(1 for r in rows if r["rating"] <= 2)
-    low_pct   = round(low / total * 100, 1)
+    # Aggregate across selected days
+    total = sum(day_map[d]["total"]  for d in days)
+    sum_r = sum(day_map[d]["sum_r"]  for d in days)
+    solved= sum(day_map[d]["solved"] for d in days)
+    low   = sum(day_map[d]["low"]    for d in days)
+
+    avg        = round(sum_r / total, 2) if total else 0
+    solved_pct = round(solved / total * 100, 1) if total else 0
+    low_pct    = round(low / total * 100, 1) if total else 0
 
     # Rating distribution
-    dist = Counter(ratings)
-    rating_dist = [{"rating": i, "count": dist.get(i, 0),
-                    "pct": round(dist.get(i, 0) / total * 100, 1)} for i in range(1, 6)]
+    dist_agg: dict = {}
+    for d in days:
+        for rating, cnt in day_map[d].get("dist", {}).items():
+            dist_agg[rating] = dist_agg.get(rating, 0) + cnt
+    rating_dist = [{"rating": i,
+                    "count": dist_agg.get(i, 0),
+                    "pct":   round(dist_agg.get(i, 0) / total * 100, 1)} for i in range(1, 6)]
 
-    # Solved vs unsolved avg
-    solved_rows   = [r for r in rows if r["solved"]]
-    unsolved_rows = [r for r in rows if not r["solved"]]
-    avg_solved   = round(sum(r["rating"] for r in solved_rows) / len(solved_rows), 2) if solved_rows else None
-    avg_unsolved = round(sum(r["rating"] for r in unsolved_rows) / len(unsolved_rows), 2) if unsolved_rows else None
+    # Solved / unsolved avg — need per-rating-per-solved split
+    # Use the raw rows only for this (small additional scan, unavoidable)
+    # But limit to date range using binary search
+    import bisect
+    dates_list = _csat_index.get("dates", [])
+    rows_list  = _csat_index.get("rows", [])
+    lo_idx = bisect.bisect_left(dates_list, lo)
+    hi_idx = bisect.bisect_right(dates_list, hi)
+    slice_rows = rows_list[lo_idx:hi_idx]
+    sv = [r["rating"] for r in slice_rows if r["solved"]]
+    uv = [r["rating"] for r in slice_rows if not r["solved"]]
+    avg_solved   = round(sum(sv)/len(sv), 2) if sv else None
+    avg_unsolved = round(sum(uv)/len(uv), 2) if uv else None
 
-    # Weekly trend (group by ISO week)
-    week_data: dict = defaultdict(lambda: {"ratings": [], "solved": 0, "total": 0})
-    for r in rows:
+    # Weekly trend — group days by week start (Monday)
+    from datetime import date as _dt, timedelta as _td
+    week_agg: dict = {}
+    for d in sorted(days):
         try:
-            from datetime import date as dt_date
-            d = dt_date.fromisoformat(r["date"])
-            # Monday of that week
-            week_start = (d - __import__('datetime').timedelta(days=d.weekday())).isoformat()
-            week_data[week_start]["ratings"].append(r["rating"])
-            week_data[week_start]["total"] += 1
-            if r["solved"]:
-                week_data[week_start]["solved"] += 1
+            dt = _dt.fromisoformat(d)
+            wk = (dt - _td(days=dt.weekday())).isoformat()
         except Exception:
             continue
+        if wk not in week_agg:
+            week_agg[wk] = {"total":0,"sum_r":0,"solved":0}
+        week_agg[wk]["total"]  += day_map[d]["total"]
+        week_agg[wk]["sum_r"]  += day_map[d]["sum_r"]
+        week_agg[wk]["solved"] += day_map[d]["solved"]
     weekly_trend = sorted([
         {"week": wk,
-         "avg_rating": round(sum(v["ratings"]) / len(v["ratings"]), 2),
+         "avg_rating": round(v["sum_r"] / v["total"], 2),
          "solved_pct": round(v["solved"] / v["total"] * 100, 1),
-         "total": v["total"]}
-        for wk, v in week_data.items() if v["ratings"]
+         "total":      v["total"]}
+        for wk, v in week_agg.items() if v["total"] > 0
     ], key=lambda x: x["week"])
 
-    # Team stats
-    team_data: dict = defaultdict(lambda: {"ratings": [], "solved": 0, "total": 0})
-    for r in rows:
-        t = r["team"]
-        team_data[t]["ratings"].append(r["rating"])
-        team_data[t]["total"] += 1
-        if r["solved"]:
-            team_data[t]["solved"] += 1
+    # Team aggregation
+    team_agg: dict = {}
+    for d in days:
+        for t, tv in day_map[d].get("teams", {}).items():
+            if t not in team_agg:
+                team_agg[t] = {"total":0,"sum_r":0,"solved":0,"low":0}
+            team_agg[t]["total"]  += tv["total"]
+            team_agg[t]["sum_r"]  += tv["sum_r"]
+            team_agg[t]["solved"] += tv["solved"]
+            team_agg[t]["low"]    += tv["low"]
     teams = sorted([
         {"team": t,
-         "avg_rating": round(sum(v["ratings"]) / len(v["ratings"]), 2),
+         "avg_rating": round(v["sum_r"] / v["total"], 2),
          "solved_pct": round(v["solved"] / v["total"] * 100, 1),
-         "total": v["total"],
-         "low_pct": round(sum(1 for x in v["ratings"] if x <= 2) / v["total"] * 100, 1)}
-        for t, v in team_data.items()
-        if t and t.strip().lower() not in ("none", "null", "", "n/a")  # exclude blank team rows
-        and v["total"] >= 3  # only teams with meaningful data
-    ], key=lambda x: -x["avg_rating"])  # sort by rating, best first
+         "total":      v["total"],
+         "low_pct":    round(v["low"] / v["total"] * 100, 1)}
+        for t, v in team_agg.items() if v["total"] >= 3
+    ], key=lambda x: -x["avg_rating"])
 
-    # Consultant stats (min 10 surveys in range)
-    cons_data: dict = defaultdict(lambda: {"name": "", "team": "", "ratings": [], "solved": 0, "total": 0})
-    for r in rows:
-        c = r["cid"]
-        cons_data[c]["name"] = r["name"]
-        cons_data[c]["team"] = r["team"]
-        cons_data[c]["ratings"].append(r["rating"])
-        cons_data[c]["total"] += 1
-        if r["solved"]:
-            cons_data[c]["solved"] += 1
-    cons_list = [
+    # Consultant aggregation
+    cons_agg: dict = {}
+    for d in days:
+        for c, cv in day_map[d].get("cons", {}).items():
+            if c not in cons_agg:
+                cons_agg[c] = {"name":cv["name"],"team":cv["team"],
+                                "total":0,"sum_r":0,"solved":0,"low":0}
+            cons_agg[c]["total"]  += cv["total"]
+            cons_agg[c]["sum_r"]  += cv["sum_r"]
+            cons_agg[c]["solved"] += cv["solved"]
+            cons_agg[c]["low"]    += cv["low"]
+    cons_list = sorted([
         {"cid": c,
-         "name": v["name"],
-         "team": v["team"],
-         "avg_rating": round(sum(v["ratings"]) / len(v["ratings"]), 2),
+         "name":       v["name"],
+         "team":       v["team"],
+         "avg_rating": round(v["sum_r"] / v["total"], 2),
          "solved_pct": round(v["solved"] / v["total"] * 100, 1),
-         "total": v["total"],
-         "low_pct": round(sum(1 for x in v["ratings"] if x <= 2) / v["total"] * 100, 1)}
-        for c, v in cons_data.items()
-        if v["total"] >= 10
-        and v["name"]                                    # exclude empty names
-        and v["name"].strip().lower() not in ("none", "null", "", "n/a")  # exclude None rows
-        and not v["name"].strip().lower().startswith("frank ai")  # exclude AI agents from consultant lists
-    ]
-    top_consultants  = sorted(cons_list, key=lambda x: -x["avg_rating"])[:10]
-    low_consultants  = sorted(cons_list, key=lambda x: x["avg_rating"])[:10]
-    all_consultants  = sorted(cons_list, key=lambda x: -x["avg_rating"])  # full list, best first
+         "total":      v["total"],
+         "low_pct":    round(v["low"] / v["total"] * 100, 1)}
+        for c, v in cons_agg.items() if v["total"] >= 10
+    ], key=lambda x: -x["avg_rating"])
 
     return {
-        "available":      True,
-        "filtered":       bool(date_from),
-        "date_from":      date_from,
-        "date_to":        date_to,
-        "total":          total,
-        "avg_rating":     avg,
-        "solved_pct":     solved_pct,
-        "low_pct":        low_pct,
-        "avg_solved":     avg_solved,
-        "avg_unsolved":   avg_unsolved,
-        "rating_dist":    rating_dist,
-        "weekly_trend":   weekly_trend,
-        "teams":          teams,
-        "top_consultants": top_consultants,
-        "low_consultants": low_consultants,
-        "all_consultants": all_consultants,
+        "available":       True,
+        "filtered":        bool(date_from),
+        "date_from":       lo,
+        "date_to":         hi,
+        "total":           total,
+        "avg_rating":      avg,
+        "solved_pct":      solved_pct,
+        "low_pct":         low_pct,
+        "avg_solved":      avg_solved,
+        "avg_unsolved":    avg_unsolved,
+        "rating_dist":     rating_dist,
+        "weekly_trend":    weekly_trend,
+        "teams":           teams,
+        "top_consultants": cons_list[:10],
+        "low_consultants": list(reversed(cons_list))[:10],
+        "all_consultants": cons_list,
     }
+
 
 CACHE_TTL     = 7200   # 2 hr fresh
 STALE_TTL     = 86400  # 24 hr stale — serve old data if CMS is down
