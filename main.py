@@ -1549,6 +1549,39 @@ async def debug_cms():
         "queries":       len(intel.get("search",{}).get("top_queries",[])),
     }
 
+@app.get("/debug/video-topn")
+async def debug_video_topn():
+    """Test whether the CMS supports grouping video.watched by properties.videoTitle.
+    If it returns video titles, we can replace the timeline-sample approach with a
+    single direct CMS call and get ALL videos, not just from sampled users.
+    """
+    client = get_client()
+    results = {}
+    # Test 1: group by properties.videoTitle (ideal — gives titles directly)
+    try:
+        r = await client.get(f"{CMS_BASE}/cs-portal-content-events/query/top-n",
+                             params={"event":"video.watched","groupBy":"properties.videoTitle","n":10})
+        results["by_videoTitle"] = {"status": r.status_code, "data": r.json() if r.status_code == 200 else r.text[:200]}
+    except Exception as e:
+        results["by_videoTitle"] = {"error": str(e)}
+    await asyncio.sleep(1)
+    # Test 2: group by itemId (known to be null — confirming)
+    try:
+        r = await client.get(f"{CMS_BASE}/cs-portal-content-events/query/top-n",
+                             params={"event":"video.watched","groupBy":"itemId","n":10})
+        results["by_itemId"] = {"status": r.status_code, "data": r.json() if r.status_code == 200 else r.text[:200]}
+    except Exception as e:
+        results["by_itemId"] = {"error": str(e)}
+    await asyncio.sleep(1)
+    # Test 3: group by userId (how many unique users watch videos)
+    try:
+        r = await client.get(f"{CMS_BASE}/cs-portal-content-events/query/top-n",
+                             params={"event":"video.watched","groupBy":"userId","n":10})
+        results["by_userId"] = {"status": r.status_code, "data": r.json() if r.status_code == 200 else r.text[:200]}
+    except Exception as e:
+        results["by_userId"] = {"error": str(e)}
+    return results
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     with open("index.html") as f: html = f.read()
