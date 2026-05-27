@@ -936,10 +936,14 @@ function renderCSAT(d) {
   // Team leaderboard
   const teams = d.teams || [];
   document.getElementById('csatTeamTable').innerHTML = teams.map(t => {
+    // Store in lookup map for click handler
+    const teamKey = 'team_' + t.team.replace(/[^a-z0-9]/gi, '_');
+    _csatDetailData[teamKey] = t;
     const rClass = t.avg_rating >= 4.5 ? 'green' : t.avg_rating >= 3.5 ? 'amber' : 'red';
     return `<tr>
-      <td style="padding-left:20px;font-size:13px;font-weight:500;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted"
-        onclick="openCsatDetail('team', ${JSON.stringify(t).replace(/'/g, '&#39;')})">${t.team}</td>
+      <td class="csat-detail-trigger" data-detail-key="team_${t.team.replace(/[^a-z0-9]/gi,'_')}"
+        style="padding-left:20px;font-size:13px;font-weight:500;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">
+        ${t.team}</td>
       <td class="mono r">${fmt(t.total)}</td>
       <td class="r">
         <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
@@ -968,6 +972,14 @@ function renderCSAT(d) {
       </td>
     </tr>`;
   }).join('');
+
+  // Event delegation for team row clicks
+  document.getElementById('csatTeamTable').onclick = function(e) {
+    const td = e.target.closest('.csat-detail-trigger');
+    if (!td) return;
+    const key = td.dataset.detailKey;
+    if (key && _csatDetailData[key]) openCsatDetail('team', key);
+  };
 
   // Helper to skip None/empty/null consultant names
   const validName = n => {
@@ -1040,11 +1052,15 @@ function renderConsultantTable() {
     `${rows.length} of ${all.length} consultants · min 10 surveys`;
 
   document.getElementById('csatAllTable').innerHTML = rows.map((c, i) => {
+    // Store in lookup map for click handler
+    const consKey = 'cons_' + c.cid;
+    _csatDetailData[consKey] = c;
     const rColor = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
     const isTop = c.avg_rating >= 4.7;
     const isLow = c.avg_rating < 3.5;
     return `<tr style="${isTop ? 'background:rgba(5,150,105,.04)' : isLow ? 'background:rgba(220,38,38,.04)' : ''}">
-      <td style="padding-left:20px;max-width:180px;cursor:pointer" onclick="openCsatDetail('consultant', ${JSON.stringify(c).replace(/'/g, '&#39;')})">
+      <td class="csat-detail-trigger" data-detail-key="cons_${c.cid}"
+        style="padding-left:20px;max-width:180px;cursor:pointer">
         <div style="font-size:13px;font-weight:${isTop||isLow?'500':'400'};color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">
           ${isTop ? '⭐ ' : isLow ? '⚠️ ' : ''}${c.name}
         </div>
@@ -1078,6 +1094,14 @@ function renderConsultantTable() {
       <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No consultants match the current filter</td></tr>';
+
+  // Event delegation for consultant row clicks
+  document.getElementById('csatAllTable').onclick = function(e) {
+    const td = e.target.closest('.csat-detail-trigger');
+    if (!td) return;
+    const key = td.dataset.detailKey;
+    if (key && _csatDetailData[key]) openCsatDetail('consultant', key);
+  };
 }
 
 // placeholder to keep old references alive (tables removed from HTML)
@@ -1088,7 +1112,10 @@ function _csatLegacyNoop() {}
 
 
 // ── Consultant / Team detail panel ────────────────────────────────────────────
-function openCsatDetail(type, data) {
+const _csatDetailData = {};  // lookup map: id -> data object, avoids JSON in onclick attributes
+function openCsatDetail(type, key) {
+  const data = _csatDetailData[key];
+  if (!data) return;
   const overlay = document.getElementById('csatDetailOverlay');
   const panel   = document.getElementById('csatDetailPanel');
   const title   = document.getElementById('csatDetailTitle');
