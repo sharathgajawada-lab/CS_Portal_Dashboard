@@ -617,27 +617,29 @@ thead th:hover .sort-arrow { color:var(--text2) }
         </div>
       </div>
 
-      <!-- Right: 2 charts stacked -->
-      <div style="display:flex;flex-direction:column;gap:12px">
-        <div class="card">
-          <div class="card-title">CSAT trend</div>
-          <div class="card-sub">Weekly avg rating &amp; solve rate over time</div>
-          <div class="chart-wrap" style="height:190px" id="csatTrendWrap">
-            <canvas id="csatTrendChart"></canvas>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-title">Rating distribution</div>
-          <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
-          <div class="chart-wrap" style="height:190px" id="csatDistWrap">
-            <canvas id="csatDistChart"></canvas>
-          </div>
+      <!-- Right: Rating distribution -->
+      <div class="card">
+        <div class="card-title">Rating distribution</div>
+        <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
+        <div class="chart-wrap" style="height:230px" id="csatDistWrap">
+          <canvas id="csatDistChart"></canvas>
         </div>
       </div>
 
     </div>
 
-    <!-- Row 2: Team leaderboard + All consultants full width -->
+    <!-- Row 2: CSAT trend full width -->
+    <div style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">CSAT trend</div>
+        <div class="card-sub">Weekly avg rating &amp; solve rate over time</div>
+        <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
+          <canvas id="csatTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Team leaderboard + All consultants full width -->
     <div class="two-col" style="align-items:start">
 
       <div class="card" style="padding:0">
