@@ -1190,11 +1190,11 @@ function renderCSAT(d) {
 
   // Populate team filter dropdown
   const allCons = (d.all_consultants || []).filter(c => validName(c.name));
-  const teams = [...new Set(allCons.map(c => c.team).filter(Boolean))].sort();
+  const teamNames = [...new Set(allCons.map(c => c.team).filter(Boolean))].sort();
   const teamSel = document.getElementById('csatTeamFilter');
   if (teamSel) {
     teamSel.innerHTML = '<option value="">All teams</option>' +
-      teams.map(t => `<option value="${t}">${t}</option>`).join('');
+      teamNames.map(t => `<option value="${t}">${t}</option>`).join('');
   }
 
   // Store for sort/filter
