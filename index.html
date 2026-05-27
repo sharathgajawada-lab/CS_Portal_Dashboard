@@ -1281,9 +1281,13 @@ function renderConsultantTable() {
 function _csatLegacyNoop() {}
 
 
-Chart.defaults.color = '#6b7280';
-Chart.defaults.borderColor = '#dde1ec';
-Chart.defaults.font.family = "'Inter', sans-serif";
+// ── Chart defaults ── set safely after confirming Chart.js loaded ─────────────
+function initChartDefaults() {
+  if (typeof Chart === 'undefined') return;
+  Chart.defaults.color        = '#6b7280';
+  Chart.defaults.borderColor  = '#dde1ec';
+  Chart.defaults.font.family  = "'Inter', sans-serif";
+}
 const gridOpts = {
   color: 'rgba(221,225,236,.8)',
   drawBorder: false,
@@ -2001,11 +2005,26 @@ async function init() {
     }
   }, 1000);
 
-  // ── Fetch with retry ──────────────────────────────────────────────────────
-  const fetchWithRetry = async (url, retries = 3, delayMs = 3000) => {
+  // ── Fetch with timeout + retry ────────────────────────────────────────────
+  const fetchWithTimeout = async (url, timeoutMs) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      return r;
+    } catch(e) {
+      clearTimeout(timer);
+      throw e;
+    }
+  };
+
+  const fetchWithRetry = async (url, retries, delayMs) => {
+    retries  = retries  || 3;
+    delayMs  = delayMs  || 4000;
     for (let i = 0; i < retries; i++) {
       try {
-        const r = await fetch(url);
+        const r = await fetchWithTimeout(url, 20000); // 20s timeout per attempt
         if (r.ok) return r;
         if (r.status >= 500 && i < retries - 1) {
           await new Promise(res => setTimeout(res, delayMs));
@@ -2014,6 +2033,7 @@ async function init() {
         throw new Error(`HTTP ${r.status}`);
       } catch(e) {
         if (i === retries - 1) throw e;
+        setLoad(10 + i*10, `Retrying… (attempt ${i+2}/${retries})`);
         await new Promise(res => setTimeout(res, delayMs));
       }
     }
@@ -2021,27 +2041,31 @@ async function init() {
 
   try {
     setLoad(5, 'Connecting…');
-    const r = await fetchWithRetry('/api/metrics/batch');
+
+    // Show the dashboard shell immediately — don't make user wait on loading screen
+    // Data will populate progressively as it arrives
     clearInterval(coldStartTimer);
-
-    const batch = await r.json();
-    rawData = batch;
-    setLoad(80, 'Rendering…');
-    setSub('');
-
     document.getElementById('loading').style.display = 'none';
     document.getElementById('appRoot').style.display = 'block';
 
-    renderAll();
-    document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
-    document.getElementById('footerTs').textContent = 'Data from ' + DATA_START;
+    // Load batch data (KPIs/charts) — non-blocking, populates when ready
+    fetchWithRetry('/api/metrics/batch').then(r => r.json()).then(batch => {
+      rawData = batch;
+      renderAll();
+      document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
+      document.getElementById('footerTs').textContent = 'Data from ' + DATA_START;
+    }).catch(err => {
+      console.warn('Batch load failed:', err);
+      document.getElementById('lastUpdated').textContent = 'Failed to load — refresh to retry';
+    });
 
+    // Load all intel in parallel — also non-blocking
     loadAllIntel();
 
   } catch (err) {
     clearInterval(coldStartTimer);
     setLoad(100, 'Failed to connect');
-    setSub('Could not reach the server. Please refresh the page.\nIf this keeps happening, the server may be down.');
+    setSub('Could not reach the server. Please refresh the page.');
     document.getElementById('loadBar').style.background = '#dc2626';
     console.error(err);
   }
@@ -2243,7 +2267,22 @@ document.getElementById('uploadModal').addEventListener('click', function(e) {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
-init();
+
+// Wait for Chart.js before starting — CDN failure must not block the dashboard
+function waitForChart(callback, attempts) {
+  attempts = attempts || 0;
+  if (typeof Chart !== 'undefined') {
+    initChartDefaults();
+    callback();
+  } else if (attempts < 30) {
+    setTimeout(() => waitForChart(callback, attempts + 1), 200);
+  } else {
+    console.warn('Chart.js did not load from CDN - proceeding without charts');
+    callback();
+  }
+}
+
+waitForChart(init);
 </script>
 </body>
 </html>
