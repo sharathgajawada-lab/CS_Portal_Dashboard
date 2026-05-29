@@ -805,35 +805,24 @@ function _csatComputeAndRender(from, to) {
 
   } // end dKeys loop
 
-  // Check if cn data exists (new index format) or fall back to tm (old format)
-  const hasCnData = dKeys.some(d => Object.keys(days[d]?.cn||{}).length > 0);
+  // Build BOTH consultants (from cn) AND teams (from tm) independently
+  // Teams always use dm.tm — guaranteed correct regardless of index version
+  // Consultants use dm.cn when available for detailed per-consultant view
+  for (const d of dKeys) {
+    const dm = days[d];
 
-  if (hasCnData) {
-    // New format: build consultants from per-day cn entries
-    for (const d of dKeys) {
-      const dm = days[d];
-      for (const [cid, cv] of Object.entries(dm.cn||{})) {
-        if (!cons[cid]) cons[cid]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
-        cons[cid].t+=cv.t; cons[cid].sr+=cv.sr; cons[cid].s+=cv.s; cons[cid].l+=cv.l;
-        if (cv.d) for (let r=1;r<=5;r++) cons[cid].d[r]=(cons[cid].d[r]||0)+(cv.d[r]||0);
-      }
-    }
-    // Teams from consultants
-    for (const [cid, cv] of Object.entries(cons)) {
-      const t = cv.tm; if (!t) continue;
+    // Teams always from dm.tm (reliable in all index versions)
+    for (const [t,tv] of Object.entries(dm.tm||{})) {
       if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
-      teams[t].t+=cv.t; teams[t].sr+=cv.sr; teams[t].s+=cv.s; teams[t].l+=cv.l;
-      for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(cv.d[r]||0);
+      teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
+      if (tv.d) for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(tv.d[r]||0);
     }
-  } else {
-    // Old index format (no cn): build teams directly from dm.tm
-    for (const d of dKeys) {
-      const dm = days[d];
-      for (const [t,tv] of Object.entries(dm.tm||{})) {
-        if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
-        teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
-        if (tv.d) for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(tv.d[r]||0);
-      }
+
+    // Consultants from dm.cn when available
+    for (const [cid, cv] of Object.entries(dm.cn||{})) {
+      if (!cons[cid]) cons[cid]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
+      cons[cid].t+=cv.t; cons[cid].sr+=cv.sr; cons[cid].s+=cv.s; cons[cid].l+=cv.l;
+      if (cv.d) for (let r=1;r<=5;r++) cons[cid].d[r]=(cons[cid].d[r]||0)+(cv.d[r]||0);
     }
   }
   // We don't have per-row solved+rating in the index — use day-level solved ratio
