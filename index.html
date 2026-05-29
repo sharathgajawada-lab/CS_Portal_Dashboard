@@ -1257,11 +1257,27 @@ function _chartCtrlChange(id) {
   _chartCtrlRender(id);
 }
 
-function _chartCtrlRender(id) {
-  if (id === 'catChart')          renderCategories();
-  else if (id === 'sessionTrendChart') renderSessionSection();
-  else if (id === 'sessionActChart')   renderSessionSection();
-  else if (id === 'hourChart')    renderHourGrid();
+async function _chartCtrlRender(id) {
+  const { from, to } = getChartRange(id);
+  const gb = getChartGroupBy(id);
+
+  if (id === 'catChart') {
+    setStatus('catStatus', 'loading', 'Loading…');
+    try {
+      const r = await fetch(`/api/categories?date_from=${from}&date_to=${to}`);
+      if (r.ok) { catData = await r.json(); renderCategories(); }
+    } catch(e) {}
+  }
+  else if (id === 'sessionTrendChart' || id === 'sessionActChart' || id === 'hourChart') {
+    setStatus('sessionStatus', 'loading', 'Loading…');
+    try {
+      const r = await fetch(`/api/sessions/full?date_from=${from}&date_to=${to}`);
+      if (r.ok) {
+        const d = await r.json();
+        if (d.available) { sessionData = d; renderSessionSection(d); }
+      }
+    } catch(e) {}
+  }
 }
 
 function getChartRange(id) {

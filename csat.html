@@ -898,8 +898,15 @@ function _chartCtrlChange(id) {
   _chartCtrl[id].n       = parseInt(document.getElementById(id+'_n')?.value || _chartCtrl[id].n);
   _chartCtrl[id].unit    = document.getElementById(id+'_unit')?.value   || _chartCtrl[id].unit;
   _chartCtrl[id].compare = document.getElementById(id+'_compare')?.checked || false;
-  if (id === 'csatDist')    { if (csatData) renderCSAT(csatData); }
-  else if (id === 'csTeamTrend') { if (csatData) renderCSTeams(csatData.teams||[], csatData.team_daily||{}); }
+  if (id === 'csatDist') {
+    // Use chart-level date range for rating distribution
+    const { from: df, to: dt } = getChartRange('csatDist');
+    if (_csatRaw) _csatComputeAndRender(df, dt);
+  }
+  else if (id === 'csTeamTrend') {
+    const { from: df, to: dt } = getChartRange('csTeamTrend');
+    if (_csatRaw) _csatComputeAndRender(df, dt);
+  }
 }
 
 function getChartRange(id) {
