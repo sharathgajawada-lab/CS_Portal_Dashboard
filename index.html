@@ -463,18 +463,38 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
   <!-- Trend chart -->
   <div class="section">
-    <div class="section-header">
+    <div class="section-header" style="flex-wrap:wrap;gap:10px">
       <div>
         <div class="section-title">Engagement trend</div>
         <div class="section-sub" id="trendSub">Daily activity over selected period</div>
       </div>
-      <div style="display:flex;align-items:center;gap:6px">
-        <span style="font-size:11px;color:var(--text3)">Graph by</span>
-        <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px">
-          <button class="gbtn active" data-chart="trend" data-gb="day"   onclick="setGraphBy('trend','day',this)">Day</button>
-          <button class="gbtn"        data-chart="trend" data-gb="week"  onclick="setGraphBy('trend','week',this)">Week</button>
-          <button class="gbtn"        data-chart="trend" data-gb="month" onclick="setGraphBy('trend','month',this)">Month</button>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+
+        <!-- Compare toggle -->
+        <div style="display:flex;align-items:center;gap:6px">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text2)">
+            <input type="checkbox" id="trendCompare" onchange="renderTrend()" style="cursor:pointer">
+            Compare
+          </label>
+          <div id="trendCompareDays" style="display:none;align-items:center;gap:4px">
+            <span style="font-size:11px;color:var(--text3)">Last</span>
+            <input type="number" id="trendCompareDayCount" value="10" min="1" max="365"
+              onchange="renderTrend()"
+              style="width:48px;padding:2px 6px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--surface2);color:var(--text1);text-align:center">
+            <span style="font-size:11px;color:var(--text3)">days vs prev</span>
+          </div>
         </div>
+
+        <!-- Graph by -->
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--text3)">Graph by</span>
+          <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px">
+            <button class="gbtn active" data-chart="trend" data-gb="day"   onclick="setGraphBy('trend','day',this)">Day</button>
+            <button class="gbtn"        data-chart="trend" data-gb="week"  onclick="setGraphBy('trend','week',this)">Week</button>
+            <button class="gbtn"        data-chart="trend" data-gb="month" onclick="setGraphBy('trend','month',this)">Month</button>
+          </div>
+        </div>
+
       </div>
     </div>
     <div class="card">
@@ -946,6 +966,82 @@ function renderKPIs() {
 }
 
 // ── Trend chart ──────────────────────────────────────────────────────────────
+// ── Trend comparison renderer ─────────────────────────────────────────────────
+function _renderTrendCompare(activeEvent, nDays, gb) {
+  const today    = todayISO();
+  const curFrom  = daysAgoISO(nDays - 1);
+  const prevTo   = daysAgoISO(nDays);
+  const prevFrom = daysAgoISO(nDays * 2 - 1);
+
+  const keys = activeEvent
+    ? [activeEvent]
+    : ['auth.login', 'article.viewed', 'search.performed', 'video.watched'];
+
+  // Build bucket labels from current period
+  const refCur  = (rawData['auth.login']?.series || []).filter(p => p.date >= curFrom && p.date <= today);
+  const refPrev = (rawData['auth.login']?.series || []).filter(p => p.date >= prevFrom && p.date <= prevTo);
+
+  const aggCur  = aggregateSeries(refCur,  gb);
+  const aggPrev = aggregateSeries(refPrev, gb);
+
+  // Use position-based labels (Day 1, Day 2...) for alignment
+  const maxLen = Math.max(aggCur.length, aggPrev.length);
+  const labels = Array.from({length: maxLen}, (_, i) => `Day ${i + 1}`);
+
+  const datasets = [];
+  keys.forEach(key => {
+    const ev    = EVENTS.find(e => e.key === key);
+    const cur   = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= curFrom && p.date <= today), gb);
+    const prev  = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb);
+
+    datasets.push({
+      label:           `${ev.label} (current)`,
+      data:            cur.map(p => p.count||0),
+      borderColor:     ev.color,
+      backgroundColor: ev.color + '20',
+      fill:            keys.length === 1,
+      pointRadius: 3, tension: .3, borderWidth: 2.5,
+    });
+    datasets.push({
+      label:           `${ev.label} (prev)`,
+      data:            prev.map(p => p.count||0),
+      borderColor:     ev.color,
+      backgroundColor: 'transparent',
+      borderDash:      [5, 4],
+      fill:            false,
+      pointRadius: 2, tension: .3, borderWidth: 1.5,
+      pointStyle:      'circle',
+    });
+  });
+
+  document.getElementById('trendSub').textContent =
+    `Current: ${fmtDate(curFrom)} – ${fmtDate(today)} vs Prev: ${fmtDate(prevFrom)} – ${fmtDate(prevTo)} · by ${gb}`;
+
+  if (charts.trend) charts.trend.destroy();
+  charts.trend = new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
+          titleColor: '#111827', bodyColor: '#374151',
+          callbacks: {
+            title: ctx => `Day ${ctx[0].dataIndex + 1}`,
+          }
+        },
+      },
+      scales: {
+        x: { ticks: { font: { size: 10 } }, grid: gridOpts },
+        y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+      },
+    },
+  });
+}
+
 // ── Graph-by helpers ──────────────────────────────────────────────────────────
 function aggregateSeries(series, groupBy) {
   if (groupBy === 'day' || !groupBy) return series;
@@ -989,7 +1085,19 @@ function renderTrend() {
   let datasets = [];
   let labels    = [];
 
-  const gb = _graphBy.trend || 'day';
+  const gb       = _graphBy.trend || 'day';
+  const compareEl = document.getElementById('trendCompare');
+  const isCompare = compareEl && compareEl.checked;
+
+  // Show/hide day count input
+  const compareDaysEl = document.getElementById('trendCompareDays');
+  if (compareDaysEl) compareDaysEl.style.display = isCompare ? 'flex' : 'none';
+
+  if (isCompare) {
+    const nDays = Math.max(1, parseInt(document.getElementById('trendCompareDayCount')?.value || '10'));
+    _renderTrendCompare(activeEvent, nDays, gb);
+    return;
+  }
 
   if (activeEvent) {
     const raw = getSeries(activeEvent);
