@@ -768,25 +768,26 @@ function _csatComputeAndRender(from, to) {
     if (!weekMap[wk]) weekMap[wk] = {t:0,sr:0,s:0};
     weekMap[wk].t += dm.t; weekMap[wk].sr += dm.sr; weekMap[wk].s += dm.s;
 
-    // Teams
-    for (const [t,tv] of Object.entries(dm.tm||{})) {
-      if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
-      teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
-      if (tv.d) for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(tv.d[r]||0);
-    }
   } // end dKeys loop
 
-  // Consultants — use week_cons (weekly buckets) for date-aware filtering
-  const weekCons = _csatRaw.week_cons || {};
-  for (const [wk, wkData] of Object.entries(weekCons)) {
-    const wkEnd = new Date(new Date(wk+'T00:00:00').getTime() + 6*86400000).toISOString().slice(0,10);
-    if (wk > hi || wkEnd < lo) continue;
-    for (const [c,cv] of Object.entries(wkData)) {
-      if (!cons[c]) cons[c]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
-      cons[c].t+=cv.t; cons[c].sr+=cv.sr; cons[c].s+=cv.s; cons[c].l+=cv.l;
-      // Accumulate per-rating distribution if available
-      if (cv.d) for (let r=1;r<=5;r++) cons[c].d[r] = (cons[c].d[r]||0) + (cv.d[r]||0);
+  // Consultants — built from day_map cn entries (exact date range)
+  for (const d of dKeys) {
+    const dm = days[d];
+    for (const [cid, cv] of Object.entries(dm.cn||{})) {
+      if (!cons[cid]) cons[cid]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
+      cons[cid].t+=cv.t; cons[cid].sr+=cv.sr; cons[cid].s+=cv.s; cons[cid].l+=cv.l;
+      if (cv.d) for (let r=1;r<=5;r++) cons[cid].d[r]=(cons[cid].d[r]||0)+(cv.d[r]||0);
     }
+  }
+
+  // Teams — built by summing consultants so team total always = sum of its members
+  // This is the single source of truth — no separate team aggregation path
+  for (const [cid, cv] of Object.entries(cons)) {
+    const t = cv.tm;
+    if (!t) continue;
+    if (!teams[t]) teams[t]={t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
+    teams[t].t+=cv.t; teams[t].sr+=cv.sr; teams[t].s+=cv.s; teams[t].l+=cv.l;
+    for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(cv.d[r]||0);
   }
   // We don't have per-row solved+rating in the index — use day-level solved ratio
   const solvedRatio = total > 0 ? solved / total : 0;

@@ -230,7 +230,7 @@ def _build_csat_index(rows: list) -> dict:
                     name.strip().lower().startswith("frank ai"))
 
         if d not in day_map:
-            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{}}
+            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{}}
         dm = day_map[d]
         dm["t"]  += 1
         dm["sr"] += r["rating"]
@@ -247,6 +247,16 @@ def _build_csat_index(rows: list) -> dict:
             dm["tm"][t]["s"]  += int(r["solved"])
             dm["tm"][t]["l"]  += int(r["rating"] <= 2)
             dm["tm"][t]["d"][r["rating"]] = dm["tm"][t]["d"].get(r["rating"], 0) + 1
+
+        if not bad_name:
+            # Per-day consultant data — ensures team totals == sum of consultant totals
+            if cid not in dm["cn"]:
+                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
+            dm["cn"][cid]["t"]  += 1
+            dm["cn"][cid]["sr"] += r["rating"]
+            dm["cn"][cid]["s"]  += int(r["solved"])
+            dm["cn"][cid]["l"]  += int(r["rating"] <= 2)
+            dm["cn"][cid]["d"][r["rating"]] = dm["cn"][cid]["d"].get(r["rating"], 0) + 1
 
         if not bad_name:
             try:
@@ -1458,11 +1468,11 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
             "s":  dm["solved"],
             "l":  dm["low"],
             "d":  dm.get("dist", {}),
-            "tm": {t: {"t":v["total"],"sr":v["sum_r"],"s":v["solved"],"l":v["low"]}
-                   for t, v in dm.get("teams", {}).items()},
-            "cn": {c: {"n":v["name"],"tm":v["team"],"t":v["total"],
-                       "sr":v["sum_r"],"s":v["solved"],"l":v["low"]}
-                   for c, v in dm.get("cons", {}).items()},
+            "tm": {t: {"t":v["t"],"sr":v["sr"],"s":v["s"],"l":v["l"],"d":v.get("d",{})}
+                   for t, v in dm.get("tm", {}).items()},
+            "cn": {c: {"n":v["n"],"tm":v["tm"],"t":v["t"],
+                       "sr":v["sr"],"s":v["s"],"l":v["l"],"d":v.get("d",{})}
+                   for c, v in dm.get("cn", {}).items()},
         }
 
     return {
