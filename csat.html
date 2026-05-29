@@ -485,7 +485,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div style="margin-bottom:16px">
       <div class="card">
         <div class="card-title">CSAT trend</div>
-        <div class="card-sub">Weekly avg rating &amp; solve rate over time</div>
+        <div class="card-sub">Daily avg rating &amp; solve rate over time</div>
         <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
           <canvas id="csatTrendChart"></canvas>
         </div>
@@ -504,6 +504,16 @@ thead th:hover .sort-arrow { color:var(--text2) }
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px" id="csTeamCards">
           <!-- Populated by JS -->
+        </div>
+
+        <!-- 3-Team daily rating trend chart -->
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:12px">
+            Daily avg rating — core CS teams
+          </div>
+          <div class="chart-wrap" style="height:180px" id="csTeamTrendWrap">
+            <canvas id="csTeamTrendChart"></canvas>
+          </div>
         </div>
       </div>
     </div>
@@ -751,7 +761,8 @@ function _csatComputeAndRender(from, to) {
   let total=0, sumR=0, solved=0, low=0;
   const dist={1:0,2:0,3:0,4:0,5:0};
   const teams={}, cons={};
-  const weekMap={};
+  const dayTrend={}; const weekMap=dayTrend; // daily trend data
+  const teamDailyMap={};  // {teamName: {date: {t,sr}}} for 3-team comparison chart
 
   for (const d of dKeys) {
     const dm = days[d];
@@ -761,12 +772,17 @@ function _csatComputeAndRender(from, to) {
     low    += dm.l;
     for (const [k,v] of Object.entries(dm.d||{})) dist[+k] = (dist[+k]||0) + v;
 
-    // Weekly trend
-    const dt   = new Date(d + 'T00:00:00');
-    const wOff = dt.getDay() === 0 ? 6 : dt.getDay() - 1;
-    const wk   = new Date(dt - wOff*86400000).toISOString().slice(0,10);
-    if (!weekMap[wk]) weekMap[wk] = {t:0,sr:0,s:0};
-    weekMap[wk].t += dm.t; weekMap[wk].sr += dm.sr; weekMap[wk].s += dm.s;
+    // Daily trend — store each day directly
+    if (!weekMap[d]) weekMap[d] = {t:0,sr:0,s:0};
+    weekMap[d].t += dm.t; weekMap[d].sr += dm.sr; weekMap[d].s += dm.s;
+
+    // Daily per-team data for the 3-team comparison chart
+    for (const [t,tv] of Object.entries(dm.tm||{})) {
+      if (!teamDailyMap[t]) teamDailyMap[t] = {};
+      if (!teamDailyMap[t][d]) teamDailyMap[t][d] = {t:0,sr:0};
+      teamDailyMap[t][d].t  += tv.t;
+      teamDailyMap[t][d].sr += tv.sr;
+    }
 
   } // end dKeys loop
 
@@ -803,7 +819,7 @@ function _csatComputeAndRender(from, to) {
   }));
 
   const weeklyTrend = Object.entries(weekMap)
-    .map(([wk,v]) => ({ week:wk,
+    .map(([date,v]) => ({ week:date,
       avg_rating: Math.round(v.sr/v.t*100)/100,
       solved_pct: Math.round(v.s/v.t*1000)/10,
       total: v.t }))
@@ -841,6 +857,7 @@ function _csatComputeAndRender(from, to) {
     avg_solved: avgSolved, avg_unsolved: avgUnsolved,
     rating_dist: ratingDist,
     weekly_trend: weeklyTrend,
+    team_daily: teamDailyMap,
     teams: teamList,
     all_consultants: consList,
     top_consultants: consList.slice(0,10),
@@ -880,7 +897,7 @@ function renderCSAT(d) {
     charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
       type: 'line',
       data: {
-        labels: trend.map(t => new Date(t.week).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})),
+        labels: trend.map(t => new Date(t.week).toLocaleDateString('en-US', {month:'short',day:'numeric'})),
         datasets: [
           {
             label: 'Avg Rating',
@@ -960,7 +977,7 @@ function renderCSAT(d) {
   }
 
   // CS Teams dedicated section
-  renderCSTeams(d.teams || []);
+  renderCSTeams(d.teams || [], d.team_daily || {});
 
   // Team leaderboard
   const teams = d.teams || [];
@@ -1155,7 +1172,7 @@ const CS_TEAMS = [
   { key: 'VCC',             label: 'Team Sound Check',    color: '#7c3aed', vcc: true },
 ];
 
-function renderCSTeams(teamsData) {
+function renderCSTeams(teamsData, teamDailyData) {
   const container = document.getElementById('csTeamCards');
   const badges    = document.getElementById('csTeamBadges');
   if (!container) return;
@@ -1242,6 +1259,62 @@ function renderCSTeams(teamsData) {
       </span>`;
     }).join('');
   }
+
+  // ── 3-team daily rating trend chart ────────────────────────────────────────
+  const chartWrap = document.getElementById('csTeamTrendWrap');
+  if (!chartWrap) return;
+
+  // Collect all dates across all CS teams
+  const allDates = [...new Set(
+    CS_TEAMS.flatMap(ct => Object.keys(teamDailyData[ct.key] || {}))
+  )].sort();
+
+  if (!allDates.length) {
+    chartWrap.innerHTML = '<div class="empty" style="padding:20px"><span>📊</span>No daily data available</div>';
+    return;
+  }
+
+  if (charts.csTeamTrend) charts.csTeamTrend.destroy();
+  if (!document.getElementById('csTeamTrendChart')) {
+    chartWrap.innerHTML = '<canvas id="csTeamTrendChart"></canvas>';
+  }
+
+  charts.csTeamTrend = new Chart(document.getElementById('csTeamTrendChart'), {
+    type: 'line',
+    data: {
+      labels: allDates.map(d => new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})),
+      datasets: CS_TEAMS.filter(ct => !ct.vcc && teamDailyData[ct.key]).map(ct => {
+        const dayData = teamDailyData[ct.key] || {};
+        return {
+          label: ct.label,
+          data: allDates.map(d => {
+            const dd = dayData[d];
+            return dd && dd.t > 0 ? Math.round(dd.sr/dd.t*100)/100 : null;
+          }),
+          borderColor: ct.color,
+          backgroundColor: ct.color + '15',
+          pointRadius: 2, tension: .3, borderWidth: 2,
+          spanGaps: true,
+        };
+      }),
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
+          titleColor: '#111827', bodyColor: '#374151',
+          callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw ?? '—'}★` }
+        },
+      },
+      scales: {
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: gridOpts },
+        y: { min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts,
+             title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
+      },
+    },
+  });
 }
 
 // ── Consultant / Team detail panel ────────────────────────────────────────────
