@@ -1614,9 +1614,84 @@ function expandChart(sourceChart, title) {
   });
 
   _modalChart = new Chart(canvas, cfg);
+
+  // Store full data for windowed navigation
+  _chartAllLabels   = cfg.data.labels.slice();
+  _chartAllDatasets = cfg.data.datasets.map(ds => (ds.data || []).slice());
+  _chartWindowSize  = _getWindowSize(_chartAllLabels.length);
+  _chartWindowStart = Math.max(0, _chartAllLabels.length - _chartWindowSize); // start at most recent
+
+  // Show nav buttons only if data is large enough to need windowing
+  const needsNav = _chartAllLabels.length > _chartWindowSize;
+  ['chartNavLeft','chartNavRight','chartNavAll'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = needsNav ? 'inline-block' : 'none';
+  });
+
+  if (needsNav) _applyChartWindow();
+  else {
+    const rangeEl = document.getElementById('chartModalRange');
+    if (rangeEl) rangeEl.textContent = `${_chartAllLabels.length} data points`;
+  }
 }
 
 function resetChartZoom() { /* zoom plugin removed */ }
+
+// ── Chart window navigation ────────────────────────────────────────────────────
+let _chartWindowStart = 0;   // index of first visible label
+let _chartWindowSize  = 30;  // how many data points to show
+let _chartAllLabels   = [];  // full label set
+let _chartAllDatasets = [];  // full dataset values
+
+function _getWindowSize(totalPoints) {
+  // Adaptive: show ~30 points for dense data, all for sparse
+  if (totalPoints <= 30) return totalPoints;
+  if (totalPoints <= 60) return 30;
+  if (totalPoints <= 180) return 60;
+  return 90;
+}
+
+function _applyChartWindow() {
+  if (!_modalChart || !_chartAllLabels.length) return;
+  const total = _chartAllLabels.length;
+  const end   = Math.min(_chartWindowStart + _chartWindowSize, total);
+  const start = Math.max(0, end - _chartWindowSize);
+  _chartWindowStart = start;
+
+  _modalChart.data.labels = _chartAllLabels.slice(start, end);
+  _modalChart.data.datasets.forEach((ds, i) => {
+    ds.data = (_chartAllDatasets[i] || []).slice(start, end);
+  });
+  _modalChart.update('none');
+
+  // Update range label
+  const rangeEl = document.getElementById('chartModalRange');
+  if (rangeEl) {
+    rangeEl.textContent = `Showing ${start+1}–${end} of ${total} points`;
+  }
+
+  // Update button states
+  const leftBtn  = document.getElementById('chartNavLeft');
+  const rightBtn = document.getElementById('chartNavRight');
+  if (leftBtn)  leftBtn.style.opacity  = start <= 0   ? '0.3' : '1';
+  if (rightBtn) rightBtn.style.opacity = end >= total  ? '0.3' : '1';
+}
+
+function shiftChartWindow(dir) {
+  if (!_modalChart || !_chartAllLabels.length) return;
+  const step  = Math.max(1, Math.floor(_chartWindowSize * 0.5));
+  _chartWindowStart = Math.max(0,
+    Math.min(_chartAllLabels.length - _chartWindowSize,
+             _chartWindowStart + dir * step));
+  _applyChartWindow();
+}
+
+function resetChartWindow() {
+  if (!_modalChart || !_chartAllLabels.length) return;
+  _chartWindowSize  = _chartAllLabels.length;
+  _chartWindowStart = 0;
+  _applyChartWindow();
+}
 
 function closeChartModal() {
   document.getElementById('chartModal').style.display = 'none';
@@ -1641,6 +1716,9 @@ waitForChart(init);
         <div id="chartModalSub" style="font-size:11px;color:var(--text3);margin-top:2px">Click ✕ or press Escape to close</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="shiftChartWindow(-1)" id="chartNavLeft"  style="font-size:13px;padding:3px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">◀</button>
+        <button onclick="shiftChartWindow(1)"  id="chartNavRight" style="font-size:13px;padding:3px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">▶</button>
+        <button onclick="resetChartWindow()"   id="chartNavAll"   style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">All</button>
         <button onclick="closeChartModal()" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">✕ Close</button>
       </div>
     </div>
