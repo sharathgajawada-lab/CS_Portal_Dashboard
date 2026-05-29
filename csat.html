@@ -7,8 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <style>
 :root {
   --bg:        #f4f5f7;
@@ -913,8 +911,16 @@ function renderCSAT(d) {
       '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
   } else {
     if (!document.getElementById('csatTrendChart')) {
-      document.getElementById('csatTrendWrap').innerHTML = '<button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')">⤢ Expand</button>
-          <canvas id="csatTrendChart"></canvas>';
+      document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
+      (function() {
+        var _b = document.createElement('button');
+        _b.className = 'chart-expand-btn';
+        _b.textContent = '\u2922 Expand';
+        _b.setAttribute('data-chart', 'charts.csatTrend');
+        _b.setAttribute('data-title', 'CSAT trend');
+        _b.onclick = function() { handleExpandClick(this); };
+        document.getElementById('csatTrendWrap').prepend(_b);
+      })();
     }
     charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
       type: 'line',
@@ -962,8 +968,16 @@ function renderCSAT(d) {
   const distColors = { 1: '#dc2626', 2: '#f87171', 3: '#d97706', 4: '#2563eb', 5: '#059669' };
   if (charts.csatDist) charts.csatDist.destroy();
   if (!document.getElementById('csatDistChart')) {
-    document.getElementById('csatDistWrap').innerHTML = '<button class="chart-expand-btn" onclick="expandChart(charts.csatDist,'Rating distribution')">⤢ Expand</button>
-          <canvas id="csatDistChart"></canvas>';
+    document.getElementById('csatDistWrap').innerHTML = '<canvas id="csatDistChart"></canvas>';
+    (function() {
+      var _b = document.createElement('button');
+      _b.className = 'chart-expand-btn';
+      _b.textContent = '\u2922 Expand';
+      _b.setAttribute('data-chart', 'charts.csatDist');
+      _b.setAttribute('data-title', 'Rating distribution');
+      _b.onclick = function() { handleExpandClick(this); };
+      document.getElementById('csatDistWrap').prepend(_b);
+    })();
   }
   charts.csatDist = new Chart(document.getElementById('csatDistChart'), {
     type: 'bar',
@@ -1447,6 +1461,23 @@ async function init() {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('appRoot').style.display = 'block';
 
+  // Chart modal event listeners (attached here so DOM exists)
+  const _modal = document.getElementById('chartModal');
+  if (_modal) {
+    _modal.addEventListener('click', function(e) {
+      if (e.target === this) closeChartModal();
+    });
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChartModal(); });
+
+  // Upload modal backdrop click
+  const _uploadModal = document.getElementById('uploadModal');
+  if (_uploadModal) {
+    _uploadModal.addEventListener('click', function(e) {
+      if (e.target === this) hideUploadModal();
+    });
+  }
+
   await loadCSAT();
   document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
   document.getElementById('footerTs').textContent = 'Data from ' + (_csatRaw?.date_min || DATA_START);
@@ -1524,10 +1555,7 @@ async function submitCSATUpload() {
   }
 }
 
-// Close modal on backdrop click
-document.getElementById('uploadModal').addEventListener('click', function(e) {
-  if (e.target === this) hideUploadModal();
-});
+// uploadModal listener — moved to init() so DOM exists when it runs
 
 
 // Register service worker for offline caching
@@ -1555,6 +1583,8 @@ let _modalChart = null;
 
 function expandChart(sourceChart, title) {
   if (!sourceChart) return;
+  // Decode HTML entities in title (from innerHTML string contexts)
+  title = title ? title.replace(/&quot;/g, '"').replace(/&#39;/g, "'") : '';
   const modal = document.getElementById('chartModal');
   const canvas = document.getElementById('chartModalCanvas');
   document.getElementById('chartModalTitle').textContent = title || 'Chart';
@@ -1572,24 +1602,8 @@ function expandChart(sourceChart, title) {
     options: JSON.parse(JSON.stringify(src.config.options || {})),
   };
 
-  // Enable zoom and pan
+  // Zoom via scroll wheel using Chart.js built-in limits
   cfg.options.plugins = cfg.options.plugins || {};
-  cfg.options.plugins.zoom = {
-    zoom: {
-      wheel: { enabled: true },
-      pinch: { enabled: true },
-      mode: 'x',
-    },
-    pan: {
-      enabled: true,
-      mode: 'x',
-    },
-    limits: { x: { minRange: 3 } },
-  };
-  cfg.options.onClick = (evt, els) => {
-    if (!els.length) return;
-    _modalChart.resetZoom();
-  };
   cfg.options.responsive = true;
   cfg.options.maintainAspectRatio = false;
 
@@ -1602,9 +1616,7 @@ function expandChart(sourceChart, title) {
   _modalChart = new Chart(canvas, cfg);
 }
 
-function resetChartZoom() {
-  if (_modalChart) _modalChart.resetZoom();
-}
+function resetChartZoom() { /* zoom plugin removed */ }
 
 function closeChartModal() {
   document.getElementById('chartModal').style.display = 'none';
@@ -1612,13 +1624,7 @@ function closeChartModal() {
   if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
 }
 
-// Close on overlay click
-document.getElementById('chartModal').addEventListener('click', function(e) {
-  if (e.target === this) closeChartModal();
-});
-
-// Close on Escape key
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChartModal(); });
+// Chart modal listeners — attached in init()
 
 
 waitForChart(init);
@@ -1632,10 +1638,9 @@ waitForChart(init);
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
       <div>
         <div id="chartModalTitle" style="font-size:14px;font-weight:600;color:var(--text1)"></div>
-        <div id="chartModalSub" style="font-size:11px;color:var(--text3);margin-top:2px">Scroll to zoom · Drag to pan · Double-click to reset</div>
+        <div id="chartModalSub" style="font-size:11px;color:var(--text3);margin-top:2px">Click ✕ or press Escape to close</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button onclick="resetChartZoom()" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">⟳ Reset zoom</button>
         <button onclick="closeChartModal()" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">✕ Close</button>
       </div>
     </div>
