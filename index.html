@@ -538,16 +538,16 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
 
-        <!-- Date range control -->
+        <!-- Date range: follows global filter -->
         <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface2)">
           <select id="trendRangeType" onchange="onTrendRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
-            <option value="selection">Selection</option>
-            <option value="last" selected>Last...</option>
+            <option value="selection" selected>Global filter</option>
+            <option value="last">Last...</option>
             <option value="alltime">All time</option>
             <option value="current">Current</option>
             <option value="previous">Previous</option>
           </select>
-          <div id="trendLastControls" style="display:flex;align-items:center;border-left:1px solid var(--border)">
+          <div id="trendLastControls" style="display:none;align-items:center;border-left:1px solid var(--border)">
             <input type="number" id="trendLastN" value="30" min="1" max="9999"
               onchange="renderTrend()"
               style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
@@ -1019,6 +1019,13 @@ const gridOpts = {
 
 // ── Render all ───────────────────────────────────────────────────────────────
 function renderAll() {
+  // Sync all charts set to 'selection' so they follow the global date filter
+  Object.keys(_chartCtrl).forEach(id => {
+    if (_chartCtrl[id].rangeType === 'selection') {
+      // Trigger re-render with updated global dates
+      _chartCtrlRender(id);
+    }
+  });
   renderHeader();
   renderAlerts();
   renderKPIs();
@@ -1191,7 +1198,7 @@ function makeChartControls(id, opts = {}) {
   const n    = opts.defaultN    || 30;
   const unit = opts.defaultUnit || 'days';
   const gb   = opts.defaultGb   || 'day';
-  _chartCtrl[id] = { rangeType: 'last', n, unit, gb, compare: false };
+  _chartCtrl[id] = { rangeType: 'selection', n, unit, gb, compare: false };
 
   const cmp = opts.compare ? `
     <label class="ctrl-compare">
@@ -1203,14 +1210,14 @@ function makeChartControls(id, opts = {}) {
     <div class="chart-controls-right" id="${id}_controls">
       <div class="ctrl-range-wrap">
         <select id="${id}_rangeType" onchange="_chartCtrlRangeType('${id}')">
-          <option value="last" selected>Last...</option>
-          <option value="selection">Selection</option>
+          <option value="last">Last...</option>
+          <option value="selection" selected>Selection (global)</option>
           <option value="alltime">All time</option>
           <option value="current">Current</option>
           <option value="previous">Previous</option>
         </select>
         <div class="ctrl-sep"></div>
-        <div id="${id}_lastWrap" style="display:flex;align-items:center">
+        <div id="${id}_lastWrap" style="display:none;align-items:center">
           <input  class="ctrl-num"    type="number" id="${id}_n"    value="${n}"    min="1" onchange="_chartCtrlChange('${id}')">
           <select class="ctrl-select" style="border:none;background:transparent" id="${id}_unit" onchange="_chartCtrlChange('${id}')">
             <option value="days"     ${unit==='days'?'selected':''}>Days</option>
@@ -1305,6 +1312,7 @@ function isChartCompare(id) {
 
 function onTrendRangeTypeChange() {
   const type = document.getElementById('trendRangeType').value;
+  // 'selection'/'Global filter' means use global date filter - no sub-controls needed
   document.getElementById('trendLastControls').style.display    = type === 'last'     ? 'flex' : 'none';
   document.getElementById('trendCurrentControls').style.display = type === 'current'  ? 'flex' : 'none';
   document.getElementById('trendPrevControls').style.display    = type === 'previous' ? 'flex' : 'none';

@@ -843,19 +843,19 @@ function makeChartControls(id, opts = {}) {
   const n    = opts.defaultN    || 30;
   const unit = opts.defaultUnit || 'days';
   const gb   = opts.defaultGb   || 'day';
-  _chartCtrl[id] = { rangeType: 'last', n, unit, gb, compare: false };
+  _chartCtrl[id] = { rangeType: 'selection', n, unit, gb, compare: false };
   const cmp = opts.compare ? `<label class="ctrl-compare"><input type="checkbox" id="${id}_compare" onchange="_chartCtrlChange('${id}')"> vs prev</label>` : '';
   return `<div class="chart-controls-right" id="${id}_controls">
     <div class="ctrl-range-wrap">
       <select id="${id}_rangeType" onchange="_chartCtrlRangeType('${id}')">
-        <option value="last" selected>Last...</option>
-        <option value="selection">Selection</option>
+        <option value="selection" selected>Selection</option>
+        <option value="last">Last...</option>
         <option value="alltime">All time</option>
         <option value="current">Current</option>
         <option value="previous">Previous</option>
       </select>
       <div class="ctrl-sep"></div>
-      <div id="${id}_lastWrap" style="display:flex;align-items:center">
+      <div id="${id}_lastWrap" style="display:none;align-items:center">
         <input class="ctrl-num" type="number" id="${id}_n" value="${n}" min="1" onchange="_chartCtrlChange('${id}')">
         <select style="border:none;background:transparent;font-size:11px;padding:3px 4px;outline:none;cursor:pointer" id="${id}_unit" onchange="_chartCtrlChange('${id}')">
           <option value="days" ${unit==='days'?'selected':''}>Days</option>
@@ -1057,6 +1057,13 @@ async function loadCSAT(forceRefresh = false) {
 }
 
 function _csatComputeAndRender(from, to) {
+  // Sync chart controls set to 'selection' to follow this global date change
+  ['csatDist','csTeamTrend'].forEach(id => {
+    if (_chartCtrl[id] && _chartCtrl[id].rangeType === 'selection') {
+      // Will re-render with the global from/to via getChartRange returning state.from/to
+      // No need to do anything extra - the render below will use from/to correctly
+    }
+  });
   if (!_csatRaw?.days) return;
   const days  = _csatRaw.days;
   const lo    = from || _csatRaw.date_min;
