@@ -693,8 +693,8 @@ function csatUrl() { return CSAT_DATA_URL + '?v=' + Date.now(); }  // cache-bust
 let _csatRaw  = null;
 let csatData  = null;
 
-async function loadCSAT() {
-  if (_csatRaw) {
+async function loadCSAT(forceRefresh = false) {
+  if (_csatRaw && !forceRefresh) {
     _csatComputeAndRender(state.from, state.to);
     return;
   }
@@ -931,8 +931,14 @@ function renderCSAT(d) {
       },
     },
   });
-  document.getElementById('csatDistSub').textContent =
-    `${dist[4]?.pct}% gave 5★ · ${(dist[0]?.pct + dist[1]?.pct).toFixed(1)}% gave 1–2★`;
+  if (dist.length) {
+    const pct5  = dist[4]?.pct ?? 0;
+    const pctLow = ((dist[0]?.pct ?? 0) + (dist[1]?.pct ?? 0)).toFixed(1);
+    document.getElementById('csatDistSub').textContent =
+      `${pct5}% gave 5★ · ${pctLow}% gave 1–2★`;
+  } else {
+    document.getElementById('csatDistSub').textContent = 'No surveys in selected period';
+  }
 
   // Team leaderboard
   const teams = d.teams || [];
@@ -1242,14 +1248,14 @@ async function submitCSATUpload() {
       statusEl.textContent = `✓ ${data.message} · ${data.date_min} → ${data.date_max}`;
       btn.textContent = 'Done!';
       // Reload CSAT data in the dashboard
-      _csatRaw = null;
+      _csatRaw = null;  // clear stale cache so fresh data is fetched
       _csatLastFrom = null;
       _csatLastTo = null;
-      setTimeout(() => {
+      setTimeout(async () => {
         hideUploadModal();
         btn.disabled = false;
         btn.textContent = 'Upload & Update';
-        loadCSAT();
+        await loadCSAT(true);  // force re-fetch — never serve old cached data
       }, 1500);
     } else {
       statusEl.style.color = 'var(--red)';
