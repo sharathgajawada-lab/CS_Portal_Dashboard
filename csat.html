@@ -809,7 +809,7 @@ function _csatComputeAndRender(from, to) {
     .sort((a,b) => a.week < b.week ? -1 : 1);
 
   const teamList = Object.entries(teams)
-    .filter(([,v]) => v.t >= 3)
+    .filter(([,v]) => v.t >= 1)  // show all teams with at least 1 survey
     .map(([t,v]) => ({ team:t,
       avg_rating: Math.round(v.sr/v.t*100)/100,
       solved_pct: Math.round(v.s/v.t*1000)/10,
