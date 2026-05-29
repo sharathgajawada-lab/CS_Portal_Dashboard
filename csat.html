@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <style>
 :root {
   --bg:        #f4f5f7;
@@ -185,6 +187,14 @@ input[type=date] {
 
 /* ── Chart container ── */
 .chart-wrap { position: relative; width: 100%; min-width: 0 }
+.chart-expand-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 10;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 5px; padding: 3px 7px; cursor: pointer;
+  font-size: 11px; color: var(--text3); opacity: 0;
+  transition: opacity .15s; line-height: 1.4;
+}
+.chart-wrap:hover .chart-expand-btn { opacity: 1; }
 .chart-wrap canvas { width: 100% !important; max-width: 100% }
 
 /* ── Tables ── */
@@ -475,6 +485,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="card-title">Rating distribution</div>
         <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
         <div class="chart-wrap" style="height:230px" id="csatDistWrap">
+          <button class="chart-expand-btn" onclick="expandChart(charts.csatDist,'Rating distribution')">⤢ Expand</button>
           <canvas id="csatDistChart"></canvas>
         </div>
       </div>
@@ -487,6 +498,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="card-title">CSAT trend</div>
         <div class="card-sub">Daily avg rating &amp; solve rate over time</div>
         <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
+          <button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')">⤢ Expand</button>
           <canvas id="csatTrendChart"></canvas>
         </div>
       </div>
@@ -506,13 +518,21 @@ thead th:hover .sort-arrow { color:var(--text2) }
           <!-- Populated by JS -->
         </div>
 
-        <!-- 3-Team daily rating trend chart -->
+        <!-- 3-Team daily charts -->
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:12px">
-            Daily avg rating — core CS teams
-          </div>
-          <div class="chart-wrap" style="height:180px" id="csTeamTrendWrap">
-            <canvas id="csTeamTrendChart"></canvas>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Daily avg rating</div>
+              <div class="chart-wrap" style="height:180px" id="csTeamTrendWrap">
+                <canvas id="csTeamTrendChart"></canvas>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Daily solved %</div>
+              <div class="chart-wrap" style="height:180px" id="csTeamSolvedWrap">
+                <canvas id="csTeamSolvedChart"></canvas>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -668,7 +688,7 @@ function setQuick(n, btn) {
   if (n === 'today')      { from = today; }
   else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
   else if (n === 'ytd')   { from = new Date().getFullYear() + '-01-01'; }
-  else if (n === 'start') { from = _csatRaw?.date_min || DATA_START; }  // use actual CSAT data start, not CMS start
+  else if (n === 'start') { from = (_csatRaw?.date_min) || DATA_START; to = _csatRaw?.date_max || today; }  // use actual data range
   else                    { from = daysAgoISO(n); }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
@@ -776,12 +796,13 @@ function _csatComputeAndRender(from, to) {
     if (!weekMap[d]) weekMap[d] = {t:0,sr:0,s:0};
     weekMap[d].t += dm.t; weekMap[d].sr += dm.sr; weekMap[d].s += dm.s;
 
-    // Daily per-team data for the 3-team comparison chart
+    // Daily per-team data for the 3-team comparison charts
     for (const [t,tv] of Object.entries(dm.tm||{})) {
       if (!teamDailyMap[t]) teamDailyMap[t] = {};
-      if (!teamDailyMap[t][d]) teamDailyMap[t][d] = {t:0,sr:0};
+      if (!teamDailyMap[t][d]) teamDailyMap[t][d] = {t:0,sr:0,s:0};
       teamDailyMap[t][d].t  += tv.t;
       teamDailyMap[t][d].sr += tv.sr;
+      teamDailyMap[t][d].s  += tv.s || 0;
     }
 
   } // end dKeys loop
@@ -892,7 +913,8 @@ function renderCSAT(d) {
       '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
   } else {
     if (!document.getElementById('csatTrendChart')) {
-      document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
+      document.getElementById('csatTrendWrap').innerHTML = '<button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')">⤢ Expand</button>
+          <canvas id="csatTrendChart"></canvas>';
     }
     charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
       type: 'line',
@@ -940,7 +962,8 @@ function renderCSAT(d) {
   const distColors = { 1: '#dc2626', 2: '#f87171', 3: '#d97706', 4: '#2563eb', 5: '#059669' };
   if (charts.csatDist) charts.csatDist.destroy();
   if (!document.getElementById('csatDistChart')) {
-    document.getElementById('csatDistWrap').innerHTML = '<canvas id="csatDistChart"></canvas>';
+    document.getElementById('csatDistWrap').innerHTML = '<button class="chart-expand-btn" onclick="expandChart(charts.csatDist,'Rating distribution')">⤢ Expand</button>
+          <canvas id="csatDistChart"></canvas>';
   }
   charts.csatDist = new Chart(document.getElementById('csatDistChart'), {
     type: 'bar',
@@ -1279,42 +1302,73 @@ function renderCSTeams(teamsData, teamDailyData) {
     chartWrap.innerHTML = '<canvas id="csTeamTrendChart"></canvas>';
   }
 
-  charts.csTeamTrend = new Chart(document.getElementById('csTeamTrendChart'), {
+  // Shared chart config builder
+  const makeTeamChart = (canvasId, datasets, yConfig) => new Chart(document.getElementById(canvasId), {
     type: 'line',
     data: {
       labels: allDates.map(d => new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})),
-      datasets: CS_TEAMS.filter(ct => !ct.vcc && teamDailyData[ct.key]).map(ct => {
-        const dayData = teamDailyData[ct.key] || {};
-        return {
-          label: ct.label,
-          data: allDates.map(d => {
-            const dd = dayData[d];
-            return dd && dd.t > 0 ? Math.round(dd.sr/dd.t*100)/100 : null;
-          }),
-          borderColor: ct.color,
-          backgroundColor: ct.color + '15',
-          pointRadius: 2, tension: .3, borderWidth: 2,
-          spanGaps: true,
-        };
-      }),
+      datasets,
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
-        tooltip: {
-          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
-          titleColor: '#111827', bodyColor: '#374151',
-          callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw ?? '—'}★` }
-        },
+        tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
+          titleColor: '#111827', bodyColor: '#374151' },
       },
       scales: {
         x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: gridOpts },
-        y: { min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts,
-             title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
+        y: { ...yConfig, ticks: { font: { size: 10 }, ...yConfig.ticks }, grid: gridOpts,
+             title: { display: true, text: yConfig.title, font: { size: 10 }, color: '#6b7280' } },
       },
     },
   });
+
+  const activeTeams = CS_TEAMS.filter(ct => !ct.vcc && teamDailyData[ct.key]);
+
+  // Rating chart
+  if (charts.csTeamTrend) charts.csTeamTrend.destroy();
+  if (!document.getElementById('csTeamTrendChart'))
+    document.getElementById('csTeamTrendWrap').innerHTML = '<canvas id="csTeamTrendChart"></canvas>';
+  // Add expand buttons to team chart wraps
+  ['csTeamTrendWrap','csTeamSolvedWrap'].forEach(id => {
+    const wrap = document.getElementById(id);
+    if (wrap && !wrap.querySelector('.chart-expand-btn')) {
+      const _btn = document.createElement('button');
+      _btn.className = 'chart-expand-btn'; _btn.textContent = '⤢ Expand';
+      const chartKey = id === 'csTeamTrendWrap' ? 'csTeamTrend' : 'csTeamSolved';
+      const chartTitle = id === 'csTeamTrendWrap' ? 'Daily avg rating — CS teams' : 'Daily solved % — CS teams';
+      _btn.onclick = () => expandChart(charts[chartKey], chartTitle);
+      wrap.prepend(_btn);
+    }
+  });
+  charts.csTeamTrend = makeTeamChart('csTeamTrendChart',
+    activeTeams.map(ct => ({
+      label: ct.label,
+      data: allDates.map(d => { const dd = (teamDailyData[ct.key]||{})[d]; return dd?.t > 0 ? Math.round(dd.sr/dd.t*100)/100 : null; }),
+      borderColor: ct.color, backgroundColor: ct.color+'15',
+      pointRadius: 2, tension: .3, borderWidth: 2, spanGaps: true,
+    })),
+    { min: 1, max: 5, stepSize: 1, ticks: { stepSize: 1 }, title: 'Avg Rating' }
+  );
+
+  // Solved % chart
+  const solvedWrap = document.getElementById('csTeamSolvedWrap');
+  if (solvedWrap) {
+    if (charts.csTeamSolved) charts.csTeamSolved.destroy();
+    if (!document.getElementById('csTeamSolvedChart'))
+      solvedWrap.innerHTML = '<canvas id="csTeamSolvedChart"></canvas>';
+    charts.csTeamSolved = makeTeamChart('csTeamSolvedChart',
+      activeTeams.map(ct => ({
+        label: ct.label,
+        data: allDates.map(d => { const dd = (teamDailyData[ct.key]||{})[d]; return dd?.t > 0 ? Math.round(dd.s/dd.t*1000)/10 : null; }),
+        borderColor: ct.color, backgroundColor: ct.color+'15',
+        pointRadius: 2, tension: .3, borderWidth: 2, spanGaps: true,
+        borderDash: [4,3],
+      })),
+      { min: 0, max: 100, ticks: { callback: v => v+'%' }, title: 'Solved %' }
+    );
+  }
 }
 
 // ── Consultant / Team detail panel ────────────────────────────────────────────
@@ -1495,9 +1549,104 @@ function waitForChart(callback, attempts) {
   }
 }
 
+
+// ── Chart expand modal ─────────────────────────────────────────────────────────
+let _modalChart = null;
+
+function expandChart(sourceChart, title) {
+  if (!sourceChart) return;
+  const modal = document.getElementById('chartModal');
+  const canvas = document.getElementById('chartModalCanvas');
+  document.getElementById('chartModalTitle').textContent = title || 'Chart';
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  // Destroy previous modal chart
+  if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+
+  // Deep clone config from source chart and add zoom/pan
+  const src = sourceChart;
+  const cfg = {
+    type: src.config.type,
+    data: JSON.parse(JSON.stringify(src.config.data)),
+    options: JSON.parse(JSON.stringify(src.config.options || {})),
+  };
+
+  // Enable zoom and pan
+  cfg.options.plugins = cfg.options.plugins || {};
+  cfg.options.plugins.zoom = {
+    zoom: {
+      wheel: { enabled: true },
+      pinch: { enabled: true },
+      mode: 'x',
+    },
+    pan: {
+      enabled: true,
+      mode: 'x',
+    },
+    limits: { x: { minRange: 3 } },
+  };
+  cfg.options.onClick = (evt, els) => {
+    if (!els.length) return;
+    _modalChart.resetZoom();
+  };
+  cfg.options.responsive = true;
+  cfg.options.maintainAspectRatio = false;
+
+  // Increase point radius in modal for better readability
+  (cfg.data.datasets || []).forEach(ds => {
+    ds.pointRadius = 3;
+    ds.pointHoverRadius = 5;
+  });
+
+  _modalChart = new Chart(canvas, cfg);
+}
+
+function resetChartZoom() {
+  if (_modalChart) _modalChart.resetZoom();
+}
+
+function closeChartModal() {
+  document.getElementById('chartModal').style.display = 'none';
+  document.body.style.overflow = '';
+  if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+}
+
+// Close on overlay click
+document.getElementById('chartModal').addEventListener('click', function(e) {
+  if (e.target === this) closeChartModal();
+});
+
+// Close on Escape key
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChartModal(); });
+
+
 waitForChart(init);
 
 </script>
+
+
+<!-- Chart expand modal -->
+<div id="chartModal" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:12px;border:1px solid var(--border);width:min(92vw,1100px);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <div>
+        <div id="chartModalTitle" style="font-size:14px;font-weight:600;color:var(--text1)"></div>
+        <div id="chartModalSub" style="font-size:11px;color:var(--text3);margin-top:2px">Scroll to zoom · Drag to pan · Double-click to reset</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="resetChartZoom()" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">⟳ Reset zoom</button>
+        <button onclick="closeChartModal()" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">✕ Close</button>
+      </div>
+    </div>
+    <div style="padding:20px;flex:1;min-height:0">
+      <div style="position:relative;height:min(60vh,480px)">
+        <canvas id="chartModalCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 </body>
 </html>

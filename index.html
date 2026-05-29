@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <style>
 :root {
   --bg:        #f4f5f7;
@@ -185,6 +187,14 @@ input[type=date] {
 
 /* ── Chart container ── */
 .chart-wrap { position: relative; width: 100%; min-width: 0 }
+.chart-expand-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 10;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 5px; padding: 3px 7px; cursor: pointer;
+  font-size: 11px; color: var(--text3); opacity: 0;
+  transition: opacity .15s; line-height: 1.4;
+}
+.chart-wrap:hover .chart-expand-btn { opacity: 1; }
 .chart-wrap canvas { width: 100% !important; max-width: 100% }
 
 /* ── Tables ── */
@@ -445,7 +455,8 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
     <div class="card">
       <div class="chart-wrap" style="height:220px">
-        <canvas id="trendChart"></canvas>
+        <button class="chart-expand-btn" onclick="expandChart(charts.trendChart,'Engagement trend')">⤢ Expand</button>
+          <canvas id="trendChart"></canvas>
       </div>
     </div>
   </div>
@@ -493,6 +504,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="card-title">Top categories</div>
         <div class="card-sub">Where users browse</div>
         <div class="chart-wrap" style="height:180px">
+          <button class="chart-expand-btn" onclick="expandChart(charts.catChart,'Content categories')">⤢ Expand</button>
           <canvas id="catChart"></canvas>
         </div>
       </div>
@@ -567,6 +579,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="card-title">Session duration over time</div>
         <div class="card-sub">Average session length by day</div>
         <div class="chart-wrap" style="height:170px" id="sessionTrendWrap">
+          <button class="chart-expand-btn" onclick="expandChart(charts.sessionTrendChart,'Session duration trend')">⤢ Expand</button>
           <canvas id="sessionTrendChart"></canvas>
         </div>
       </div>
@@ -574,6 +587,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="card-title">Time by activity</div>
         <div class="card-sub">Where users spend time per session</div>
         <div class="chart-wrap" style="height:170px" id="sessionActivityWrap">
+          <button class="chart-expand-btn" onclick="expandChart(charts.sessionActivityChart,'Session activity breakdown')">⤢ Expand</button>
           <canvas id="sessionActivityChart"></canvas>
         </div>
       </div>
@@ -593,7 +607,8 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <div class="card-title">Hour of day pattern</div>
       <div class="card-sub" id="hourSub">When users are most active (UTC) &middot; from session data</div>
       <div class="chart-wrap" id="hourChartWrap" style="height:160px;margin-top:8px">
-        <canvas id="hourChart"></canvas>
+        <button class="chart-expand-btn" onclick="expandChart(charts.hourChart,'Hour of day activity')">⤢ Expand</button>
+          <canvas id="hourChart"></canvas>
       </div>
     </div>
   </div>
@@ -1253,7 +1268,8 @@ function renderHourGridFromInsights(hourDist) {
   }
   // Restore canvas if the loading placeholder replaced it
   if (!document.getElementById('hourChart')) {
-    document.getElementById('hourChartWrap').innerHTML = '<canvas id="hourChart"></canvas>';
+    document.getElementById('hourChartWrap').innerHTML = '<button class="chart-expand-btn" onclick="expandChart(charts.hourChart,'Hour of day activity')">⤢ Expand</button>
+          <canvas id="hourChart"></canvas>';
   }
   renderHourChart(counts, true);
 }
@@ -1740,8 +1756,103 @@ function waitForChart(callback, attempts) {
   }
 }
 
+
+// ── Chart expand modal ─────────────────────────────────────────────────────────
+let _modalChart = null;
+
+function expandChart(sourceChart, title) {
+  if (!sourceChart) return;
+  const modal = document.getElementById('chartModal');
+  const canvas = document.getElementById('chartModalCanvas');
+  document.getElementById('chartModalTitle').textContent = title || 'Chart';
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  // Destroy previous modal chart
+  if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+
+  // Deep clone config from source chart and add zoom/pan
+  const src = sourceChart;
+  const cfg = {
+    type: src.config.type,
+    data: JSON.parse(JSON.stringify(src.config.data)),
+    options: JSON.parse(JSON.stringify(src.config.options || {})),
+  };
+
+  // Enable zoom and pan
+  cfg.options.plugins = cfg.options.plugins || {};
+  cfg.options.plugins.zoom = {
+    zoom: {
+      wheel: { enabled: true },
+      pinch: { enabled: true },
+      mode: 'x',
+    },
+    pan: {
+      enabled: true,
+      mode: 'x',
+    },
+    limits: { x: { minRange: 3 } },
+  };
+  cfg.options.onClick = (evt, els) => {
+    if (!els.length) return;
+    _modalChart.resetZoom();
+  };
+  cfg.options.responsive = true;
+  cfg.options.maintainAspectRatio = false;
+
+  // Increase point radius in modal for better readability
+  (cfg.data.datasets || []).forEach(ds => {
+    ds.pointRadius = 3;
+    ds.pointHoverRadius = 5;
+  });
+
+  _modalChart = new Chart(canvas, cfg);
+}
+
+function resetChartZoom() {
+  if (_modalChart) _modalChart.resetZoom();
+}
+
+function closeChartModal() {
+  document.getElementById('chartModal').style.display = 'none';
+  document.body.style.overflow = '';
+  if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+}
+
+// Close on overlay click
+document.getElementById('chartModal').addEventListener('click', function(e) {
+  if (e.target === this) closeChartModal();
+});
+
+// Close on Escape key
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChartModal(); });
+
+
 waitForChart(init);
 </script>
+
+
+<!-- Chart expand modal -->
+<div id="chartModal" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:12px;border:1px solid var(--border);width:min(92vw,1100px);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <div>
+        <div id="chartModalTitle" style="font-size:14px;font-weight:600;color:var(--text1)"></div>
+        <div id="chartModalSub" style="font-size:11px;color:var(--text3);margin-top:2px">Scroll to zoom · Drag to pan · Double-click to reset</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="resetChartZoom()" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">⟳ Reset zoom</button>
+        <button onclick="closeChartModal()" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">✕ Close</button>
+      </div>
+    </div>
+    <div style="padding:20px;flex:1;min-height:0">
+      <div style="position:relative;height:min(60vh,480px)">
+        <canvas id="chartModalCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 </body>
 </html>
