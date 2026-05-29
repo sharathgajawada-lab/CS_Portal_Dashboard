@@ -185,6 +185,14 @@ input[type=date] {
 
 /* ── Chart container ── */
 .chart-wrap { position: relative; width: 100%; min-width: 0 }
+.gbtn {
+  padding: 3px 10px; border: none; background: transparent;
+  border-radius: 4px; font-size: 11px; font-weight: 500;
+  color: var(--text3); cursor: pointer; transition: all .15s;
+}
+.gbtn:hover { color: var(--text1); background: var(--surface); }
+.gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
 .chart-expand-btn {
   position: absolute; top: 6px; right: 6px; z-index: 10;
   background: var(--surface); border: 1px solid var(--border);
@@ -192,7 +200,15 @@ input[type=date] {
   font-size: 11px; color: var(--text3); opacity: 0;
   transition: opacity .15s; line-height: 1.4;
 }
-.chart-wrap:hover .chart-expand-btn { opacity: 1; }
+.chart-wrap:hover .gbtn {
+  padding: 3px 10px; border: none; background: transparent;
+  border-radius: 4px; font-size: 11px; font-weight: 500;
+  color: var(--text3); cursor: pointer; transition: all .15s;
+}
+.gbtn:hover { color: var(--text1); background: var(--surface); }
+.gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+.chart-expand-btn { opacity: 1; }
 .chart-wrap canvas { width: 100% !important; max-width: 100% }
 
 /* ── Tables ── */
@@ -493,8 +509,20 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <!-- Row 2: CSAT trend full width -->
     <div style="margin-bottom:16px">
       <div class="card">
-        <div class="card-title">CSAT trend</div>
-        <div class="card-sub">Daily avg rating &amp; solve rate over time</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div>
+            <div class="card-title">CSAT trend</div>
+            <div class="card-sub">Avg rating &amp; solve rate over time</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--text3)">Graph by</span>
+            <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px">
+              <button class="gbtn active" data-chart="csatTrend" data-gb="day"   onclick="setCsatGraphBy('day',this)">Day</button>
+              <button class="gbtn"        data-chart="csatTrend" data-gb="week"  onclick="setCsatGraphBy('week',this)">Week</button>
+              <button class="gbtn"        data-chart="csatTrend" data-gb="month" onclick="setCsatGraphBy('month',this)">Month</button>
+            </div>
+          </div>
+        </div>
         <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')">⤢ Expand</button>
           <canvas id="csatTrendChart"></canvas>
@@ -732,6 +760,46 @@ const gridOpts = {
 // csat_index.json is served from GitHub raw CDN (Fastly) — no Render cold start.
 // Loaded ONCE, then all date filtering runs in JS in <5ms.
 const CSAT_DATA_URL = '/api/csat/raw';
+let _csatGraphBy = 'day';  // 'day' | 'week' | 'month'
+
+function aggregateSeries(series, groupBy) {
+  if (!groupBy || groupBy === 'day') return series;
+  const buckets = {};
+  series.forEach(p => {
+    const d = new Date((p.week||p.date) + 'T00:00:00');
+    let key;
+    if (groupBy === 'week') {
+      const day = d.getDay() || 7;
+      const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
+      key = mon.toISOString().slice(0,10);
+    } else {
+      key = (p.week||p.date).slice(0,7) + '-01';
+    }
+    if (!buckets[key]) buckets[key] = { week: key, avg_rating: 0, solve_pct: 0, _t: 0, _sr: 0, _s: 0 };
+    buckets[key]._t  += (p._t  || 1);
+    buckets[key]._sr += (p._sr || p.avg_rating || 0);
+    buckets[key]._s  += (p._s  || 0);
+  });
+  return Object.values(buckets).sort((a,b) => a.week < b.week ? -1 : 1).map(b => ({
+    ...b,
+    avg_rating: b._t > 0 ? Math.round(b._sr/b._t*100)/100 : b.avg_rating,
+    solve_pct:  b._t > 0 ? Math.round(b._s/b._t*1000)/10  : b.solve_pct,
+  }));
+}
+
+function fmtBucketDate(iso, groupBy) {
+  const d = new Date(iso + 'T00:00:00');
+  if (groupBy === 'month') return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  if (groupBy === 'week')  return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+
+function setCsatGraphBy(gb, btn) {
+  _csatGraphBy = gb;
+  document.querySelectorAll('.gbtn[data-chart="csatTrend"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (csatData) renderCSAT(csatData);
+}
 function csatUrl() { return CSAT_DATA_URL + '?v=' + Date.now(); }  // cache-bust on every load
 
 let _csatRaw  = null;
@@ -890,6 +958,7 @@ function _csatComputeAndRender(from, to) {
 }
 
 function renderCSAT(d) {
+  csatData = d;
   if (!d || !d.available) return;
 
   // KPI cards

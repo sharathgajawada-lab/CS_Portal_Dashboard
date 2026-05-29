@@ -185,6 +185,14 @@ input[type=date] {
 
 /* ── Chart container ── */
 .chart-wrap { position: relative; width: 100%; min-width: 0 }
+.gbtn {
+  padding: 3px 10px; border: none; background: transparent;
+  border-radius: 4px; font-size: 11px; font-weight: 500;
+  color: var(--text3); cursor: pointer; transition: all .15s;
+}
+.gbtn:hover { color: var(--text1); background: var(--surface); }
+.gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
 .chart-expand-btn {
   position: absolute; top: 6px; right: 6px; z-index: 10;
   background: var(--surface); border: 1px solid var(--border);
@@ -192,7 +200,15 @@ input[type=date] {
   font-size: 11px; color: var(--text3); opacity: 0;
   transition: opacity .15s; line-height: 1.4;
 }
-.chart-wrap:hover .chart-expand-btn { opacity: 1; }
+.chart-wrap:hover .gbtn {
+  padding: 3px 10px; border: none; background: transparent;
+  border-radius: 4px; font-size: 11px; font-weight: 500;
+  color: var(--text3); cursor: pointer; transition: all .15s;
+}
+.gbtn:hover { color: var(--text1); background: var(--surface); }
+.gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+.chart-expand-btn { opacity: 1; }
 .chart-wrap canvas { width: 100% !important; max-width: 100% }
 
 /* ── Tables ── */
@@ -440,7 +456,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
   </div>
 
   <!-- Alerts -->
-  <div class="alerts" id="alertsRow"></div>
+  <!-- alerts bar removed -->
 
   <!-- KPI row -->
   <div class="kpi-row" id="kpiRow"></div>
@@ -448,8 +464,18 @@ thead th:hover .sort-arrow { color:var(--text2) }
   <!-- Trend chart -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title">Engagement trend</div>
-      <div class="section-sub" id="trendSub">Daily activity over selected period</div>
+      <div>
+        <div class="section-title">Engagement trend</div>
+        <div class="section-sub" id="trendSub">Daily activity over selected period</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px;color:var(--text3)">Graph by</span>
+        <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px">
+          <button class="gbtn active" data-chart="trend" data-gb="day"   onclick="setGraphBy('trend','day',this)">Day</button>
+          <button class="gbtn"        data-chart="trend" data-gb="week"  onclick="setGraphBy('trend','week',this)">Week</button>
+          <button class="gbtn"        data-chart="trend" data-gb="month" onclick="setGraphBy('trend','month',this)">Month</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <div class="chart-wrap" style="height:220px">
@@ -633,7 +659,9 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const DATA_START = '2023-06-22';
-let _isAllTime = false;  // true when 'All time' is selected — suppresses WoW comparisons
+let _isAllTime = false;
+// Graph-by state per chart section: 'day' | 'week' | 'month'
+const _graphBy = { trend: 'day', csat: 'day' };  // true when 'All time' is selected — suppresses WoW comparisons
 // Update this to the real CS portal article base URL once confirmed
 // Article URL will be: ARTICLE_BASE_URL + article_slug
 const ARTICLE_BASE_URL = 'https://cs.hear.com/article/';
@@ -852,7 +880,7 @@ function renderHeader() {
 
 // ── Alerts ───────────────────────────────────────────────────────────────────
 function renderAlerts() {
-  if (_isAllTime) { document.getElementById('alertsRow').innerHTML = ''; return; }  // no alerts for All time
+  return; // alerts removed — too noisy for % comparisons
   const alerts = [];
 
   // Check WoW drops
@@ -918,38 +946,79 @@ function renderKPIs() {
 }
 
 // ── Trend chart ──────────────────────────────────────────────────────────────
+// ── Graph-by helpers ──────────────────────────────────────────────────────────
+function aggregateSeries(series, groupBy) {
+  if (groupBy === 'day' || !groupBy) return series;
+  const buckets = {};
+  series.forEach(p => {
+    const d = new Date(p.date + 'T00:00:00');
+    let key;
+    if (groupBy === 'week') {
+      // ISO week start (Monday)
+      const day = d.getDay() || 7;
+      const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
+      key = mon.toISOString().slice(0,10);
+    } else {
+      // Month
+      key = p.date.slice(0,7) + '-01';
+    }
+    if (!buckets[key]) buckets[key] = { date: key, count: 0 };
+    buckets[key].count += (p.count || 0);
+  });
+  return Object.values(buckets).sort((a,b) => a.date < b.date ? -1 : 1);
+}
+
+function fmtBucketDate(iso, groupBy) {
+  const d = new Date(iso + 'T00:00:00');
+  if (groupBy === 'month') return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  if (groupBy === 'week')  return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return fmtDate(iso);
+}
+
+function setGraphBy(chartKey, groupBy, btn) {
+  _graphBy[chartKey] = groupBy;
+  // Update button states
+  document.querySelectorAll(`.gbtn[data-chart="${chartKey}"]`).forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Re-render the relevant chart
+  if (chartKey === 'trend') renderTrend();
+}
+
 function renderTrend() {
   const activeEvent = filters.event;
   let datasets = [];
   let labels    = [];
 
+  const gb = _graphBy.trend || 'day';
+
   if (activeEvent) {
-    const s = getSeries(activeEvent);
-    const ev = EVENTS.find(e => e.key === activeEvent);
-    labels   = s.map(p => fmtDate(p.date));
+    const raw = getSeries(activeEvent);
+    const s   = aggregateSeries(raw, gb);
+    const ev  = EVENTS.find(e => e.key === activeEvent);
+    labels   = s.map(p => fmtBucketDate(p.date, gb));
     datasets = [{
       label: ev.label, data: s.map(p => p.count || 0),
       borderColor: ev.color, backgroundColor: ev.color + '18',
-      fill: true, pointRadius: 2, tension: .3, borderWidth: 2.5,
+      fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2.5,
     }];
-    document.getElementById('trendSub').textContent = `${ev.label} · ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
+    document.getElementById('trendSub').textContent = `${ev.label} · ${fmtDate(state.from)} – ${fmtDate(state.to)} · by ${gb}`;
   } else {
     const mainKeys = ['auth.login', 'article.viewed', 'search.performed', 'video.watched'];
-    const refSeries = getSeries('auth.login');
-    labels = refSeries.map(p => fmtDate(p.date));
+    const refSeries = aggregateSeries(getSeries('auth.login'), gb);
+    labels = refSeries.map(p => fmtBucketDate(p.date, gb));
     datasets = mainKeys.map(key => {
       const ev = EVENTS.find(e => e.key === key);
-      const s  = getSeries(key);
+      const s  = aggregateSeries(getSeries(key), gb);
       const valMap = Object.fromEntries(s.map(p => [p.date, p.count || 0]));
       return {
         label: ev.label,
         data:  refSeries.map(p => valMap[p.date] || 0),
         borderColor: ev.color, backgroundColor: 'transparent',
-        fill: false, pointRadius: 2, tension: .3, borderWidth: 2,
+        fill: false, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
         borderDash: key === 'search.performed' ? [4,3] : key === 'video.watched' ? [2,2] : [],
       };
     });
-    document.getElementById('trendSub').textContent = `${fmtDate(state.from)} – ${fmtDate(state.to)} · ${state.days} days`;
+    document.getElementById('trendSub').textContent = `${fmtDate(state.from)} – ${fmtDate(state.to)} · by ${gb}`;
   }
 
   if (charts.trend) charts.trend.destroy();
