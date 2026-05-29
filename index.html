@@ -743,15 +743,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
           <div>
             <div class="card-title">Session duration over time</div>
-            <div class="card-sub">Average session length</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:4px">
-            <span style="font-size:11px;color:var(--text3)">Graph by</span>
-            <select id="sessGraphBy" onchange="renderSessionCharts()" style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none">
-              <option value="day" selected>Day</option>
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-            </select>
+            <div class="card-sub">Average session length · grouped by section controls above</div>
           </div>
         </div>
         <div class="chart-wrap" style="height:170px" id="sessionTrendWrap">
@@ -1276,14 +1268,53 @@ async function _chartCtrlRender(id) {
     } catch(e) {}
   }
   else if (id === 'sessionTrendChart' || id === 'sessionActChart' || id === 'hourChart') {
+    // If only groupby changed and we already have session data, just re-render locally
+    const rangeType = _chartCtrl[id]?.rangeType || 'selection';
+    if (rangeType === 'selection' && sessionData) {
+      renderSessionSection();
+      const hourDist = sessionData.hour_distribution || {};
+      if (Object.keys(hourDist).length > 0) renderHourGridFromInsights(hourDist);
+      return;
+    }
     setStatus('sessionStatus', 'loading', 'Loading…');
     try {
       const r = await fetch(`/api/sessions/full?date_from=${from}&date_to=${to}`);
       if (r.ok) {
         const d = await r.json();
-        if (d.available) { sessionData = d; renderSessionSection(d); }
+        if (d.available) {
+          sessionData = d;
+          renderSessionSection(d);
+          const hourDist = d.hour_distribution || {};
+          if (Object.keys(hourDist).length > 0) renderHourGridFromInsights(hourDist);
+        }
       }
     } catch(e) {}
+  }
+}
+
+// ── Category chart helpers ─────────────────────────────────────────────────────
+// renderCatChart is called by the catTopN 'Show top N' select
+function renderCatChart() {
+  renderCategories();
+}
+
+// ── Session "Graph by" helper — re-renders sessionTrend with selected grouping ─
+// Called when section-level groupby control changes (via _chartCtrlChange)
+function renderSessionCharts() {
+  if (!sessionData) return;
+  renderSessionSection();
+}
+
+// ── Hour-of-day mode toggle (Activity vs Sessions) ────────────────────────────
+// Both modes use the same underlying hour_distribution data — labels only differ
+function setHourMode(mode, btn) {
+  document.querySelectorAll('.gbtn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  // Re-render with existing data — the distribution is the same for both modes
+  if (sessionData?.hour_distribution && Object.keys(sessionData.hour_distribution).length > 0) {
+    renderHourGridFromInsights(sessionData.hour_distribution);
+  } else if (intelData?.insights?.hour_distribution) {
+    renderHourGridFromInsights(intelData.insights.hour_distribution);
   }
 }
 
@@ -1685,7 +1716,8 @@ function renderSearchSection() {
 // ── Categories chart ──────────────────────────────────────────────────────────
 function renderCategories() {
   if (!catData?.categories) return;
-  const cats = catData.categories.filter(c => c.count > 0);
+  const topN = parseInt(document.getElementById('catTopN')?.value || '5');
+  const cats = catData.categories.filter(c => c.count > 0).slice(0, topN);
   if (!cats.length) return;
   if (charts.cat) charts.cat.destroy();
   charts.cat = new Chart(document.getElementById('catChart'), {
@@ -1761,22 +1793,24 @@ function renderSessionSection() {
       </div>`;
   }
 
-  // Duration trend
+  // Duration trend — respect the section-level groupby from makeChartControls
   const daily = d.daily_avg || [];
+  const gb = getChartGroupBy('sessionTrendChart');
   if (charts.sessionTrend) charts.sessionTrend.destroy();
   if (daily.length === 0) {
     document.getElementById('sessionTrendWrap').innerHTML =
       '<div class="empty" style="padding:32px"><span>📈</span>Not enough timeline data yet · will populate after next 2-hour refresh</div>';
   } else {
+  const aggDaily = aggregateSeries(daily.map(p => ({ date: p.date, count: p.avg_seconds })), gb);
   charts.sessionTrend = new Chart(document.getElementById('sessionTrendChart'), {
     type: 'line',
     data: {
-      labels:   daily.map(p => fmtDate(p.date)),
+      labels:   aggDaily.map(p => fmtBucketDate(p.date, gb)),
       datasets: [{
         label: 'Avg session (min)',
-        data:  daily.map(p => Math.round(p.avg_seconds / 60 * 10) / 10),
+        data:  aggDaily.map(p => Math.round((p.count || 0) / 60 * 10) / 10),
         borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
-        fill: true, pointRadius: 2, tension: .3, borderWidth: 2,
+        fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
       }],
     },
     options: {
