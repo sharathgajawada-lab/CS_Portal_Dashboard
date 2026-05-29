@@ -616,7 +616,7 @@ let state = {
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function todayISO() { return new Date().toISOString().slice(0,10); }
 function daysAgoISO(n) {
-  const d = new Date(); d.setDate(d.getDate() - n + 1);
+  const d = new Date(); d.setDate(d.getDate() - n);
   return d.toISOString().slice(0,10);
 }
 function fmtDate(iso) {
@@ -688,6 +688,7 @@ const gridOpts = {
 // csat_index.json is served from GitHub raw CDN (Fastly) — no Render cold start.
 // Loaded ONCE, then all date filtering runs in JS in <5ms.
 const CSAT_DATA_URL = '/api/csat/raw';
+function csatUrl() { return CSAT_DATA_URL + '?v=' + Date.now(); }  // cache-bust on every load
 
 let _csatRaw  = null;
 let csatData  = null;
@@ -699,7 +700,7 @@ async function loadCSAT() {
   }
   setStatus('csatStatus', 'loading', 'Loading survey data…');
   try {
-    const r = await fetch(CSAT_DATA_URL);
+    const r = await fetch(csatUrl());
     if (!r.ok) { setStatus('csatStatus', 'error', 'Survey data unavailable (' + r.status + ')'); return; }
     _csatRaw = await r.json();
     if (!_csatRaw.available) {

@@ -657,7 +657,7 @@ function todayISO() {
   return new Date().toISOString().slice(0,10);
 }
 function daysAgoISO(n) {
-  const d = new Date(); d.setDate(d.getDate() - n + 1);
+  const d = new Date(); d.setDate(d.getDate() - n);
   return d.toISOString().slice(0,10);
 }
 function fmtDate(iso) {

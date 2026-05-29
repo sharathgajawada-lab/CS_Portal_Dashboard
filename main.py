@@ -1353,15 +1353,22 @@ async def api_sessions_full(date_from: str = "", date_to: str = ""):
 
 @app.get("/api/csat/raw")
 async def api_csat_raw():
-    """Serve pre-built csat_index.json — used by frontend for client-side filtering."""
-    # Try serving from disk first (fastest)
+    """Serve pre-built csat_index.json — used by frontend for client-side filtering.
+    Never cached — must always serve the latest uploaded file.
+    """
+    _NO_CACHE = {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Pragma": "no-cache",
+    }
     if os.path.exists(CSAT_JSON_PATH):
-        return FileResponse(CSAT_JSON_PATH, media_type="application/json")
-    # Fall back to in-memory index
+        return FileResponse(CSAT_JSON_PATH, media_type="application/json",
+                           headers=_NO_CACHE)
     index_data = _csat_index.get("index_data")
     if index_data:
-        return index_data
-    return {"available": False, "note": "Upload call_quality.xlsx via the dashboard"}
+        return Response(content=json.dumps(index_data), media_type="application/json",
+                       headers=_NO_CACHE)
+    return JSONResponse({"available": False, "note": "Upload call_quality.xlsx via the dashboard"},
+                       headers=_NO_CACHE)
 
 
 @app.post("/upload/csat")
