@@ -492,6 +492,22 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
     </div>
 
+    <!-- CS Teams Section -->
+    <div style="margin-bottom:16px">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="card-title">Customer Support Teams</div>
+            <div class="card-sub">Core CS teams · selected period</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap" id="csTeamBadges"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px" id="csTeamCards">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+
     <!-- Row 3: Team leaderboard + All consultants full width -->
     <div class="two-col" style="align-items:start">
 
@@ -940,6 +956,9 @@ function renderCSAT(d) {
     document.getElementById('csatDistSub').textContent = 'No surveys in selected period';
   }
 
+  // CS Teams dedicated section
+  renderCSTeams(d.teams || []);
+
   // Team leaderboard
   const teams = d.teams || [];
   document.getElementById('csatTeamTable').innerHTML = teams.map(t => {
@@ -1117,6 +1136,105 @@ function _csatLegacyNoop() {}
 
 // ── Chart defaults ── set safely after confirming Chart.js loaded ─────────────
 
+
+
+// ── Customer Support Teams ────────────────────────────────────────────────────
+// The 3 designated CS teams shown in the dedicated section.
+// Team Sound Check (VCC) is defined but has no data yet — shown as "Coming soon".
+const CS_TEAMS = [
+  { key: 'Team Hear4Life',  label: 'Team Hear4Life',      color: '#0e6e45' },
+  { key: 'Team Amplifiers', label: 'Team Amplifiers',     color: '#1a4fdb' },
+  { key: 'VCC',             label: 'Team Sound Check',    color: '#7c3aed', vcc: true },
+];
+
+function renderCSTeams(teamsData) {
+  const container = document.getElementById('csTeamCards');
+  const badges    = document.getElementById('csTeamBadges');
+  if (!container) return;
+
+  // Build lookup from full teams array
+  const teamMap = {};
+  (teamsData || []).forEach(t => { teamMap[t.team] = t; });
+
+  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+
+  container.innerHTML = CS_TEAMS.map(ct => {
+    const t = teamMap[ct.key];
+
+    // VCC or missing team — show placeholder card
+    if (!t || ct.vcc) {
+      return `
+        <div style="border:1.5px dashed var(--border);border-radius:var(--r);padding:16px;opacity:0.6">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <div style="width:10px;height:10px;border-radius:50%;background:${ct.color};flex-shrink:0"></div>
+            <div style="font-size:13px;font-weight:600;color:var(--text1)">${ct.label}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">
+            📡 No data yet for this period
+          </div>
+        </div>`;
+    }
+
+    const ratingColor = t.avg_rating >= 4.5 ? 'var(--green)' : t.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+    const lowClass    = t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green';
+    const maxPct      = Math.max(...(t.dist||[]).map(d => d.pct), 1);
+
+    return `
+      <div style="border:1.5px solid var(--border);border-radius:var(--r);padding:16px;cursor:pointer;transition:box-shadow .15s"
+           onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,.08)'" 
+           onmouseout="this.style.boxShadow=''"
+           onclick="openCsatDetail('team','team_${ct.key.replace(/[^a-z0-9]/gi,'_')}')">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:7px">
+            <div style="width:10px;height:10px;border-radius:50%;background:${ct.color};flex-shrink:0"></div>
+            <div style="font-size:13px;font-weight:600;color:var(--blue)">${ct.label}</div>
+          </div>
+          <span class="pill ${lowClass}" style="font-size:10px">${t.low_pct}% low</span>
+        </div>
+
+        <!-- KPI row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+          <div style="text-align:center">
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${t.avg_rating}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">Avg Rating</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${t.solved_pct}%</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">Solved</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(t.total)}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">Surveys</div>
+          </div>
+        </div>
+
+        <!-- Rating progress bars -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${(t.dist||[]).map(d => `
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="font-size:10px;color:var(--text3);width:14px;text-align:right">${d.r}★</div>
+              <div style="flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                <div style="width:${Math.round(d.pct/maxPct*100)}%;height:100%;background:${barColors[d.r]};border-radius:3px;transition:width .4s ease"></div>
+              </div>
+              <div style="font-size:10px;color:var(--text3);width:32px;text-align:right">${d.pct}%</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Update badges
+  if (badges) {
+    badges.innerHTML = CS_TEAMS.map(ct => {
+      const t = teamMap[ct.key];
+      const hasData = t && !ct.vcc;
+      return `<span style="font-size:11px;padding:3px 8px;border-radius:20px;background:${hasData ? ct.color+'22' : 'var(--surface2)'};color:${hasData ? ct.color : 'var(--text3)'};border:1px solid ${hasData ? ct.color+'44' : 'var(--border)'}">
+        ${ct.label}${hasData ? ' · ' + t.avg_rating + '★' : ' · no data'}
+      </span>`;
+    }).join('');
+  }
+}
 
 // ── Consultant / Team detail panel ────────────────────────────────────────────
 const _csatDetailData = {};  // lookup map: id -> data object, avoids JSON in onclick attributes
