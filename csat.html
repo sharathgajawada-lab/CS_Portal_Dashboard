@@ -193,6 +193,16 @@ input[type=date] {
 .gbtn:hover { color: var(--text1); background: var(--surface); }
 .gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 
+.chart-controls { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px; }
+.chart-controls-right { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+.ctrl-select { border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none; }
+.ctrl-num { width:44px;border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text1);padding:3px 4px;border-radius:6px;text-align:center;outline:none; }
+.ctrl-label { font-size:11px;color:var(--text3); }
+.ctrl-range-wrap { display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface2); }
+.ctrl-range-wrap select,.ctrl-range-wrap input { border:none;background:transparent;outline:none;font-size:11px;padding:3px 5px;color:var(--text2);cursor:pointer; }
+.ctrl-sep { width:1px;background:var(--border);align-self:stretch; }
+.ctrl-compare { display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;background:var(--surface2); }
+
 .chart-expand-btn {
   position: absolute; top: 6px; right: 6px; z-index: 10;
   background: var(--surface); border: 1px solid var(--border);
@@ -207,6 +217,16 @@ input[type=date] {
 }
 .gbtn:hover { color: var(--text1); background: var(--surface); }
 .gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+.chart-controls { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px; }
+.chart-controls-right { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+.ctrl-select { border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none; }
+.ctrl-num { width:44px;border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text1);padding:3px 4px;border-radius:6px;text-align:center;outline:none; }
+.ctrl-label { font-size:11px;color:var(--text3); }
+.ctrl-range-wrap { display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface2); }
+.ctrl-range-wrap select,.ctrl-range-wrap input { border:none;background:transparent;outline:none;font-size:11px;padding:3px 5px;color:var(--text2);cursor:pointer; }
+.ctrl-sep { width:1px;background:var(--border);align-self:stretch; }
+.ctrl-compare { display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;background:var(--surface2); }
 
 .chart-expand-btn { opacity: 1; }
 .chart-wrap canvas { width: 100% !important; max-width: 100% }
@@ -496,8 +516,13 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
       <!-- Right: Rating distribution -->
       <div class="card">
-        <div class="card-title">Rating distribution</div>
-        <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
+        <div class="chart-controls">
+          <div>
+            <div class="card-title">Rating distribution</div>
+            <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
+          </div>
+          <div id="csatDist_controls_placeholder"></div>
+        </div>
         <div class="chart-wrap" style="height:230px" id="csatDistWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.csatDist,'Rating distribution')">⤢ Expand</button>
           <canvas id="csatDistChart"></canvas>
@@ -598,6 +623,10 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
         <!-- 3-Team daily charts -->
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="chart-controls" style="margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--text2)">Team comparison charts</span>
+            <div id="csTeamTrend_controls_placeholder"></div>
+          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div>
               <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Daily avg rating</div>
@@ -627,11 +656,11 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="table-wrap" style="max-height:400px;overflow-y:auto">
           <table>
             <thead><tr>
-              <th style="padding-left:16px">Team</th>
-              <th class="r">Surveys</th>
-              <th class="r">Rating</th>
-              <th class="r">Solved</th>
-              <th class="r">Low %</th>
+              <th style="padding-left:16px;cursor:pointer;user-select:none" onclick="sortTeamTable('team')">Team <span id="teamArrowTeam" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortTeamTable('total')">Surveys <span id="teamArrowTotal" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortTeamTable('avg_rating')">Rating <span id="teamArrowAvg_rating" style="color:var(--blue)">↓</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortTeamTable('solved_pct')">Solved <span id="teamArrowSolved_pct" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortTeamTable('low_pct')">Low % <span id="teamArrowLow_pct" style="color:var(--text3)">↕</span></th>
               <th class="r">1–5 breakdown</th>
             </tr></thead>
             <tbody id="csatTeamTable"></tbody>
@@ -806,6 +835,88 @@ const gridOpts = {
 };
 
 // ── Render all ───────────────────────────────────────────────────────────────
+
+// ── Global chart controls factory ─────────────────────────────────────────────
+const _chartCtrl = {};
+
+function makeChartControls(id, opts = {}) {
+  const n    = opts.defaultN    || 30;
+  const unit = opts.defaultUnit || 'days';
+  const gb   = opts.defaultGb   || 'day';
+  _chartCtrl[id] = { rangeType: 'last', n, unit, gb, compare: false };
+  const cmp = opts.compare ? `<label class="ctrl-compare"><input type="checkbox" id="${id}_compare" onchange="_chartCtrlChange('${id}')"> vs prev</label>` : '';
+  return `<div class="chart-controls-right" id="${id}_controls">
+    <div class="ctrl-range-wrap">
+      <select id="${id}_rangeType" onchange="_chartCtrlRangeType('${id}')">
+        <option value="last" selected>Last...</option>
+        <option value="selection">Selection</option>
+        <option value="alltime">All time</option>
+        <option value="current">Current</option>
+        <option value="previous">Previous</option>
+      </select>
+      <div class="ctrl-sep"></div>
+      <div id="${id}_lastWrap" style="display:flex;align-items:center">
+        <input class="ctrl-num" type="number" id="${id}_n" value="${n}" min="1" onchange="_chartCtrlChange('${id}')">
+        <select style="border:none;background:transparent;font-size:11px;padding:3px 4px;outline:none;cursor:pointer" id="${id}_unit" onchange="_chartCtrlChange('${id}')">
+          <option value="days" ${unit==='days'?'selected':''}>Days</option>
+          <option value="weeks" ${unit==='weeks'?'selected':''}>Weeks</option>
+          <option value="months" ${unit==='months'?'selected':''}>Months</option>
+          <option value="quarters" ${unit==='quarters'?'selected':''}>Quarters</option>
+          <option value="years" ${unit==='years'?'selected':''}>Years</option>
+        </select>
+      </div>
+      <div id="${id}_curWrap" style="display:none"><select style="border:none;background:transparent;font-size:11px;padding:3px 5px;outline:none;cursor:pointer" id="${id}_curUnit" onchange="_chartCtrlChange('${id}')"><option value="week">Week</option><option value="month" selected>Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></div>
+      <div id="${id}_prevWrap" style="display:none"><select style="border:none;background:transparent;font-size:11px;padding:3px 5px;outline:none;cursor:pointer" id="${id}_prevUnit" onchange="_chartCtrlChange('${id}')"><option value="week">Week</option><option value="month" selected>Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></div>
+    </div>
+    ${cmp}
+    <div style="display:flex;align-items:center;gap:4px">
+      <span class="ctrl-label">Graph by</span>
+      <select class="ctrl-select" id="${id}_gb" onchange="_chartCtrlChange('${id}')">
+        <option value="day" ${gb==='day'?'selected':''}>Day</option>
+        <option value="week" ${gb==='week'?'selected':''}>Week</option>
+        <option value="month" ${gb==='month'?'selected':''}>Month</option>
+        <option value="quarter" ${gb==='quarter'?'selected':''}>Quarter</option>
+        <option value="year" ${gb==='year'?'selected':''}>Year</option>
+      </select>
+    </div>
+  </div>`;
+}
+
+function _chartCtrlRangeType(id) {
+  const type = document.getElementById(id+'_rangeType')?.value;
+  if (!_chartCtrl[id]) return;
+  _chartCtrl[id].rangeType = type;
+  document.getElementById(id+'_lastWrap').style.display = type==='last'     ? 'flex'  : 'none';
+  document.getElementById(id+'_curWrap').style.display  = type==='current'  ? 'block' : 'none';
+  document.getElementById(id+'_prevWrap').style.display = type==='previous' ? 'block' : 'none';
+  _chartCtrlChange(id);
+}
+
+function _chartCtrlChange(id) {
+  if (!_chartCtrl[id]) return;
+  _chartCtrl[id].gb      = document.getElementById(id+'_gb')?.value    || _chartCtrl[id].gb;
+  _chartCtrl[id].n       = parseInt(document.getElementById(id+'_n')?.value || _chartCtrl[id].n);
+  _chartCtrl[id].unit    = document.getElementById(id+'_unit')?.value   || _chartCtrl[id].unit;
+  _chartCtrl[id].compare = document.getElementById(id+'_compare')?.checked || false;
+  if (id === 'csatDist')    { if (csatData) renderCSAT(csatData); }
+  else if (id === 'csTeamTrend') { if (csatData) renderCSTeams(csatData.teams||[], csatData.team_daily||{}); }
+}
+
+function getChartRange(id) {
+  const ctrl = _chartCtrl[id];
+  if (!ctrl) return { from: state.from, to: state.to };
+  const today = todayISO();
+  const type  = ctrl.rangeType || 'last';
+  if (type === 'selection') return { from: state.from, to: state.to };
+  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
+  if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
+  if (type === 'current')   return getCurrentPeriod(ctrl.curUnit || 'month');
+  if (type === 'previous')  return getPreviousPeriod(ctrl.prevUnit || 'month');
+  return { from: state.from, to: state.to };
+}
+
+function getChartGroupBy(id) { return _chartCtrl[id]?.gb || 'day'; }
+function isChartCompare(id)  { return _chartCtrl[id]?.compare || false; }
 
 // ── CSAT Engine ───────────────────────────────────────────────────────────────
 // ── CSAT — client-side engine ─────────────────────────────────────────────────
@@ -1286,7 +1397,14 @@ function renderCSAT(d) {
 
   // Team leaderboard
   const teams = d.teams || [];
-  document.getElementById('csatTeamTable').innerHTML = teams.map(t => {
+  // Apply sort
+  const teamsSorted = [...teams].sort((a,b) => {
+    const av = a[_teamSort.key] ?? (typeof a[_teamSort.key]==='string' ? '' : 0);
+    const bv = b[_teamSort.key] ?? (typeof b[_teamSort.key]==='string' ? '' : 0);
+    return typeof av === 'string' ? av.localeCompare(bv) * _teamSort.dir : (av - bv) * _teamSort.dir;
+  });
+
+  document.getElementById('csatTeamTable').innerHTML = teamsSorted.map(t => {
     // Store in lookup map for click handler
     const teamKey = 'team_' + t.team.replace(/[^a-z0-9]/gi, '_');
     _csatDetailData[teamKey] = t;
@@ -1359,6 +1477,28 @@ function renderCSAT(d) {
   document.getElementById('csatConsultantSub').textContent =
     `${allCons.length} consultants · all with surveys · sorted by avg rating`;
   renderConsultantTable();
+}
+
+// ── Team leaderboard sort ─────────────────────────────────────────────────────
+const _teamSort = { key: 'avg_rating', dir: -1 };
+
+function sortTeamTable(key) {
+  if (_teamSort.key === key) _teamSort.dir *= -1;
+  else { _teamSort.key = key; _teamSort.dir = key === 'team' ? 1 : -1; }
+  // Update arrows
+  ['team','total','avg_rating','solved_pct','low_pct'].forEach(k => {
+    const el = document.getElementById('teamArrow' + k.charAt(0).toUpperCase() + k.slice(1)
+      .replace(/_([a-z])/g, (_, c) => c.toUpperCase()));
+    // simpler: just use the exact id
+  });
+  document.querySelectorAll('[id^="teamArrow"]').forEach(el => {
+    el.style.color = 'var(--text3)'; el.textContent = '↕';
+  });
+  const arrowId = 'teamArrow' + key.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+    .replace(/^(.)/, c => c.toUpperCase());
+  const arrowEl = document.getElementById(arrowId);
+  if (arrowEl) { arrowEl.style.color = 'var(--blue)'; arrowEl.textContent = _teamSort.dir === -1 ? '↓' : '↑'; }
+  if (csatData) renderCSAT(csatData);
 }
 
 // Sort state lives outside renderCSAT
@@ -1728,6 +1868,16 @@ async function init() {
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('appRoot').style.display = 'block';
+
+  // Inject chart controls into placeholders
+  [
+    { id: 'csatDist',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'csTeamTrend', opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+  ].forEach(({ id, opts }) => {
+    const pid = id + '_controls_placeholder';
+    const el  = document.getElementById(pid);
+    if (el) el.outerHTML = makeChartControls(id, opts);
+  });
 
   // Chart modal event listeners (attached here so DOM exists)
   const _modal = document.getElementById('chartModal');

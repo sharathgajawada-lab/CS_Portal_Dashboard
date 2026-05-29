@@ -193,6 +193,40 @@ input[type=date] {
 .gbtn:hover { color: var(--text1); background: var(--surface); }
 .gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 
+/* Reusable chart controls bar */
+.chart-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
+}
+.chart-controls-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ctrl-select {
+  border: 1px solid var(--border); background: var(--surface2);
+  font-size: 11px; color: var(--text2); padding: 3px 6px;
+  border-radius: 6px; cursor: pointer; outline: none;
+}
+.ctrl-num {
+  width: 44px; border: 1px solid var(--border); background: var(--surface2);
+  font-size: 11px; color: var(--text1); padding: 3px 4px;
+  border-radius: 6px; text-align: center; outline: none;
+}
+.ctrl-label { font-size: 11px; color: var(--text3); }
+.ctrl-range-wrap {
+  display: flex; align-items: center; gap: 0;
+  border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden; background: var(--surface2);
+}
+.ctrl-range-wrap select, .ctrl-range-wrap input {
+  border: none; background: transparent; outline: none;
+  font-size: 11px; padding: 3px 5px; color: var(--text2); cursor: pointer;
+}
+.ctrl-range-wrap .ctrl-sep { width: 1px; background: var(--border); align-self: stretch; }
+.ctrl-compare {
+  display: flex; align-items: center; gap: 5px; cursor: pointer;
+  font-size: 11px; color: var(--text2);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 8px; background: var(--surface2);
+}
+
 .chart-expand-btn {
   position: absolute; top: 6px; right: 6px; z-index: 10;
   background: var(--surface); border: 1px solid var(--border);
@@ -207,6 +241,40 @@ input[type=date] {
 }
 .gbtn:hover { color: var(--text1); background: var(--surface); }
 .gbtn.active { background: var(--surface); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+/* Reusable chart controls bar */
+.chart-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
+}
+.chart-controls-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ctrl-select {
+  border: 1px solid var(--border); background: var(--surface2);
+  font-size: 11px; color: var(--text2); padding: 3px 6px;
+  border-radius: 6px; cursor: pointer; outline: none;
+}
+.ctrl-num {
+  width: 44px; border: 1px solid var(--border); background: var(--surface2);
+  font-size: 11px; color: var(--text1); padding: 3px 4px;
+  border-radius: 6px; text-align: center; outline: none;
+}
+.ctrl-label { font-size: 11px; color: var(--text3); }
+.ctrl-range-wrap {
+  display: flex; align-items: center; gap: 0;
+  border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden; background: var(--surface2);
+}
+.ctrl-range-wrap select, .ctrl-range-wrap input {
+  border: none; background: transparent; outline: none;
+  font-size: 11px; padding: 3px 5px; color: var(--text2); cursor: pointer;
+}
+.ctrl-range-wrap .ctrl-sep { width: 1px; background: var(--border); align-self: stretch; }
+.ctrl-compare {
+  display: flex; align-items: center; gap: 5px; cursor: pointer;
+  font-size: 11px; color: var(--text2);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 8px; background: var(--surface2);
+}
 
 .chart-expand-btn { opacity: 1; }
 .chart-wrap canvas { width: 100% !important; max-width: 100% }
@@ -552,13 +620,16 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <table>
           <thead>
             <tr>
-              <th style="padding-left:20px">Article</th>
-              <th class="r">Views</th>
-              <th class="r">Avg time</th>
-              <th class="r">Helpful</th>
-              <th class="r">Not helpful</th>
-              <th class="r">Feedback %</th>
-              <th class="r">Share</th>
+              <th style="padding-left:20px;cursor:pointer;user-select:none" onclick="sortArticleTable('label')">Article <span id="artArrowLabel" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('views')">Views <span id="artArrowViews" style="color:var(--blue)">↓</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('avg_seconds')">Avg time <span id="artArrowAvg_seconds" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('helpful')">Helpful <span id="artArrowHelpful" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('not_helpful')">Not helpful <span id="artArrowNot_helpful" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('helpful_pct')">Feedback % <span id="artArrowHelpful_pct" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('share_pct')">Share <span id="artArrowShare_pct" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('bounce_rate')">Bounce <span id="artArrowBounce_rate" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('revisits')">Revisits <span id="artArrowRevisits" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('health_score')">Health <span id="artArrowHealth_score" style="color:var(--text3)">↕</span></th>
             </tr>
           </thead>
           <tbody id="articleTable"></tbody>
@@ -573,12 +644,26 @@ thead th:hover .sort-arrow { color:var(--text2) }
   <div class="two-col section" id="catVideoSection">
     <div>
       <div class="section-header">
-        <div class="section-title">Content categories</div>
+        <div class="chart-controls">
+          <div class="section-title">Content categories</div>
+          <div id="catChart_controls_placeholder"></div>
+        </div>
         <span class="section-status loading" id="catStatus"><span class="spinner"></span> Loading&hellip;</span>
       </div>
       <div class="card" style="margin-bottom:14px">
-        <div class="card-title">Top categories</div>
-        <div class="card-sub">Where users browse</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div>
+            <div class="card-title">Top categories</div>
+            <div class="card-sub">Where users browse</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span style="font-size:11px;color:var(--text3)">Show top</span>
+            <select id="catTopN" onchange="renderCatChart()" style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none">
+              <option value="5" selected>5</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+        </div>
         <div class="chart-wrap" style="height:180px">
           <button class="chart-expand-btn" onclick="expandChart(charts.cat,'Content categories')">⤢ Expand</button>
           <canvas id="catChart"></canvas>
@@ -626,7 +711,10 @@ thead th:hover .sort-arrow { color:var(--text2) }
   <div class="section">
     <div class="section-header">
       <div style="display:flex;align-items:center;gap:8px">
-        <div class="section-title">Session analytics</div>
+        <div class="chart-controls">
+          <div class="section-title">Session analytics</div>
+          <div id="sessionTrendChart_controls_placeholder"></div>
+        </div>
         <span class="section-status loading" id="sessionStatus"><span class="spinner"></span> Loading&hellip;</span>
       </div>
       <div class="section-sub" id="sessionSub">Derived from user timeline sample &middot; top active users</div>
@@ -652,8 +740,20 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
     <div class="two-col">
       <div class="card">
-        <div class="card-title">Session duration over time</div>
-        <div class="card-sub">Average session length by day</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div>
+            <div class="card-title">Session duration over time</div>
+            <div class="card-sub">Average session length</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span style="font-size:11px;color:var(--text3)">Graph by</span>
+            <select id="sessGraphBy" onchange="renderSessionCharts()" style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none">
+              <option value="day" selected>Day</option>
+              <option value="week">Week</option>
+              <option value="month">Month</option>
+            </select>
+          </div>
+        </div>
         <div class="chart-wrap" style="height:170px" id="sessionTrendWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.sessionTrend,'Session duration trend')">⤢ Expand</button>
           <canvas id="sessionTrendChart"></canvas>
@@ -680,8 +780,20 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <div class="hm-labels"><span id="hmFrom">&#8212;</span><span id="hmTo">&#8212;</span></div>
     </div>
     <div class="card">
-      <div class="card-title">Hour of day pattern</div>
-      <div class="card-sub" id="hourSub">When users are most active (UTC) &middot; from session data</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <div>
+          <div class="card-title">Hour of day pattern</div>
+          <div class="card-sub" id="hourSub">When users are most active (UTC)</div>
+        </div>
+        <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px">
+          <button class="gbtn active" id="hourModeActivity" onclick="setHourMode('activity',this)">Activity</button>
+          <button class="gbtn" id="hourModeSessions"  onclick="setHourMode('sessions',this)">Sessions</button>
+        </div>
+      </div>
+      <div class="chart-controls" style="margin-bottom:6px" id="hourChart_controls_outer">
+        <span class="ctrl-label" style="font-size:12px;font-weight:600;color:var(--text2)">Hour of day</span>
+        <div id="hourChart_controls_placeholder"></div>
+      </div>
       <div class="chart-wrap" id="hourChartWrap" style="height:160px;margin-top:8px">
         <button class="chart-expand-btn" onclick="expandChart(charts.hourChart,'Hour of day activity')">⤢ Expand</button>
           <canvas id="hourChart"></canvas>
@@ -1065,6 +1177,114 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
   });
 }
 
+// ── Global chart controls factory ─────────────────────────────────────────────
+// Every chart section gets these controls via makeChartControls(id, opts).
+// When a chart re-renders it calls getChartRange(id) to get from/to
+// and getChartGroupBy(id) to get the aggregation bucket.
+// This means any new chart added in the future automatically gets the controls
+// just by calling these two functions.
+
+const _chartCtrl = {};  // { chartId: { from, to, gb, compare } }
+
+function makeChartControls(id, opts = {}) {
+  // opts: { defaultN, defaultUnit, defaultGb, compare, label }
+  const n    = opts.defaultN    || 30;
+  const unit = opts.defaultUnit || 'days';
+  const gb   = opts.defaultGb   || 'day';
+  _chartCtrl[id] = { rangeType: 'last', n, unit, gb, compare: false };
+
+  const cmp = opts.compare ? `
+    <label class="ctrl-compare">
+      <input type="checkbox" id="${id}_compare" onchange="_chartCtrlChange('${id}')">
+      vs prev
+    </label>` : '';
+
+  return `
+    <div class="chart-controls-right" id="${id}_controls">
+      <div class="ctrl-range-wrap">
+        <select id="${id}_rangeType" onchange="_chartCtrlRangeType('${id}')">
+          <option value="last" selected>Last...</option>
+          <option value="selection">Selection</option>
+          <option value="alltime">All time</option>
+          <option value="current">Current</option>
+          <option value="previous">Previous</option>
+        </select>
+        <div class="ctrl-sep"></div>
+        <div id="${id}_lastWrap" style="display:flex;align-items:center">
+          <input  class="ctrl-num"    type="number" id="${id}_n"    value="${n}"    min="1" onchange="_chartCtrlChange('${id}')">
+          <select class="ctrl-select" style="border:none;background:transparent" id="${id}_unit" onchange="_chartCtrlChange('${id}')">
+            <option value="days"     ${unit==='days'?'selected':''}>Days</option>
+            <option value="weeks"    ${unit==='weeks'?'selected':''}>Weeks</option>
+            <option value="months"   ${unit==='months'?'selected':''}>Months</option>
+            <option value="quarters" ${unit==='quarters'?'selected':''}>Quarters</option>
+            <option value="years"    ${unit==='years'?'selected':''}>Years</option>
+          </select>
+        </div>
+        <div id="${id}_curWrap"  style="display:none"><select class="ctrl-select" style="border:none;background:transparent" id="${id}_curUnit"  onchange="_chartCtrlChange('${id}')"><option value="week">Week</option><option value="month" selected>Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></div>
+        <div id="${id}_prevWrap" style="display:none"><select class="ctrl-select" style="border:none;background:transparent" id="${id}_prevUnit" onchange="_chartCtrlChange('${id}')"><option value="week">Week</option><option value="month" selected>Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></div>
+      </div>
+      ${cmp}
+      <div style="display:flex;align-items:center;gap:4px">
+        <span class="ctrl-label">Graph by</span>
+        <select class="ctrl-select" id="${id}_gb" onchange="_chartCtrlChange('${id}')">
+          <option value="day"     ${gb==='day'?'selected':''}>Day</option>
+          <option value="week"    ${gb==='week'?'selected':''}>Week</option>
+          <option value="month"   ${gb==='month'?'selected':''}>Month</option>
+          <option value="quarter" ${gb==='quarter'?'selected':''}>Quarter</option>
+          <option value="year"    ${gb==='year'?'selected':''}>Year</option>
+        </select>
+      </div>
+    </div>`;
+}
+
+function _chartCtrlRangeType(id) {
+  const type = document.getElementById(`${id}_rangeType`)?.value;
+  if (!_chartCtrl[id]) return;
+  _chartCtrl[id].rangeType = type;
+  document.getElementById(`${id}_lastWrap`).style.display = type==='last'     ? 'flex'  : 'none';
+  document.getElementById(`${id}_curWrap`).style.display  = type==='current'  ? 'block' : 'none';
+  document.getElementById(`${id}_prevWrap`).style.display = type==='previous' ? 'block' : 'none';
+  _chartCtrlChange(id);
+}
+
+function _chartCtrlChange(id) {
+  if (!_chartCtrl[id]) return;
+  _chartCtrl[id].gb      = document.getElementById(`${id}_gb`)?.value   || _chartCtrl[id].gb;
+  _chartCtrl[id].n       = parseInt(document.getElementById(`${id}_n`)?.value   || _chartCtrl[id].n);
+  _chartCtrl[id].unit    = document.getElementById(`${id}_unit`)?.value  || _chartCtrl[id].unit;
+  _chartCtrl[id].compare = document.getElementById(`${id}_compare`)?.checked || false;
+  // Dispatch re-render based on chart id
+  _chartCtrlRender(id);
+}
+
+function _chartCtrlRender(id) {
+  if (id === 'catChart')          renderCategories();
+  else if (id === 'sessionTrendChart') renderSessionSection();
+  else if (id === 'sessionActChart')   renderSessionSection();
+  else if (id === 'hourChart')    renderHourGrid();
+}
+
+function getChartRange(id) {
+  const ctrl = _chartCtrl[id];
+  if (!ctrl) return { from: state.from, to: state.to };
+  const today = todayISO();
+  const type  = ctrl.rangeType || 'last';
+  if (type === 'selection') return { from: state.from, to: state.to };
+  if (type === 'alltime')   return { from: DATA_START, to: today };
+  if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
+  if (type === 'current')   return getCurrentPeriod(ctrl.curUnit || 'month');
+  if (type === 'previous')  return getPreviousPeriod(ctrl.prevUnit || 'month');
+  return { from: state.from, to: state.to };
+}
+
+function getChartGroupBy(id) {
+  return _chartCtrl[id]?.gb || 'day';
+}
+
+function isChartCompare(id) {
+  return _chartCtrl[id]?.compare || false;
+}
+
 // ── Trend date range + graph-by helpers ───────────────────────────────────────
 
 function onTrendRangeTypeChange() {
@@ -1291,8 +1511,45 @@ function renderTableIfArticleData() {
   if (articleData) renderArticleTable();
 }
 
+// ── Article table sort ────────────────────────────────────────────────────────
+const _artSort = { key: 'views', dir: -1 };  // default: views descending
+
+function sortArticleTable(key) {
+  if (_artSort.key === key) {
+    _artSort.dir *= -1;
+  } else {
+    _artSort.key = key;
+    _artSort.dir = -1;
+  }
+  // Update arrow indicators
+  const cols = ['label','views','avg_seconds','helpful','not_helpful','helpful_pct','share_pct','health_score'];
+  cols.forEach(c => {
+    const el = document.getElementById('artArrow' + c.charAt(0).toUpperCase() + c.slice(1).replace(/_([a-z])/g, (_, l) => l.toUpperCase()));
+    if (el) {
+      if (c === key) {
+        el.textContent = _artSort.dir === -1 ? '↓' : '↑';
+        el.style.color = 'var(--blue)';
+      } else {
+        el.textContent = '↕';
+        el.style.color = 'var(--text3)';
+      }
+    }
+  });
+  renderArticleTable();
+}
+
 function renderArticleTable() {
-  const articles = articleData?.articles || [];
+  // Apply current sort
+  const rawArticles = (articleData?.articles || []).slice();
+  if (_artSort.key) {
+    rawArticles.sort((a, b) => {
+      let av = a[_artSort.key], bv = b[_artSort.key];
+      if (av == null) av = _artSort.dir === 1 ? -Infinity : Infinity;
+      if (bv == null) bv = _artSort.dir === 1 ? -Infinity : Infinity;
+      return _artSort.dir * (av < bv ? -1 : av > bv ? 1 : 0);
+    });
+  }
+  const articles = rawArticles;
   const note     = articleData?.note || '';
 
   // Scale article views to the selected date range using time-series ratio
@@ -1313,7 +1570,7 @@ function renderArticleTable() {
 
   if (!articles.length) {
     document.getElementById('articleTable').innerHTML =
-      '<tr><td colspan="7"><div class="empty"><span>📄</span>No article data yet</div></td></tr>';
+      '<tr><td colspan="10"><div class="empty"><span>📄</span>No article data yet</div></td></tr>';
     return;
   }
 
@@ -1352,6 +1609,13 @@ function renderArticleTable() {
           <div class="share-track"><div class="share-fill" style="width:${scaledShare}%;background:var(--blue)"></div></div>
           <span style="font-size:11px;color:var(--text3);min-width:36px">${scaledShare}%</span>
         </div>
+      </td>
+      <td class="mono r" style="font-size:12px;color:${a.bounce_rate > 60 ? 'var(--red)' : a.bounce_rate > 30 ? 'var(--amber)' : 'var(--text2)'}" onclick="openDrawer(${i})">
+        ${a.bounce_rate != null ? a.bounce_rate + '%' : '—'}
+      </td>
+      <td class="mono r" style="font-size:12px;color:var(--text2)" onclick="openDrawer(${i})">${a.revisits ?? '—'}</td>
+      <td class="r" onclick="openDrawer(${i})">
+        <span class="pill ${a.health_score >= 70 ? 'green' : a.health_score >= 40 ? 'amber' : 'red'}" style="font-size:11px">${a.health_score}</span>
       </td>
     </tr>`;
   }).join('');
@@ -1879,6 +2143,17 @@ async function init() {
     clearInterval(coldStartTimer);
     document.getElementById('loading').style.display = 'none';
     document.getElementById('appRoot').style.display = 'block';
+
+    // Inject chart controls into placeholder divs
+    ['catChart_controls_placeholder','sessionTrendChart_controls_placeholder','hourChart_controls_placeholder'].forEach(pid => {
+      const el = document.getElementById(pid);
+      if (el) {
+        const id = pid.replace('_controls_placeholder','');
+        el.outerHTML = makeChartControls(id, {
+          defaultN: 30, defaultUnit: 'days', defaultGb: 'day',
+        });
+      }
+    });
 
     // Chart modal event listeners (attached here so DOM exists)
     const _modal = document.getElementById('chartModal');
