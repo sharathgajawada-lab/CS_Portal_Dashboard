@@ -819,8 +819,10 @@ function _csatComputeAndRender(from, to) {
     }))
     .sort((a,b) => b.avg_rating - a.avg_rating);
 
+  const rangeDays = Math.round((new Date(hi) - new Date(lo)) / 86400000) + 1;
+
   const consList = Object.entries(cons)
-    .filter(([,v]) => v.t >= 10)
+    .filter(([,v]) => v.t >= 1)  // show all consultants with at least 1 survey
     .map(([c,v]) => ({ cid:c, name:v.n, team:v.tm,
       avg_rating: Math.round(v.sr/v.t*100)/100,
       solved_pct: Math.round(v.s/v.t*1000)/10,
@@ -1016,18 +1018,23 @@ function renderCSAT(d) {
 
   // Populate team filter dropdown
   const allCons = (d.all_consultants || []).filter(c => validName(c.name));
-  const teamNames = [...new Set(allCons.map(c => c.team).filter(Boolean))].sort();
+  // Build team list from ALL teams in leaderboard (not just filtered consultants)
+  // so teams with few-survey members still appear in the dropdown
+  const allTeamNames = [...new Set([
+    ...(d.teams||[]).map(t => t.team),
+    ...allCons.map(c => c.team)
+  ].filter(Boolean))].sort();
   const teamSel = document.getElementById('csatTeamFilter');
   if (teamSel) {
     teamSel.innerHTML = '<option value="">All teams</option>' +
-      teamNames.map(t => `<option value="${t}">${t}</option>`).join('');
+      allTeamNames.map(t => `<option value="${t}">${t}</option>`).join('');
   }
 
   // Store for sort/filter
   window._csatAllCons = allCons;
   window._csatSort = { key: 'avg_rating', dir: -1 };
   document.getElementById('csatConsultantSub').textContent =
-    `${allCons.length} consultants · min 10 surveys · sorted by avg rating`;
+    `${allCons.length} consultants · all with surveys · sorted by avg rating`;
   renderConsultantTable();
 }
 
@@ -1075,7 +1082,7 @@ function renderConsultantTable() {
   });
 
   document.getElementById('csatConsultantSub').textContent =
-    `${rows.length} of ${all.length} consultants · min 10 surveys`;
+    `${rows.length} of ${all.length} consultants`;
 
   document.getElementById('csatAllTable').innerHTML = rows.map((c, i) => {
     // Store in lookup map for click handler
