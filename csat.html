@@ -544,13 +544,13 @@ thead th:hover .sort-arrow { color:var(--text2) }
             <!-- Date range -->
             <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface2)">
               <select id="csatRangeType" onchange="onCsatRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
-                <option value="selection">Selection</option>
-                <option value="last" selected>Last...</option>
+                <option value="selection" selected>Global filter</option>
+                <option value="last">Last...</option>
                 <option value="alltime">All time</option>
                 <option value="current">Current</option>
                 <option value="previous">Previous</option>
               </select>
-              <div id="csatLastControls" style="display:flex;align-items:center;border-left:1px solid var(--border)">
+              <div id="csatLastControls" style="display:none;align-items:center;border-left:1px solid var(--border)">
                 <input type="number" id="csatLastN" value="30" min="1" max="9999"
                   onchange="csatData && renderCSAT(csatData)"
                   style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
@@ -848,7 +848,7 @@ function makeChartControls(id, opts = {}) {
   return `<div class="chart-controls-right" id="${id}_controls">
     <div class="ctrl-range-wrap">
       <select id="${id}_rangeType" onchange="_chartCtrlRangeType('${id}')">
-        <option value="selection" selected>Selection</option>
+        <option value="selection" selected>Global filter</option>
         <option value="last">Last...</option>
         <option value="alltime">All time</option>
         <option value="current">Current</option>
@@ -913,7 +913,7 @@ function getChartRange(id) {
   const ctrl = _chartCtrl[id];
   if (!ctrl) return { from: state.from, to: state.to };
   const today = todayISO();
-  const type  = ctrl.rangeType || 'last';
+  const type  = ctrl.rangeType || 'selection';
   if (type === 'selection') return { from: state.from, to: state.to };
   if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
   if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
@@ -1009,7 +1009,7 @@ function onCsatRangeTypeChange() {
 }
 
 function getCsatTrendDateRange() {
-  const type  = document.getElementById('csatRangeType')?.value || 'last';
+  const type  = document.getElementById('csatRangeType')?.value || 'selection';
   const today = todayISO();
   if (type === 'selection') return { from: state.from, to: state.to };
   if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
@@ -1057,11 +1057,13 @@ async function loadCSAT(forceRefresh = false) {
 }
 
 function _csatComputeAndRender(from, to) {
-  // Sync chart controls set to 'selection' to follow this global date change
-  ['csatDist','csTeamTrend'].forEach(id => {
+  // Sync any chart-level control set to 'selection' so it re-renders with the new global dates.
+  // This is the central hook: whenever the global date filter changes, call this function
+  // and every chart that respects the global filter will update automatically.
+  ['csatDist', 'csTeamTrend'].forEach(id => {
     if (_chartCtrl[id] && _chartCtrl[id].rangeType === 'selection') {
-      // Will re-render with the global from/to via getChartRange returning state.from/to
-      // No need to do anything extra - the render below will use from/to correctly
+      // rangeType=selection → getChartRange(id) returns { from: state.from, to: state.to }
+      // which matches the incoming from/to — re-render will use the correct dates
     }
   });
   if (!_csatRaw?.days) return;
@@ -1212,7 +1214,7 @@ function _renderCsatCompare(curFrom, curTo, gb) {
       }));
   }
 
-  const curSeries  = aggregateSeries(buildSeries(curFrom, today), gb);
+  const curSeries  = aggregateSeries(buildSeries(curFrom, curTo), gb);
   const prevSeries = aggregateSeries(buildSeries(prevFrom, prevTo), gb);
   const maxLen     = Math.max(curSeries.length, prevSeries.length);
   // Use current period dates on X axis, align prev period by position
@@ -1220,7 +1222,7 @@ function _renderCsatCompare(curFrom, curTo, gb) {
 
   // Update subtitle
   const subEl = document.getElementById('csatTrendSub');
-  if (subEl) subEl.textContent = `Current: ${fmtDate(curFrom)} – ${fmtDate(today)} vs Prev: ${fmtDate(prevFrom)} – ${fmtDate(prevTo)}`;
+  if (subEl) subEl.textContent = `Current: ${fmtDate(curFrom)} – ${fmtDate(curTo)} vs Prev: ${fmtDate(prevFrom)} – ${fmtDate(prevTo)}`;
 
   if (charts.csatTrend) charts.csatTrend.destroy();
   if (!document.getElementById('csatTrendChart'))

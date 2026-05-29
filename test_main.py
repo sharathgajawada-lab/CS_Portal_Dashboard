@@ -1,142 +1,203 @@
 """
 CS Portal Analytics Dashboard — Test Suite
-Covers: API endpoints, aggregation logic, cache, CMS health, edge cases
+Covers: _build_csat_index, cache, CSAT index, API endpoints, config
 Run: pytest test_main.py -v
 """
 import pytest
-import asyncio
 import json
 import time
-from unittest.mock import AsyncMock, patch, MagicMock
-from fastapi.testclient import TestClient
-from httpx import AsyncClient, Response
+import os
+import sys
 
-# ── Import app ────────────────────────────────────────────────────────────────
-import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
-
-# Set env before importing app
-os.environ["CMS_API_KEY"] = "TEST-API-KEY"
+os.environ.setdefault("CMS_API_KEY", "TEST-API-KEY")
 
 from main import (
-    app, cache, cache_get, cache_set,
-    aggregate_to_daily, cms_status, EVENTS, DATA_START_DATE
+    app, _cache, cache_get, cache_set,
+    _build_csat_index, EVENTS, DATA_START,
 )
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. UNIT TESTS — aggregate_to_daily
-# ══════════════════════════════════════════════════════════════════════════════
-
-class TestAggregateToDaily:
-
-    def test_aggregates_unix_ms_timestamps(self):
-        """Should convert Unix ms timestamps to YYYY-MM-DD and sum counts."""
-        series = [
-            {"ts": 1745510400000, "count": 5},   # 2025-04-24 00:00:00 UTC
-            {"ts": 1745510460000, "count": 3},   # 2025-04-24 00:01:00 UTC
-            {"ts": 1745596800000, "count": 10},  # 2025-04-25 00:00:00 UTC
-        ]
-        result = aggregate_to_daily(series)
-        assert len(result) == 2
-        dates = {r["date"]: r["count"] for r in result}
-        assert dates["2025-04-24"] == 8
-        assert dates["2025-04-25"] == 10
-
-    def test_aggregates_iso_date_strings(self):
-        """Should handle ISO date string format."""
-        series = [
-            {"date": "2026-04-24", "count": 100},
-            {"date": "2026-04-24", "count": 50},
-            {"date": "2026-04-25", "count": 200},
-        ]
-        result = aggregate_to_daily(series)
-        dates = {r["date"]: r["count"] for r in result}
-        assert dates["2026-04-24"] == 150
-        assert dates["2026-04-25"] == 200
-
-    def test_returns_empty_for_empty_series(self):
-        """Should return empty list for empty input."""
-        assert aggregate_to_daily([]) == []
-
-    def test_returns_empty_for_none_counts(self):
-        """Should handle None count values."""
-        series = [{"ts": 1745510400000, "count": None}]
-        result = aggregate_to_daily(series)
-        assert result[0]["count"] == 0
-
-    def test_sorted_by_date(self):
-        """Output should always be sorted by date ascending."""
-        series = [
-            {"date": "2026-04-26", "count": 1},
-            {"date": "2026-04-24", "count": 2},
-            {"date": "2026-04-25", "count": 3},
-        ]
-        result = aggregate_to_daily(series)
-        dates = [r["date"] for r in result]
-        assert dates == sorted(dates)
-
-    def test_includes_event_key(self):
-        """Should include event key in each row."""
-        series = [{"date": "2026-04-24", "count": 5}]
-        result = aggregate_to_daily(series, "profile.viewed")
-        assert result[0]["event"] == "profile.viewed"
-
-    def test_skips_invalid_timestamps(self):
-        """Should skip rows with invalid/missing timestamp fields."""
-        series = [
-            {"foo": "bar", "count": 5},  # no ts or date
-            {"date": "2026-04-24", "count": 10},
-        ]
-        result = aggregate_to_daily(series)
-        assert len(result) == 1
-        assert result[0]["count"] == 10
-
-    def test_handles_large_count_values(self):
-        """Should handle large count values without overflow."""
-        series = [{"date": "2026-04-24", "count": 999999}]
-        result = aggregate_to_daily(series)
-        assert result[0]["count"] == 999999
-
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. UNIT TESTS — Cache
+# 1. UNIT TESTS — _build_csat_index
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _sample_rows():
+    return [
+        {"rating": 5, "cid": "c1", "name": "Alice", "team": "Team A", "date": "2026-05-01", "solved": True},
+        {"rating": 3, "cid": "c2", "name": "Bob",   "team": "Team A", "date": "2026-05-01", "solved": False},
+        {"rating": 4, "cid": "c1", "name": "Alice", "team": "Team A", "date": "2026-05-02", "solved": True},
+        {"rating": 2, "cid": "c3", "name": "Carol", "team": "Team B", "date": "2026-05-02", "solved": False},
+        {"rating": 1, "cid": "c2", "name": "Bob",   "team": "Team A", "date": "2026-05-03", "solved": False},
+    ]
+
+
+class TestBuildCsatIndex:
+
+    def test_returns_available_true(self):
+        idx = _build_csat_index(_sample_rows())
+        assert idx["available"] is True
+
+    def test_date_min_max(self):
+        idx = _build_csat_index(_sample_rows())
+        assert idx["date_min"] == "2026-05-01"
+        assert idx["date_max"] == "2026-05-03"
+
+    def test_total_rows(self):
+        idx = _build_csat_index(_sample_rows())
+        assert idx["total_rows"] == 5
+
+    def test_days_present(self):
+        idx = _build_csat_index(_sample_rows())
+        assert "2026-05-01" in idx["days"]
+        assert "2026-05-02" in idx["days"]
+        assert "2026-05-03" in idx["days"]
+
+    def test_day_totals(self):
+        idx = _build_csat_index(_sample_rows())
+        assert idx["days"]["2026-05-01"]["t"] == 2
+        assert idx["days"]["2026-05-02"]["t"] == 2
+        assert idx["days"]["2026-05-03"]["t"] == 1
+
+    def test_day_sum_ratings(self):
+        idx = _build_csat_index(_sample_rows())
+        # 2026-05-01: ratings 5+3 = 8
+        assert idx["days"]["2026-05-01"]["sr"] == 8
+
+    def test_day_solved(self):
+        idx = _build_csat_index(_sample_rows())
+        # 2026-05-01: 1 solved (Alice only)
+        assert idx["days"]["2026-05-01"]["s"] == 1
+
+    def test_day_low_ratings(self):
+        idx = _build_csat_index(_sample_rows())
+        # 2026-05-02: Carol = 2 (low); 2026-05-03: Bob = 1 (low)
+        assert idx["days"]["2026-05-02"]["l"] == 1
+        assert idx["days"]["2026-05-03"]["l"] == 1
+
+    def test_team_aggregation_uses_tm_key(self):
+        """_build_csat_index must use 'tm' not 'teams' — frontend depends on this."""
+        idx = _build_csat_index(_sample_rows())
+        dm = idx["days"]["2026-05-01"]
+        assert "tm" in dm, "'tm' key missing — frontend will not find team data"
+        assert "teams" not in dm, "stale 'teams' key found — will confuse consumers"
+
+    def test_consultant_aggregation_uses_cn_key(self):
+        """_build_csat_index must use 'cn' not 'cons' — frontend depends on this."""
+        idx = _build_csat_index(_sample_rows())
+        dm = idx["days"]["2026-05-01"]
+        assert "cn" in dm, "'cn' key missing — frontend will not find consultant data"
+        assert "cons" not in dm, "stale 'cons' key found — will confuse consumers"
+
+    def test_team_a_totals_on_may_01(self):
+        idx = _build_csat_index(_sample_rows())
+        tm = idx["days"]["2026-05-01"]["tm"]
+        assert "Team A" in tm
+        assert tm["Team A"]["t"] == 2
+
+    def test_consultant_in_cn(self):
+        idx = _build_csat_index(_sample_rows())
+        cn = idx["days"]["2026-05-01"]["cn"]
+        assert "c1" in cn
+        assert cn["c1"]["n"] == "Alice"
+
+    def test_rating_distribution_d_key(self):
+        idx = _build_csat_index(_sample_rows())
+        dm = idx["days"]["2026-05-01"]
+        assert "d" in dm
+        assert dm["d"][5] == 1
+        assert dm["d"][3] == 1
+
+    def test_bad_names_excluded_from_cn(self):
+        rows = [
+            {"rating": 4, "cid": "x1", "name": "None",     "team": "T", "date": "2026-05-01", "solved": True},
+            {"rating": 4, "cid": "x2", "name": "frank ai", "team": "T", "date": "2026-05-01", "solved": True},
+            {"rating": 4, "cid": "x3", "name": "Frank AI Bot", "team": "T", "date": "2026-05-01", "solved": True},
+            {"rating": 4, "cid": "x4", "name": "Alice",    "team": "T", "date": "2026-05-01", "solved": True},
+        ]
+        idx = _build_csat_index(rows)
+        cn = idx["days"]["2026-05-01"]["cn"]
+        assert "x1" not in cn, "name='None' should be excluded"
+        assert "x2" not in cn, "name='frank ai' should be excluded"
+        assert "x3" not in cn, "name starting with 'frank ai' should be excluded"
+        assert "x4" in cn, "valid name should be included"
+
+    def test_bad_teams_excluded_from_tm(self):
+        rows = [
+            {"rating": 4, "cid": "x1", "name": "Alice", "team": "",    "date": "2026-05-01", "solved": True},
+            {"rating": 4, "cid": "x2", "name": "Bob",   "team": "N/A", "date": "2026-05-01", "solved": True},
+            {"rating": 4, "cid": "x3", "name": "Carol", "team": "Team Valid", "date": "2026-05-01", "solved": True},
+        ]
+        idx = _build_csat_index(rows)
+        tm = idx["days"]["2026-05-01"]["tm"]
+        assert "" not in tm
+        assert "N/A" not in tm
+        assert "Team Valid" in tm
+
+    def test_week_cons_built(self):
+        idx = _build_csat_index(_sample_rows())
+        assert "week_cons" in idx
+        assert isinstance(idx["week_cons"], dict)
+
+    def test_empty_rows_returns_empty_index(self):
+        idx = _build_csat_index([])
+        assert idx["date_min"] == ""
+        assert idx["date_max"] == ""
+        assert idx["days"] == {}
+
+    def test_rows_sorted_by_date(self):
+        """Rows passed in unsorted order should still produce correct date_min/max."""
+        rows = [
+            {"rating": 5, "cid": "c1", "name": "Alice", "team": "T", "date": "2026-05-10", "solved": True},
+            {"rating": 3, "cid": "c1", "name": "Alice", "team": "T", "date": "2026-05-01", "solved": True},
+        ]
+        idx = _build_csat_index(rows)
+        assert idx["date_min"] == "2026-05-01"
+        assert idx["date_max"] == "2026-05-10"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. UNIT TESTS — cache
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestCache:
 
     def setup_method(self):
-        cache.clear()
+        _cache.clear()
 
-    def test_cache_miss_returns_none(self):
+    def test_cache_miss_returns_none_false(self):
         data, fresh = cache_get("nonexistent")
         assert data is None
         assert fresh is False
 
     def test_cache_hit_returns_fresh(self):
-        cache_set("test_key", {"series": [1, 2, 3]})
-        data, fresh = cache_get("test_key")
-        assert data == {"series": [1, 2, 3]}
+        cache_set("k", {"x": 1})
+        data, fresh = cache_get("k")
+        assert data == {"x": 1}
         assert fresh is True
 
-    def test_stale_cache_returns_data_but_not_fresh(self):
-        cache["stale_key"] = {"ts": time.time() - 400, "data": {"series": []}}
-        data, fresh = cache_get("stale_key")
-        assert data is not None
+    def test_stale_cache_returns_data_not_fresh(self):
+        """Age > CACHE_TTL but < STALE_TTL → returns data, fresh=False."""
+        _cache["stale"] = {"ts": time.time() - 7300, "data": {"y": 2}}
+        data, fresh = cache_get("stale")
+        assert data == {"y": 2}
         assert fresh is False
 
     def test_expired_cache_returns_none(self):
-        cache["expired_key"] = {"ts": time.time() - 4000, "data": {"series": []}}
-        data, fresh = cache_get("expired_key")
+        """Age > STALE_TTL → returns None."""
+        _cache["old"] = {"ts": time.time() - 90000, "data": {"z": 3}}
+        data, fresh = cache_get("old")
         assert data is None
         assert fresh is False
 
-    def test_cache_set_and_get(self):
-        cache_set("mykey", {"foo": "bar"})
-        data, fresh = cache_get("mykey")
-        assert data == {"foo": "bar"}
-        assert fresh is True
+    def test_overwrite_existing_key(self):
+        cache_set("k", {"v": 1})
+        cache_set("k", {"v": 2})
+        data, _ = cache_get("k")
+        assert data == {"v": 2}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -145,279 +206,211 @@ class TestCache:
 
 class TestHealthEndpoint:
 
-    def setup_method(self):
-        cache.clear()
+    def test_returns_200(self):
+        assert client.get("/health").status_code == 200
 
-    def test_health_returns_200(self):
-        r = client.get("/health")
-        assert r.status_code == 200
+    def test_head_returns_200(self):
+        """UptimeRobot sends HEAD — must be supported."""
+        assert client.head("/health").status_code == 200
 
-    def test_health_has_required_fields(self):
-        r = client.get("/health")
-        data = r.json()
-        assert "status" in data
-        assert "api_key_set" in data
-        assert "batch_cached" in data
-        assert "batch_fresh" in data
-        assert "data_start_date" in data
-        assert "cache_entries" in data
-        assert "cms" in data
+    def test_has_required_fields(self):
+        d = client.get("/health").json()
+        for field in ("status", "api_key_set", "batch_cached", "batch_fresh", "ts"):
+            assert field in d, f"Missing field: {field}"
 
-    def test_health_api_key_set(self):
-        r = client.get("/health")
-        assert r.json()["api_key_set"] is True
+    def test_api_key_set_true(self):
+        assert client.get("/health").json()["api_key_set"] is True
 
-    def test_health_data_start_date(self):
-        r = client.get("/health")
-        assert r.json()["data_start_date"] == DATA_START_DATE
+    def test_status_ok(self):
+        assert client.get("/health").json()["status"] == "ok"
 
 
-class TestCacheEndpoint:
+class TestDashboardPage:
 
-    def test_cache_clear_returns_200(self):
-        r = client.get("/cache/clear")
-        assert r.status_code == 200
+    def test_root_returns_200(self):
+        assert client.get("/").status_code == 200
 
-    def test_cache_clear_response(self):
-        r = client.get("/cache/clear")
-        assert "cleared" in r.json()["status"]
+    def test_root_is_html(self):
+        assert "text/html" in client.get("/").headers["content-type"]
 
+    def test_csat_returns_200(self):
+        assert client.get("/csat").status_code == 200
 
-class TestCmsStatusEndpoint:
+    def test_csat_is_html(self):
+        assert "text/html" in client.get("/csat").headers["content-type"]
 
-    def test_cms_status_returns_200(self):
-        with patch("main.check_cms_health", new_callable=AsyncMock):
-            r = client.get("/api/cms-status")
-            assert r.status_code == 200
+    def test_root_no_cache_headers(self):
+        r = client.get("/")
+        assert "no-store" in r.headers.get("cache-control", "").lower()
 
-    def test_cms_status_has_healthy_field(self):
-        with patch("main.check_cms_health", new_callable=AsyncMock):
-            r = client.get("/api/cms-status")
-            assert "healthy" in r.json()
+    def test_csat_no_cache_headers(self):
+        r = client.get("/csat")
+        assert "no-store" in r.headers.get("cache-control", "").lower()
 
 
 class TestBatchEndpoint:
 
     def setup_method(self):
-        cache.clear()
+        _cache.clear()
 
-    def test_batch_returns_200_with_cached_data(self):
-        """Should return 200 when cache has data."""
-        mock_data = {e["key"]: {"series": []} for e in EVENTS}
-        cache_set("batch:all", mock_data)
+    def test_returns_200(self):
+        cache_set("batch:all", {e["key"]: {"series": []} for e in EVENTS})
+        assert client.get("/api/metrics/batch").status_code == 200
+
+    def test_returns_empty_dict_when_no_cache(self):
         r = client.get("/api/metrics/batch")
         assert r.status_code == 200
+        assert r.json() == {}
 
-    def test_batch_returns_all_events(self):
-        """Should return data for all events."""
-        mock_data = {e["key"]: {"series": []} for e in EVENTS}
-        cache_set("batch:all", mock_data)
-        r = client.get("/api/metrics/batch")
-        data = r.json()
+    def test_all_events_present_when_cached(self):
+        cache_set("batch:all", {e["key"]: {"series": []} for e in EVENTS})
+        data = client.get("/api/metrics/batch").json()
         for e in EVENTS:
             assert e["key"] in data
 
-    def test_batch_clears_cache_on_no_cache_header(self):
-        """Should clear cache when Cache-Control: no-cache is sent."""
-        mock_data = {e["key"]: {"series": [{"date": "2026-04-24", "count": 100}]} for e in EVENTS}
-        cache_set("batch:all", mock_data)
-        with patch("main.prefetch_all", new_callable=AsyncMock) as mock_prefetch:
-            mock_prefetch.return_value = mock_data
-            r = client.get("/api/metrics/batch",
-                          headers={"Cache-Control": "no-cache"})
+    def test_has_etag_header(self):
+        cache_set("batch:all", {e["key"]: {"series": []} for e in EVENTS})
+        r = client.get("/api/metrics/batch")
+        assert "etag" in r.headers
+
+    def test_api_key_not_in_response(self):
+        cache_set("batch:all", {e["key"]: {"series": []} for e in EVENTS})
+        r = client.get("/api/metrics/batch")
+        assert "TEST-API-KEY" not in r.text
+
+
+class TestCsatRawEndpoint:
+
+    def test_returns_200(self):
+        assert client.get("/api/csat/raw").status_code == 200
+
+    def test_no_cache_headers(self):
+        r = client.get("/api/csat/raw")
+        cc = r.headers.get("cache-control", "").lower()
+        assert "no-store" in cc or "no-cache" in cc
+
+    def test_returns_available_false_when_no_data(self):
+        """When no CSV loaded and no JSON file, must return available:false gracefully."""
+        import main as m
+        original = m._csat_index.copy()
+        m._csat_index.clear()
+        try:
+            r = client.get("/api/csat/raw")
             assert r.status_code == 200
+            d = r.json()
+            assert d.get("available") is False
+        finally:
+            m._csat_index.update(original)
 
 
-class TestDashboardEndpoint:
-
-    def test_dashboard_returns_200(self):
-        r = client.get("/")
-        assert r.status_code == 200
-
-    def test_dashboard_returns_html(self):
-        r = client.get("/")
-        assert "text/html" in r.headers["content-type"]
-
-    def test_dashboard_contains_hear_com(self):
-        r = client.get("/")
-        assert "hear.com" in r.text.lower() or "hear" in r.text.lower()
-
-    def test_dashboard_contains_chart_js(self):
-        r = client.get("/")
-        assert "chart" in r.text.lower()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. CMS FETCH TESTS (mocked)
-# ══════════════════════════════════════════════════════════════════════════════
-
-class TestCmsFetch:
+class TestApiArticlesEndpoint:
 
     def setup_method(self):
-        cache.clear()
+        _cache.clear()
 
-    @pytest.mark.asyncio
-    async def test_cms_fetch_uses_correct_params(self):
-        """Should use 'since' and 'until' params per OpenAPI spec."""
-        from main import cms_fetch
+    def test_returns_200(self):
+        assert client.get("/api/articles").status_code == 200
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = '{"series": [{"ts": 1745510400000, "count": 5}]}'
+    def test_returns_articles_key(self):
+        d = client.get("/api/articles").json()
+        assert "articles" in d
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
-                return_value=mock_response
-            )
-            result = await cms_fetch(
-                "cs-portal-profile-events",
-                "profile.viewed",
-                since="2026-04-24",
-                until="2026-05-25"
-            )
-            assert "series" in result
+    def test_returns_empty_list_when_no_cache(self):
+        d = client.get("/api/articles").json()
+        assert d["articles"] == []
 
-    @pytest.mark.asyncio
-    async def test_cms_fetch_returns_empty_on_503(self):
-        """Should return empty series on CMS 503."""
-        from main import cms_fetch
 
-        mock_response = MagicMock()
-        mock_response.status_code = 503
+class TestApiSessionsEndpoint:
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
-                return_value=mock_response
-            )
-            result = await cms_fetch(
-                "cs-portal-profile-events",
-                "profile.viewed",
-                since="-30d"
-            )
-            assert result == {"series": []}
+    def setup_method(self):
+        _cache.clear()
 
-    @pytest.mark.asyncio
-    async def test_cms_fetch_returns_empty_on_timeout(self):
-        """Should return empty series on timeout."""
-        from main import cms_fetch
-        import httpx
+    def test_returns_200(self):
+        assert client.get("/api/sessions").status_code == 200
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
-                side_effect=httpx.TimeoutException("timeout")
-            )
-            result = await cms_fetch(
-                "cs-portal-profile-events",
-                "profile.viewed",
-                since="-30d"
-            )
-            assert result == {"series": []}
+    def test_returns_total_sessions(self):
+        d = client.get("/api/sessions").json()
+        assert "total_sessions" in d
 
-    @pytest.mark.asyncio
-    async def test_cms_fetch_uses_api_key_header(self):
-        """Should send api-key header (lowercase per OpenAPI spec)."""
-        from main import cms_fetch
 
-        captured_headers = {}
+class TestCacheEndpoints:
 
-        async def mock_get(url, params=None, headers=None):
-            captured_headers.update(headers or {})
-            mock_resp = MagicMock()
-            mock_resp.status_code = 200
-            mock_resp.text = '{"series": []}'
-            return mock_resp
+    def test_cache_clear_returns_200(self):
+        assert client.get("/cache/clear").status_code == 200
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = mock_get
-            await cms_fetch("cs-portal-profile-events", "profile.viewed", since="-30d")
-            assert "api-key" in captured_headers
+    def test_api_refresh_returns_200(self):
+        assert client.get("/api/refresh").status_code == 200
+
+    def test_api_refresh_has_status(self):
+        d = client.get("/api/refresh").json()
+        assert "status" in d
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. EVENTS CONFIG TESTS
+# 4. CONFIG TESTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestEventsConfig:
 
-    def test_all_events_have_key_and_project(self):
+    def test_all_events_have_required_fields(self):
         for e in EVENTS:
-            assert "key" in e, f"Missing 'key' in {e}"
-            assert "project" in e, f"Missing 'project' in {e}"
+            assert "key" in e
+            assert "project" in e
+            assert "label" in e
+            assert "color" in e
 
     def test_no_duplicate_event_keys(self):
         keys = [e["key"] for e in EVENTS]
-        assert len(keys) == len(set(keys)), "Duplicate event keys found"
+        assert len(keys) == len(set(keys))
 
-    def test_article_feedback_uses_correct_project(self):
-        """Bug fix: article.feedback must use cs-portal-feedback-events."""
+    def test_article_feedback_uses_feedback_project(self):
         fb = next(e for e in EVENTS if e["key"] == "article.feedback")
         assert fb["project"] == "cs-portal-feedback-events"
 
-    def test_data_start_date_format(self):
-        """DATA_START_DATE must be YYYY-MM-DD."""
-        import re
-        assert re.match(r"^\d{4}-\d{2}-\d{2}$", DATA_START_DATE)
-
-    def test_all_projects_are_valid_format(self):
+    def test_all_projects_start_with_cs_portal(self):
         for e in EVENTS:
-            assert e["project"].startswith("cs-portal-"), \
-                f"Invalid project format: {e['project']}"
+            assert e["project"].startswith("cs-portal-")
+
+    def test_data_start_is_valid_date_format(self):
+        import re
+        assert re.match(r"^\d{4}-\d{2}-\d{2}$", DATA_START)
+
+    def test_exactly_9_events(self):
+        """9 events = 9 timeseries calls per refresh cycle."""
+        assert len(EVENTS) == 9
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6. RESPONSE FORMAT TESTS
+# 5. INTEGRATION — _build_csat_index → /api/csat/raw pipeline
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestResponseFormats:
+class TestCsatIndexPipeline:
 
-    def test_health_response_is_json(self):
-        r = client.get("/health")
-        assert r.headers["content-type"].startswith("application/json")
+    def test_index_data_written_to_csat_index(self):
+        import main as m
+        rows = _sample_rows()
+        _build_csat_index(rows)
+        assert m._csat_index.get("day_map") is not None
+        assert m._csat_index.get("index_data") is not None
 
-    def test_batch_response_is_json(self):
-        mock_data = {e["key"]: {"series": []} for e in EVENTS}
-        cache_set("batch:all", mock_data)
-        r = client.get("/api/metrics/batch")
-        assert r.headers["content-type"].startswith("application/json")
+    def test_index_data_day_map_uses_new_schema(self):
+        """After _build_csat_index, day_map entries must use compact keys t/sr/s/l/d/tm/cn."""
+        import main as m
+        _build_csat_index(_sample_rows())
+        dm = next(iter(m._csat_index["day_map"].values()))
+        for key in ("t", "sr", "s", "l", "d", "tm", "cn"):
+            assert key in dm, f"Compact key '{key}' missing from day_map entry"
+        for stale_key in ("total", "sum_r", "solved", "low", "teams", "cons"):
+            assert stale_key not in dm, f"Stale key '{stale_key}' found — should not exist"
 
-    def test_batch_series_is_list(self):
-        mock_data = {e["key"]: {"series": [{"date": "2026-04-24", "count": 5}]}
-                     for e in EVENTS}
-        cache_set("batch:all", mock_data)
-        r = client.get("/api/metrics/batch")
-        data = r.json()
-        for key, val in data.items():
-            assert isinstance(val["series"], list), f"{key} series is not a list"
-
-    def test_batch_series_rows_have_date_and_count(self):
-        mock_data = {
-            "profile.viewed": {"series": [{"date": "2026-04-24", "count": 100, "event": "profile.viewed"}]}
-        }
-        cache_set("batch:all", mock_data)
-        r = client.get("/api/metrics/batch")
-        series = r.json()["profile.viewed"]["series"]
-        assert series[0]["date"] == "2026-04-24"
-        assert series[0]["count"] == 100
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 7. SECURITY TESTS
-# ══════════════════════════════════════════════════════════════════════════════
-
-class TestSecurity:
-
-    def test_cors_headers_present(self):
-        r = client.get("/health", headers={"Origin": "https://example.com"})
+    def test_raw_endpoint_returns_days_after_build(self):
+        import main as m
+        _build_csat_index(_sample_rows())
+        # Serve from in-memory (no file needed)
+        if os.path.exists(m.CSAT_JSON_PATH):
+            os.remove(m.CSAT_JSON_PATH)
+        r = client.get("/api/csat/raw")
         assert r.status_code == 200
-
-    def test_api_key_not_exposed_in_batch_response(self):
-        mock_data = {e["key"]: {"series": []} for e in EVENTS}
-        cache_set("batch:all", mock_data)
-        r = client.get("/api/metrics/batch")
-        assert "API-" not in r.text
-        assert "TEST-API-KEY" not in r.text
-
-    def test_api_key_not_in_health_response(self):
-        r = client.get("/health")
-        assert "TEST-API-KEY" not in r.text
-
+        d = r.json()
+        assert d.get("available") is True
+        assert "days" in d

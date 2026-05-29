@@ -1,29 +1,101 @@
 # CS Portal Analytics Dashboard
 
-A FastAPI-powered analytics dashboard for the Hear.com CS Portal metrics.
+FastAPI + Vanilla JS analytics dashboard for the hear.com Customer Support Portal.
+
+**Live:** https://cs-portal-dashboard.onrender.com  
+**Stack:** FastAPI (Python 3.11) · Vanilla JS · Chart.js 4.4 · Supabase · Render
+
+---
+
+## Pages
+
+| URL | Description |
+|-----|-------------|
+| `/` | Portal Activity — logins, articles, searches, videos, sessions, heatmap |
+| `/csat` | Call Quality & CSAT — ratings, FCR, team/consultant leaderboard |
+
+---
 
 ## Setup
 
-1. Clone the repo
-2. Install dependencies: `pip install -r requirements.txt`
-3. Set environment variable: `export CMS_API_KEY=your-api-key`
-4. Run locally: `uvicorn main:app --reload`
-5. Open: `http://localhost:8000`
+### Local development
 
-## Deploy to Render
+```bash
+git clone https://github.com/sharathgajawada-lab/cs-portal-dashboard
+cd cs-portal-dashboard
+pip install -r requirements.txt
+
+export CMS_API_KEY=your-cms-api-key
+export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co   # optional
+export SUPABASE_KEY=your-service-role-jwt              # optional
+export CSAT_UPLOAD_PASSWORD=hearcom2024                # optional
+
+uvicorn main:app --reload
+# Open http://localhost:8000
+```
+
+### Deploy to Render
 
 1. Push to GitHub
-2. Create new Web Service on render.com
-3. Connect your GitHub repo
-4. Add environment variable: `CMS_API_KEY=your-api-key`
-5. Deploy!
+2. Create new **Web Service** on render.com → connect repo
+3. Set environment variables (see `render.yaml` for the full list):
+   - `CMS_API_KEY` — hear.com CMS API key (required)
+   - `SUPABASE_URL` — Supabase project URL (optional, enables full session analytics)
+   - `SUPABASE_KEY` — Supabase service_role JWT (optional)
+   - `CSAT_UPLOAD_PASSWORD` — password for CSAT upload endpoint (default: `hearcom2024`)
+4. Deploy
 
-## Features
+UptimeRobot pings `/health` every 5 minutes to keep the free-tier instance warm.
 
-- Live metrics from Hear.com CMS
-- Custom date range picker
-- KPI cards with WoW and period-over-period comparisons
-- Day of week patterns
-- Activity heatmap
-- Smart anomaly alerts
-- Clickable filters
+---
+
+## Architecture
+
+```
+Browser
+  ├── GET /              → index.html  (Portal Activity)
+  ├── GET /csat          → csat.html   (Call Quality)
+  ├── GET /api/metrics/batch   → KPI time-series (cached 2h)
+  ├── GET /api/articles        → Article performance
+  ├── GET /api/search          → Search query intelligence
+  ├── GET /api/sessions/full   → Session analytics (Supabase)
+  ├── GET /api/csat/raw        → Full CSAT index (client-side filtered)
+  └── POST /upload/csat        → Upload new call_quality CSV/XLSX
+```
+
+**Cache:** 2h fresh / 24h stale. Persisted to `/tmp` so it survives Render restarts.  
+**Refresh:** Background loop every 2 hours — 15 fixed CMS calls + up to 12 timeline calls.  
+**CSAT data:** Loaded from `call_quality.csv` at startup; re-uploadable via dashboard UI.
+
+---
+
+## CSAT Data
+
+`call_quality.csv` — required columns:
+
+| Column | Type | Example |
+|--------|------|---------|
+| `RATING` | float | `4.0` |
+| `CONSULTANT_ID` | string | `user_abc` |
+| `CONSULTANT_NAME` | string | `Jane Smith` |
+| `CONSULTANT_TEAM` | string | `Team Amplifiers` |
+| `DATETIME` | datetime | `2026-05-01 09:30:00` |
+| `SOLVED` | boolean | `True` |
+
+Upload a new file via the **Update CSAT** button on the `/csat` page (password-protected).
+
+---
+
+## Key endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check (UptimeRobot) |
+| `GET` | `/api/refresh` | Trigger manual data refresh |
+| `GET` | `/api/metrics/batch` | All KPI time-series |
+| `GET` | `/api/articles` | Article performance + health scores |
+| `GET` | `/api/sessions/full` | Full-team session analytics |
+| `GET` | `/api/csat/raw` | CSAT index for client-side filtering |
+| `POST` | `/upload/csat` | Upload new CSAT CSV/XLSX |
+| `GET` | `/debug/csat` | Verify CSAT data loaded |
+| `GET` | `/debug/cms` | Test CMS connectivity |

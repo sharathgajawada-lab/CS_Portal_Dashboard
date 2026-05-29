@@ -3,22 +3,23 @@ CS Portal Analytics — main.py
 hear.com · Customer Support Intelligence
 
 CALL BUDGET:
-  Full refresh: 19 calls, fully sequential, 1s gap between each
-    - 9 time-series (KPIs)
-    - 5 top-n queries (articles, feedback, categories, video users, search users)
-    - 4 content timelines (top users from cs-portal-content-events)
-    - 2 feedback timelines (top 2 users from cs-portal-feedback-events)
-                        → unlocks helpful/not_helpful split per article
+  Full refresh — fully sequential, 1s gap between each call
+    - 9  time-series (KPIs, one per event type)
+    - 3  top-n data   (articles, feedback, categories)
+    - 3  top-n user IDs (video, search, article — to build user list)
+    = 15 fixed calls
+    + up to 10 content timelines  (Supabase enabled)
+    + up to  2 feedback timelines (first 2 users only)
+    = up to 27 calls total with Supabase / 21 without
   Schedule: every 2 hours
   Per page load: 0 calls — always served from cache
   On CMS error: serve stale cache, retry next cycle
 """
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
-from fastapi.responses import HTMLResponse, Response, FileResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse, Response, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
@@ -117,9 +118,9 @@ async def _sb_get_unfetched_users(all_user_ids: list, limit: int = 10) -> list:
         # Prioritise users not yet fetched
         unfetched = [u for u in all_user_ids if u not in fetched_recently]
         if not unfetched:
-            # All fetched recently — refresh oldest ones
-            fetched_old = [r["user_id"] for r in result]
-            unfetched = [u for u in all_user_ids if u in fetched_old]
+            # All fetched recently — refresh oldest ones (preserve Supabase's asc order)
+            known_set = set(all_user_ids)
+            unfetched = [r["user_id"] for r in result if r["user_id"] in known_set]
         return unfetched[:limit]
     return all_user_ids[:limit]
 
@@ -218,7 +219,7 @@ def _build_csat_index(rows: list) -> dict:
     day_map   = {}
     week_cons = {}
 
-    import bisect, datetime as _dt_mod
+    import datetime as _dt_mod
 
     for r in rows:
         d    = r["date"]
@@ -399,216 +400,6 @@ def _save_csat_json():
         print(f"[csat] failed to save JSON: {e}", flush=True)
 
 
-        rows = []
-        with open(path, newline='', encoding='utf-8') as f:
-            for row in csv.DictReader(f):
-                try:
-                    # Support both DATE and DATETIME column names
-                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
-                    date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
-                    rows.append({
-                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
-                        "cid":    row["CONSULTANT_ID"],
-                        "name":   row["CONSULTANT_NAME"],
-                        "team":   row["CONSULTANT_TEAM"].strip(),
-                        "date":   date_str,
-                        "solved": row["SOLVED"].strip().lower() == "true",
-                    })
-                except (ValueError, KeyError):
-                    continue
-
-        # Sort by date once — enables O(log n) binary search per query
-        rows.sort(key=lambda r: r["date"])
-        _csat_rows = rows
-
-        # Pre-build per-day index: date -> list of row indices
-        # Also pre-build week index for trend chart
-        from datetime import date as _dt, timedelta as _td
-        import bisect
-        dates = [r["date"] for r in rows]
-        _csat_index["dates"]      = dates          # sorted date strings
-        _csat_index["rows"]       = rows
-        _csat_index["date_min"]   = dates[0]  if dates else ""
-        _csat_index["date_max"]   = dates[-1] if dates else ""
-
-        # Pre-aggregate EVERYTHING per day: {date: {total, sum_rating, solved, low, by_team, by_cons}}
-        day_map: dict = {}
-        for r in rows:
-            d = r["date"]
-            if d not in day_map:
-                day_map[d] = {"total":0,"sum_r":0,"solved":0,"low":0,"teams":{},"cons":{}}
-            dm = day_map[d]
-            dm["total"]   += 1
-            dm["sum_r"]   += r["rating"]
-            dm["solved"]  += int(r["solved"])
-            dm["low"]     += int(r["rating"] <= 2)
-            dm["dist"] = dm.get("dist", {r["rating"]:0})
-            dm["dist"][r["rating"]] = dm["dist"].get(r["rating"], 0) + 1
-            # team
-            t = r["team"]
-            if t and t.strip().lower() not in ("none","null","","n/a"):
-                if t not in dm["teams"]:
-                    dm["teams"][t] = {"total":0,"sum_r":0,"solved":0,"low":0}
-                dm["teams"][t]["total"]  += 1
-                dm["teams"][t]["sum_r"]  += r["rating"]
-                dm["teams"][t]["solved"] += int(r["solved"])
-                dm["teams"][t]["low"]    += int(r["rating"] <= 2)
-            # consultant
-            c = r["cid"]
-            bad_name = (not r["name"] or
-                        r["name"].strip().lower() in ("none","null","","n/a") or
-                        r["name"].strip().lower().startswith("frank ai"))
-            if not bad_name:
-                if c not in dm["cons"]:
-                    dm["cons"][c] = {"name":r["name"],"team":r["team"],
-                                     "total":0,"sum_r":0,"solved":0,"low":0}
-                dm["cons"][c]["total"]  += 1
-                dm["cons"][c]["sum_r"]  += r["rating"]
-                dm["cons"][c]["solved"] += int(r["solved"])
-                dm["cons"][c]["low"]    += int(r["rating"] <= 2)
-
-        _csat_index["day_map"] = day_map
-
-        print(f"[csat] loaded {len(rows)} rows, indexed {len(day_map)} days from {path}", flush=True)
-        return
-
-    print("[csat] call_quality.csv not found — CSAT section will be empty", flush=True)
-
-
-def _compute_csat(date_from: str = "", date_to: str = "") -> dict:
-    """Compute CSAT aggregations using pre-built day index — O(days) not O(rows)."""
-    if not _csat_index.get("day_map"):
-        return {"available": False, "note": "Upload call_quality.csv to enable CSAT section"}
-
-    day_map  = _csat_index["day_map"]
-    date_min = _csat_index["date_min"]
-    date_max = _csat_index["date_max"]
-
-    # Select days in range
-    lo = date_from if date_from else date_min
-    hi = date_to   if date_to   else date_max
-    days = [d for d in day_map if lo <= d <= hi]
-
-    if not days:
-        return {"available": True, "total": 0, "filtered": True,
-                "date_from": lo, "date_to": hi,
-                "note": "No surveys in selected date range"}
-
-    # Aggregate across selected days
-    total = sum(day_map[d]["total"]  for d in days)
-    sum_r = sum(day_map[d]["sum_r"]  for d in days)
-    solved= sum(day_map[d]["solved"] for d in days)
-    low   = sum(day_map[d]["low"]    for d in days)
-
-    avg        = round(sum_r / total, 2) if total else 0
-    solved_pct = round(solved / total * 100, 1) if total else 0
-    low_pct    = round(low / total * 100, 1) if total else 0
-
-    # Rating distribution
-    dist_agg: dict = {}
-    for d in days:
-        for rating, cnt in day_map[d].get("dist", {}).items():
-            dist_agg[rating] = dist_agg.get(rating, 0) + cnt
-    rating_dist = [{"rating": i,
-                    "count": dist_agg.get(i, 0),
-                    "pct":   round(dist_agg.get(i, 0) / total * 100, 1)} for i in range(1, 6)]
-
-    # Solved / unsolved avg — need per-rating-per-solved split
-    # Use the raw rows only for this (small additional scan, unavoidable)
-    # But limit to date range using binary search
-    import bisect
-    dates_list = _csat_index.get("dates", [])
-    rows_list  = _csat_index.get("rows", [])
-    lo_idx = bisect.bisect_left(dates_list, lo)
-    hi_idx = bisect.bisect_right(dates_list, hi)
-    slice_rows = rows_list[lo_idx:hi_idx]
-    sv = [r["rating"] for r in slice_rows if r["solved"]]
-    uv = [r["rating"] for r in slice_rows if not r["solved"]]
-    avg_solved   = round(sum(sv)/len(sv), 2) if sv else None
-    avg_unsolved = round(sum(uv)/len(uv), 2) if uv else None
-
-    # Weekly trend — group days by week start (Monday)
-    from datetime import date as _dt, timedelta as _td
-    week_agg: dict = {}
-    for d in sorted(days):
-        try:
-            dt = _dt.fromisoformat(d)
-            wk = (dt - _td(days=dt.weekday())).isoformat()
-        except Exception:
-            continue
-        if wk not in week_agg:
-            week_agg[wk] = {"total":0,"sum_r":0,"solved":0}
-        week_agg[wk]["total"]  += day_map[d]["total"]
-        week_agg[wk]["sum_r"]  += day_map[d]["sum_r"]
-        week_agg[wk]["solved"] += day_map[d]["solved"]
-    weekly_trend = sorted([
-        {"week": wk,
-         "avg_rating": round(v["sum_r"] / v["total"], 2),
-         "solved_pct": round(v["solved"] / v["total"] * 100, 1),
-         "total":      v["total"]}
-        for wk, v in week_agg.items() if v["total"] > 0
-    ], key=lambda x: x["week"])
-
-    # Team aggregation
-    team_agg: dict = {}
-    for d in days:
-        for t, tv in day_map[d].get("teams", {}).items():
-            if t not in team_agg:
-                team_agg[t] = {"total":0,"sum_r":0,"solved":0,"low":0}
-            team_agg[t]["total"]  += tv["total"]
-            team_agg[t]["sum_r"]  += tv["sum_r"]
-            team_agg[t]["solved"] += tv["solved"]
-            team_agg[t]["low"]    += tv["low"]
-    teams = sorted([
-        {"team": t,
-         "avg_rating": round(v["sum_r"] / v["total"], 2),
-         "solved_pct": round(v["solved"] / v["total"] * 100, 1),
-         "total":      v["total"],
-         "low_pct":    round(v["low"] / v["total"] * 100, 1)}
-        for t, v in team_agg.items() if v["total"] >= 3
-    ], key=lambda x: -x["avg_rating"])
-
-    # Consultant aggregation
-    cons_agg: dict = {}
-    for d in days:
-        for c, cv in day_map[d].get("cons", {}).items():
-            if c not in cons_agg:
-                cons_agg[c] = {"name":cv["name"],"team":cv["team"],
-                                "total":0,"sum_r":0,"solved":0,"low":0}
-            cons_agg[c]["total"]  += cv["total"]
-            cons_agg[c]["sum_r"]  += cv["sum_r"]
-            cons_agg[c]["solved"] += cv["solved"]
-            cons_agg[c]["low"]    += cv["low"]
-    cons_list = sorted([
-        {"cid": c,
-         "name":       v["name"],
-         "team":       v["team"],
-         "avg_rating": round(v["sum_r"] / v["total"], 2),
-         "solved_pct": round(v["solved"] / v["total"] * 100, 1),
-         "total":      v["total"],
-         "low_pct":    round(v["low"] / v["total"] * 100, 1)}
-        for c, v in cons_agg.items() if v["total"] >= 10
-    ], key=lambda x: -x["avg_rating"])
-
-    return {
-        "available":       True,
-        "filtered":        bool(date_from),
-        "date_from":       lo,
-        "date_to":         hi,
-        "total":           total,
-        "avg_rating":      avg,
-        "solved_pct":      solved_pct,
-        "low_pct":         low_pct,
-        "avg_solved":      avg_solved,
-        "avg_unsolved":    avg_unsolved,
-        "rating_dist":     rating_dist,
-        "weekly_trend":    weekly_trend,
-        "teams":           teams,
-        "top_consultants": cons_list[:10],
-        "low_consultants": list(reversed(cons_list))[:10],
-        "all_consultants": cons_list,
-    }
-
 
 CACHE_TTL     = 7200   # 2 hr fresh
 STALE_TTL     = 86400  # 24 hr stale — serve old data if CMS is down
@@ -745,11 +536,11 @@ def _props(e):
     p = e.get("properties")
     return p if isinstance(p, dict) else {}
 
-# ── FULL REFRESH — all 17 calls, fully sequential ─────────────────────────────
+# ── FULL REFRESH — sequential CMS calls with 1s gap each ─────────────────────
 async def full_refresh():
     """
-    17 sequential CMS calls with 1s gap each = ~25 seconds total.
-    Protected by lock — only one refresh runs at a time.
+    15 fixed CMS calls + up to 12 timeline calls (Supabase) = up to 27 total.
+    1s gap between every call. Protected by lock — only one refresh at a time.
     """
     lock = get_lock()
     if lock.locked():
@@ -1523,7 +1314,7 @@ async def health():
             "categories":len(intel.get("categories",{}).get("categories",[])),
             "queries":   len(intel.get("search",{}).get("top_queries",[])),
         },
-        "call_budget":   "19 sequential calls per refresh, 1s gap each, every 2 hours",
+        "call_budget":   "15 fixed + up to 12 timeline calls per refresh (27 max), 1s gap each, every 2 hours",
         "ts":            datetime.utcnow().isoformat(),
     }
 
@@ -1549,7 +1340,7 @@ async def clear_cache():
     lock = get_lock()
     if not lock.locked():
         asyncio.create_task(full_refresh())
-        return {"status": "cleared — 1 refresh queued (17 sequential calls, ~25s)"}
+        return {"status": "cleared — 1 refresh queued (up to 27 sequential calls, ~30-60s)"}
     return {"status": "cleared — refresh already running, will complete shortly"}
 
 @app.get("/debug/cms")

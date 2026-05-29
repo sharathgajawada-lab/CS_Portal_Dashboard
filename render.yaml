@@ -8,3 +8,9 @@ services:
     envVars:
       - key: CMS_API_KEY
         sync: false
+      - key: SUPABASE_URL
+        sync: false   # e.g. https://xxxxxxxxxxxx.supabase.co
+      - key: SUPABASE_KEY
+        sync: false   # service_role JWT from Supabase project settings
+      - key: CSAT_UPLOAD_PASSWORD
+        sync: false   # password for POST /upload/csat (default: hearcom2024)

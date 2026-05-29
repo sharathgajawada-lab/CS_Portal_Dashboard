@@ -1211,7 +1211,7 @@ function makeChartControls(id, opts = {}) {
       <div class="ctrl-range-wrap">
         <select id="${id}_rangeType" onchange="_chartCtrlRangeType('${id}')">
           <option value="last">Last...</option>
-          <option value="selection" selected>Selection (global)</option>
+          <option value="selection" selected>Global filter</option>
           <option value="alltime">All time</option>
           <option value="current">Current</option>
           <option value="previous">Previous</option>
@@ -1291,7 +1291,7 @@ function getChartRange(id) {
   const ctrl = _chartCtrl[id];
   if (!ctrl) return { from: state.from, to: state.to };
   const today = todayISO();
-  const type  = ctrl.rangeType || 'last';
+  const type  = ctrl.rangeType || 'selection';
   if (type === 'selection') return { from: state.from, to: state.to };
   if (type === 'alltime')   return { from: DATA_START, to: today };
   if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
