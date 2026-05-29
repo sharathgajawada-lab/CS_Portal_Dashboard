@@ -306,12 +306,15 @@ def _load_csat_csv():
         with open(path, newline='', encoding='utf-8') as f:
             for row in csv.DictReader(f):
                 try:
+                    # Support both DATE and DATETIME column names
+                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
+                    date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
                     rows.append({
-                        "rating": int(row["RATING"]),
+                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
                         "cid":    row["CONSULTANT_ID"],
                         "name":   row["CONSULTANT_NAME"],
                         "team":   row["CONSULTANT_TEAM"].strip(),
-                        "date":   row["DATE"],
+                        "date":   date_str,
                         "solved": row["SOLVED"].strip().lower() == "true",
                     })
                 except (ValueError, KeyError):
@@ -390,12 +393,15 @@ def _save_csat_json():
         with open(path, newline='', encoding='utf-8') as f:
             for row in csv.DictReader(f):
                 try:
+                    # Support both DATE and DATETIME column names
+                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
+                    date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
                     rows.append({
-                        "rating": int(row["RATING"]),
+                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
                         "cid":    row["CONSULTANT_ID"],
                         "name":   row["CONSULTANT_NAME"],
                         "team":   row["CONSULTANT_TEAM"].strip(),
-                        "date":   row["DATE"],
+                        "date":   date_str,
                         "solved": row["SOLVED"].strip().lower() == "true",
                     })
                 except (ValueError, KeyError):
@@ -1394,12 +1400,13 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
             rows = []
             for row in csv.DictReader(io.StringIO(data.decode("utf-8"))):
                 try:
+                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
                     rows.append({
-                        "rating": int(row["RATING"]),
+                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
                         "cid":    row["CONSULTANT_ID"].strip(),
                         "name":   row["CONSULTANT_NAME"].strip(),
                         "team":   row["CONSULTANT_TEAM"].strip(),
-                        "date":   row["DATE"].strip(),
+                        "date":   raw_date[:10].strip(),
                         "solved": row["SOLVED"].strip().lower() == "true",
                     })
                 except (KeyError, ValueError):
