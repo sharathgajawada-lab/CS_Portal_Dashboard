@@ -468,31 +468,63 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="section-title">Engagement trend</div>
         <div class="section-sub" id="trendSub">Daily activity over selected period</div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
 
-        <!-- Compare toggle -->
-        <div style="display:flex;align-items:center;gap:6px">
-          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text2)">
-            <input type="checkbox" id="trendCompare" onchange="renderTrend()" style="cursor:pointer">
-            Compare
-          </label>
-          <div id="trendCompareDays" style="display:none;align-items:center;gap:4px">
-            <span style="font-size:11px;color:var(--text3)">Last</span>
-            <input type="number" id="trendCompareDayCount" value="10" min="1" max="365"
+        <!-- Date range control -->
+        <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface2)">
+          <select id="trendRangeType" onchange="onTrendRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+            <option value="selection">Selection</option>
+            <option value="last" selected>Last...</option>
+            <option value="alltime">All time</option>
+            <option value="current">Current</option>
+            <option value="previous">Previous</option>
+          </select>
+          <div id="trendLastControls" style="display:flex;align-items:center;border-left:1px solid var(--border)">
+            <input type="number" id="trendLastN" value="30" min="1" max="9999"
               onchange="renderTrend()"
-              style="width:48px;padding:2px 6px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--surface2);color:var(--text1);text-align:center">
-            <span style="font-size:11px;color:var(--text3)">days vs prev</span>
+              style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
+            <select id="trendLastUnit" onchange="renderTrend()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 4px;cursor:pointer;outline:none">
+              <option value="days" selected>Days</option>
+              <option value="weeks">Weeks</option>
+              <option value="months">Months</option>
+              <option value="quarters">Quarters</option>
+              <option value="years">Years</option>
+            </select>
+          </div>
+          <div id="trendCurrentControls" style="display:none;border-left:1px solid var(--border)">
+            <select id="trendCurrentUnit" onchange="renderTrend()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+              <option value="week">Week</option>
+              <option value="month" selected>Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="year">Year</option>
+            </select>
+          </div>
+          <div id="trendPrevControls" style="display:none;border-left:1px solid var(--border)">
+            <select id="trendPrevUnit" onchange="renderTrend()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+              <option value="week">Week</option>
+              <option value="month" selected>Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="year">Year</option>
+            </select>
           </div>
         </div>
 
+        <!-- Compare vs prev toggle -->
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">
+          <input type="checkbox" id="trendCompare" onchange="renderTrend()" style="cursor:pointer">
+          vs prev period
+        </label>
+
         <!-- Graph by -->
-        <div style="display:flex;align-items:center;gap:6px">
+        <div style="display:flex;align-items:center;gap:4px">
           <span style="font-size:11px;color:var(--text3)">Graph by</span>
-          <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px">
-            <button class="gbtn active" data-chart="trend" data-gb="day"   onclick="setGraphBy('trend','day',this)">Day</button>
-            <button class="gbtn"        data-chart="trend" data-gb="week"  onclick="setGraphBy('trend','week',this)">Week</button>
-            <button class="gbtn"        data-chart="trend" data-gb="month" onclick="setGraphBy('trend','month',this)">Month</button>
-          </div>
+          <select id="trendGraphBy" onchange="setGraphBySelect('trend',this.value)" style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:4px 6px;border-radius:6px;cursor:pointer;outline:none">
+            <option value="day" selected>Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="quarter">Quarter</option>
+            <option value="year">Year</option>
+          </select>
         </div>
 
       </div>
@@ -967,55 +999,46 @@ function renderKPIs() {
 
 // ── Trend chart ──────────────────────────────────────────────────────────────
 // ── Trend comparison renderer ─────────────────────────────────────────────────
-function _renderTrendCompare(activeEvent, nDays, gb) {
-  const today    = todayISO();
-  const curFrom  = daysAgoISO(nDays - 1);
-  const prevTo   = daysAgoISO(nDays);
-  const prevFrom = daysAgoISO(nDays * 2 - 1);
+function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
+  // Previous period = same length, immediately before curFrom
+  const curDays  = Math.round((new Date(curTo) - new Date(curFrom)) / 86400000) + 1;
+  const prevTo   = subtractUnit(curFrom, 1, 'days');
+  const prevFrom = subtractUnit(prevTo, curDays - 1, 'days');
 
   const keys = activeEvent
     ? [activeEvent]
     : ['auth.login', 'article.viewed', 'search.performed', 'video.watched'];
 
-  // Build bucket labels from current period
-  const refCur  = (rawData['auth.login']?.series || []).filter(p => p.date >= curFrom && p.date <= today);
-  const refPrev = (rawData['auth.login']?.series || []).filter(p => p.date >= prevFrom && p.date <= prevTo);
+  const aggCur  = aggregateSeries((rawData['auth.login']?.series||[]).filter(p => p.date >= curFrom  && p.date <= curTo),  gb);
+  const aggPrev = aggregateSeries((rawData['auth.login']?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb);
 
-  const aggCur  = aggregateSeries(refCur,  gb);
-  const aggPrev = aggregateSeries(refPrev, gb);
-
-  // Use position-based labels (Day 1, Day 2...) for alignment
-  const maxLen = Math.max(aggCur.length, aggPrev.length);
-  const labels = Array.from({length: maxLen}, (_, i) => `Day ${i + 1}`);
+  // X axis: use current period dates as labels, overlay prev period at same positions
+  const labels = aggCur.map(p => fmtBucketDate(p.date, gb));
 
   const datasets = [];
   keys.forEach(key => {
-    const ev    = EVENTS.find(e => e.key === key);
-    const cur   = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= curFrom && p.date <= today), gb);
-    const prev  = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb);
+    const ev   = EVENTS.find(e => e.key === key);
+    const cur  = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= curFrom  && p.date <= curTo),  gb);
+    const prev = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb);
 
     datasets.push({
-      label:           `${ev.label} (current)`,
-      data:            cur.map(p => p.count||0),
-      borderColor:     ev.color,
-      backgroundColor: ev.color + '20',
-      fill:            keys.length === 1,
-      pointRadius: 3, tension: .3, borderWidth: 2.5,
+      label: `${ev.label} (${fmtDate(curFrom)}–${fmtDate(curTo)})`,
+      data: cur.map(p => p.count||0),
+      borderColor: ev.color, backgroundColor: ev.color + '20',
+      fill: keys.length === 1,
+      pointRadius: 2, tension: .3, borderWidth: 2.5,
     });
     datasets.push({
-      label:           `${ev.label} (prev)`,
-      data:            prev.map(p => p.count||0),
-      borderColor:     ev.color,
-      backgroundColor: 'transparent',
-      borderDash:      [5, 4],
-      fill:            false,
+      label: `${ev.label} (${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
+      data: prev.map(p => p.count||0),
+      borderColor: ev.color, backgroundColor: 'transparent',
+      borderDash: [5,4], fill: false,
       pointRadius: 2, tension: .3, borderWidth: 1.5,
-      pointStyle:      'circle',
     });
   });
 
   document.getElementById('trendSub').textContent =
-    `Current: ${fmtDate(curFrom)} – ${fmtDate(today)} vs Prev: ${fmtDate(prevFrom)} – ${fmtDate(prevTo)} · by ${gb}`;
+    `${fmtDate(curFrom)}–${fmtDate(curTo)} vs ${fmtDate(prevFrom)}–${fmtDate(prevTo)} · by ${gb}`;
 
   if (charts.trend) charts.trend.destroy();
   charts.trend = new Chart(document.getElementById('trendChart'), {
@@ -1042,7 +1065,107 @@ function _renderTrendCompare(activeEvent, nDays, gb) {
   });
 }
 
-// ── Graph-by helpers ──────────────────────────────────────────────────────────
+// ── Trend date range + graph-by helpers ───────────────────────────────────────
+
+function onTrendRangeTypeChange() {
+  const type = document.getElementById('trendRangeType').value;
+  document.getElementById('trendLastControls').style.display    = type === 'last'     ? 'flex' : 'none';
+  document.getElementById('trendCurrentControls').style.display = type === 'current'  ? 'flex' : 'none';
+  document.getElementById('trendPrevControls').style.display    = type === 'previous' ? 'flex' : 'none';
+  renderTrend();
+}
+
+function getTrendDateRange() {
+  const type = document.getElementById('trendRangeType')?.value || 'selection';
+  const today = todayISO();
+
+  if (type === 'selection') return { from: state.from, to: state.to };
+  if (type === 'alltime')   return { from: DATA_START, to: today };
+
+  if (type === 'last') {
+    const n    = parseInt(document.getElementById('trendLastN')?.value || '30');
+    const unit = document.getElementById('trendLastUnit')?.value || 'days';
+    const from = subtractUnit(today, n, unit);
+    return { from, to: today };
+  }
+  if (type === 'current') {
+    const unit = document.getElementById('trendCurrentUnit')?.value || 'month';
+    return getCurrentPeriod(unit);
+  }
+  if (type === 'previous') {
+    const unit = document.getElementById('trendPrevUnit')?.value || 'month';
+    return getPreviousPeriod(unit);
+  }
+  return { from: state.from, to: state.to };
+}
+
+function subtractUnit(isoDate, n, unit) {
+  const d = new Date(isoDate + 'T00:00:00');
+  if (unit === 'days')     d.setDate(d.getDate() - n);
+  if (unit === 'weeks')    d.setDate(d.getDate() - n * 7);
+  if (unit === 'months')   d.setMonth(d.getMonth() - n);
+  if (unit === 'quarters') d.setMonth(d.getMonth() - n * 3);
+  if (unit === 'years')    d.setFullYear(d.getFullYear() - n);
+  return d.toISOString().slice(0,10);
+}
+
+function getCurrentPeriod(unit) {
+  const now = new Date();
+  let from, to = todayISO();
+  if (unit === 'week') {
+    const day = now.getDay() || 7;
+    const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+    from = mon.toISOString().slice(0,10);
+  } else if (unit === 'month') {
+    from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  } else if (unit === 'quarter') {
+    const q = Math.floor(now.getMonth() / 3);
+    from = `${now.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`;
+  } else {
+    from = `${now.getFullYear()}-01-01`;
+  }
+  return { from, to };
+}
+
+function getPreviousPeriod(unit) {
+  const now = new Date();
+  let from, to;
+  if (unit === 'week') {
+    const day = now.getDay() || 7;
+    const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+    const prevMon = new Date(mon); prevMon.setDate(mon.getDate() - 7);
+    const prevSun = new Date(mon); prevSun.setDate(mon.getDate() - 1);
+    from = prevMon.toISOString().slice(0,10);
+    to   = prevSun.toISOString().slice(0,10);
+  } else if (unit === 'month') {
+    const pm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const pe = new Date(now.getFullYear(), now.getMonth(), 0);
+    from = pm.toISOString().slice(0,10);
+    to   = pe.toISOString().slice(0,10);
+  } else if (unit === 'quarter') {
+    const q = Math.floor(now.getMonth() / 3);
+    const pqs = new Date(now.getFullYear(), (q-1)*3, 1);
+    const pqe = new Date(now.getFullYear(), q*3, 0);
+    from = pqs.toISOString().slice(0,10);
+    to   = pqe.toISOString().slice(0,10);
+  } else {
+    from = `${now.getFullYear()-1}-01-01`;
+    to   = `${now.getFullYear()-1}-12-31`;
+  }
+  return { from, to };
+}
+
+function setGraphBySelect(chartKey, value) {
+  _graphBy[chartKey] = value;
+  if (chartKey === 'trend') renderTrend();
+}
+
+// Keep old setGraphBy for backwards compat
+function setGraphBy(chartKey, groupBy, btn) {
+  _graphBy[chartKey] = groupBy;
+  if (chartKey === 'trend') renderTrend();
+}
+
 function aggregateSeries(series, groupBy) {
   if (groupBy === 'day' || !groupBy) return series;
   const buckets = {};
@@ -1088,35 +1211,36 @@ function renderTrend() {
   const gb       = _graphBy.trend || 'day';
   const compareEl = document.getElementById('trendCompare');
   const isCompare = compareEl && compareEl.checked;
-
-  // Show/hide day count input
-  const compareDaysEl = document.getElementById('trendCompareDays');
-  if (compareDaysEl) compareDaysEl.style.display = isCompare ? 'flex' : 'none';
+  const { from: tFrom, to: tTo } = getTrendDateRange();
 
   if (isCompare) {
-    const nDays = Math.max(1, parseInt(document.getElementById('trendCompareDayCount')?.value || '10'));
-    _renderTrendCompare(activeEvent, nDays, gb);
+    _renderTrendCompare(activeEvent, tFrom, tTo, gb);
     return;
   }
 
+  // Helper: filter series by tFrom/tTo then aggregate
+  const filteredSeries = (key) => {
+    const raw = getSeries(key).filter(p => p.date >= tFrom && p.date <= tTo);
+    return aggregateSeries(raw, gb);
+  };
+
   if (activeEvent) {
-    const raw = getSeries(activeEvent);
-    const s   = aggregateSeries(raw, gb);
-    const ev  = EVENTS.find(e => e.key === activeEvent);
+    const s  = filteredSeries(activeEvent);
+    const ev = EVENTS.find(e => e.key === activeEvent);
     labels   = s.map(p => fmtBucketDate(p.date, gb));
     datasets = [{
       label: ev.label, data: s.map(p => p.count || 0),
       borderColor: ev.color, backgroundColor: ev.color + '18',
       fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2.5,
     }];
-    document.getElementById('trendSub').textContent = `${ev.label} · ${fmtDate(state.from)} – ${fmtDate(state.to)} · by ${gb}`;
+    document.getElementById('trendSub').textContent = `${ev.label} · ${fmtDate(tFrom)} – ${fmtDate(tTo)} · by ${gb}`;
   } else {
     const mainKeys = ['auth.login', 'article.viewed', 'search.performed', 'video.watched'];
-    const refSeries = aggregateSeries(getSeries('auth.login'), gb);
+    const refSeries = filteredSeries('auth.login');
     labels = refSeries.map(p => fmtBucketDate(p.date, gb));
     datasets = mainKeys.map(key => {
       const ev = EVENTS.find(e => e.key === key);
-      const s  = aggregateSeries(getSeries(key), gb);
+      const s  = filteredSeries(key);
       const valMap = Object.fromEntries(s.map(p => [p.date, p.count || 0]));
       return {
         label: ev.label,
@@ -1126,7 +1250,7 @@ function renderTrend() {
         borderDash: key === 'search.performed' ? [4,3] : key === 'video.watched' ? [2,2] : [],
       };
     });
-    document.getElementById('trendSub').textContent = `${fmtDate(state.from)} – ${fmtDate(state.to)} · by ${gb}`;
+    document.getElementById('trendSub').textContent = `${fmtDate(tFrom)} – ${fmtDate(tTo)} · by ${gb}`;
   }
 
   if (charts.trend) charts.trend.destroy();

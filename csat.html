@@ -509,18 +509,70 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <!-- Row 2: CSAT trend full width -->
     <div style="margin-bottom:16px">
       <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
           <div>
             <div class="card-title">CSAT trend</div>
-            <div class="card-sub">Avg rating &amp; solve rate over time</div>
+            <div class="card-sub" id="csatTrendSub">Avg rating &amp; solve rate over time</div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:11px;color:var(--text3)">Graph by</span>
-            <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px">
-              <button class="gbtn active" data-chart="csatTrend" data-gb="day"   onclick="setCsatGraphBy('day',this)">Day</button>
-              <button class="gbtn"        data-chart="csatTrend" data-gb="week"  onclick="setCsatGraphBy('week',this)">Week</button>
-              <button class="gbtn"        data-chart="csatTrend" data-gb="month" onclick="setCsatGraphBy('month',this)">Month</button>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+
+            <!-- Date range -->
+            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface2)">
+              <select id="csatRangeType" onchange="onCsatRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+                <option value="selection">Selection</option>
+                <option value="last" selected>Last...</option>
+                <option value="alltime">All time</option>
+                <option value="current">Current</option>
+                <option value="previous">Previous</option>
+              </select>
+              <div id="csatLastControls" style="display:flex;align-items:center;border-left:1px solid var(--border)">
+                <input type="number" id="csatLastN" value="30" min="1" max="9999"
+                  onchange="csatData && renderCSAT(csatData)"
+                  style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
+                <select id="csatLastUnit" onchange="csatData && renderCSAT(csatData)" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 4px;cursor:pointer;outline:none">
+                  <option value="days" selected>Days</option>
+                  <option value="weeks">Weeks</option>
+                  <option value="months">Months</option>
+                  <option value="quarters">Quarters</option>
+                  <option value="years">Years</option>
+                </select>
+              </div>
+              <div id="csatCurrentControls" style="display:none;border-left:1px solid var(--border)">
+                <select id="csatCurrentUnit" onchange="csatData && renderCSAT(csatData)" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+                  <option value="week">Week</option>
+                  <option value="month" selected>Month</option>
+                  <option value="quarter">Quarter</option>
+                  <option value="year">Year</option>
+                </select>
+              </div>
+              <div id="csatPrevControls" style="display:none;border-left:1px solid var(--border)">
+                <select id="csatPrevUnit" onchange="csatData && renderCSAT(csatData)" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+                  <option value="week">Week</option>
+                  <option value="month" selected>Month</option>
+                  <option value="quarter">Quarter</option>
+                  <option value="year">Year</option>
+                </select>
+              </div>
             </div>
+
+            <!-- Compare -->
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">
+              <input type="checkbox" id="csatCompare" onchange="csatData && renderCSAT(csatData)" style="cursor:pointer">
+              vs prev period
+            </label>
+
+            <!-- Graph by -->
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:11px;color:var(--text3)">Graph by</span>
+              <select id="csatGraphBySelect" onchange="setCsatGraphBySelect(this.value)" style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:4px 6px;border-radius:6px;cursor:pointer;outline:none">
+                <option value="day" selected>Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+                <option value="quarter">Quarter</option>
+                <option value="year">Year</option>
+              </select>
+            </div>
+
           </div>
         </div>
         <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
@@ -760,6 +812,32 @@ const gridOpts = {
 // csat_index.json is served from GitHub raw CDN (Fastly) — no Render cold start.
 // Loaded ONCE, then all date filtering runs in JS in <5ms.
 const CSAT_DATA_URL = '/api/csat/raw';
+
+function subtractUnit(isoDate, n, unit) {
+  const d = new Date(isoDate + 'T00:00:00');
+  if (unit === 'days')     d.setDate(d.getDate() - n);
+  if (unit === 'weeks')    d.setDate(d.getDate() - n * 7);
+  if (unit === 'months')   d.setMonth(d.getMonth() - n);
+  if (unit === 'quarters') d.setMonth(d.getMonth() - n * 3);
+  if (unit === 'years')    d.setFullYear(d.getFullYear() - n);
+  return d.toISOString().slice(0,10);
+}
+function getCurrentPeriod(unit) {
+  const now = new Date(); let from, to = todayISO();
+  if (unit==='week')    { const day=now.getDay()||7; const m=new Date(now); m.setDate(now.getDate()-day+1); from=m.toISOString().slice(0,10); }
+  else if (unit==='month')   { from=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`; }
+  else if (unit==='quarter') { const q=Math.floor(now.getMonth()/3); from=`${now.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`; }
+  else { from=`${now.getFullYear()}-01-01`; }
+  return {from,to};
+}
+function getPreviousPeriod(unit) {
+  const now=new Date(); let from,to;
+  if (unit==='week') { const day=now.getDay()||7; const m=new Date(now); m.setDate(now.getDate()-day+1); const pm=new Date(m); pm.setDate(m.getDate()-7); const ps=new Date(m); ps.setDate(m.getDate()-1); from=pm.toISOString().slice(0,10); to=ps.toISOString().slice(0,10); }
+  else if (unit==='month') { const pm=new Date(now.getFullYear(),now.getMonth()-1,1); const pe=new Date(now.getFullYear(),now.getMonth(),0); from=pm.toISOString().slice(0,10); to=pe.toISOString().slice(0,10); }
+  else if (unit==='quarter') { const q=Math.floor(now.getMonth()/3); const qs=new Date(now.getFullYear(),(q-1)*3,1); const qe=new Date(now.getFullYear(),q*3,0); from=qs.toISOString().slice(0,10); to=qe.toISOString().slice(0,10); }
+  else { from=`${now.getFullYear()-1}-01-01`; to=`${now.getFullYear()-1}-12-31`; }
+  return {from,to};
+}
 let _csatGraphBy = 'day';  // 'day' | 'week' | 'month'
 
 function aggregateSeries(series, groupBy) {
@@ -795,10 +873,42 @@ function fmtBucketDate(iso, groupBy) {
 }
 
 function setCsatGraphBy(gb, btn) {
-  _csatGraphBy = gb;
-  document.querySelectorAll('.gbtn[data-chart="csatTrend"]').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  _csatGraphBy = gb || _csatGraphBy;
   if (csatData) renderCSAT(csatData);
+}
+
+function setCsatGraphBySelect(gb) {
+  _csatGraphBy = gb;
+  if (csatData) renderCSAT(csatData);
+}
+
+function onCsatRangeTypeChange() {
+  const type = document.getElementById('csatRangeType').value;
+  document.getElementById('csatLastControls').style.display    = type === 'last'     ? 'flex' : 'none';
+  document.getElementById('csatCurrentControls').style.display = type === 'current'  ? 'flex' : 'none';
+  document.getElementById('csatPrevControls').style.display    = type === 'previous' ? 'flex' : 'none';
+  if (csatData) renderCSAT(csatData);
+}
+
+function getCsatTrendDateRange() {
+  const type  = document.getElementById('csatRangeType')?.value || 'last';
+  const today = todayISO();
+  if (type === 'selection') return { from: state.from, to: state.to };
+  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
+  if (type === 'last') {
+    const n    = parseInt(document.getElementById('csatLastN')?.value || '30');
+    const unit = document.getElementById('csatLastUnit')?.value || 'days';
+    return { from: subtractUnit(today, n, unit), to: today };
+  }
+  if (type === 'current') {
+    const unit = document.getElementById('csatCurrentUnit')?.value || 'month';
+    return getCurrentPeriod(unit);
+  }
+  if (type === 'previous') {
+    const unit = document.getElementById('csatPrevUnit')?.value || 'month';
+    return getPreviousPeriod(unit);
+  }
+  return { from: state.from, to: state.to };
 }
 function csatUrl() { return CSAT_DATA_URL + '?v=' + Date.now(); }  // cache-bust on every load
 
@@ -957,6 +1067,90 @@ function _csatComputeAndRender(from, to) {
   renderCSAT(csatData);
 }
 
+// ── CSAT comparison renderer ──────────────────────────────────────────────────
+function _renderCsatCompare(curFrom, curTo, gb) {
+  const days = _csatRaw.days || {};
+  const curDays  = Math.round((new Date(curTo) - new Date(curFrom)) / 86400000) + 1;
+  const prevTo   = subtractUnit(curFrom, 1, 'days');
+  const prevFrom = subtractUnit(prevTo, curDays - 1, 'days');
+
+  // Build daily series for current and prev periods
+  function buildSeries(fromDate, toDate) {
+    return Object.entries(days)
+      .filter(([d]) => d >= fromDate && d <= toDate)
+      .sort(([a],[b]) => a < b ? -1 : 1)
+      .map(([d, dm]) => ({
+        week: d,
+        avg_rating: dm.t > 0 ? Math.round(dm.sr/dm.t*100)/100 : null,
+        solve_pct:  dm.t > 0 ? Math.round(dm.s/dm.t*1000)/10  : null,
+        _t: dm.t, _sr: dm.sr, _s: dm.s,
+      }));
+  }
+
+  const curSeries  = aggregateSeries(buildSeries(curFrom, today), gb);
+  const prevSeries = aggregateSeries(buildSeries(prevFrom, prevTo), gb);
+  const maxLen     = Math.max(curSeries.length, prevSeries.length);
+  // Use current period dates on X axis, align prev period by position
+  const labels = curSeries.map(p => fmtBucketDate(p.week||p.date, gb));
+
+  // Update subtitle
+  const subEl = document.getElementById('csatTrendSub');
+  if (subEl) subEl.textContent = `Current: ${fmtDate(curFrom)} – ${fmtDate(today)} vs Prev: ${fmtDate(prevFrom)} – ${fmtDate(prevTo)}`;
+
+  if (charts.csatTrend) charts.csatTrend.destroy();
+  if (!document.getElementById('csatTrendChart'))
+    document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
+
+  charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Avg Rating (current)', yAxisID: 'yR',
+          data: curSeries.map(p => p.avg_rating),
+          borderColor: '#3b82f6', backgroundColor: '#3b82f620',
+          pointRadius: 2, tension: .3, borderWidth: 2.5, fill: false,
+        },
+        {
+          label: 'Avg Rating (prev)', yAxisID: 'yR',
+          data: prevSeries.map(p => p.avg_rating),
+          borderColor: '#3b82f6', backgroundColor: 'transparent',
+          borderDash: [5,4], pointRadius: 2, tension: .3, borderWidth: 1.5, fill: false,
+        },
+        {
+          label: 'Solved % (current)', yAxisID: 'yS',
+          data: curSeries.map(p => p.solve_pct),
+          borderColor: '#10b981', backgroundColor: 'transparent',
+          borderDash: [2,2], pointRadius: 2, tension: .3, borderWidth: 2, fill: false,
+        },
+        {
+          label: 'Solved % (prev)', yAxisID: 'yS',
+          data: prevSeries.map(p => p.solve_pct),
+          borderColor: '#10b981', backgroundColor: 'transparent',
+          borderDash: [5,4], pointRadius: 2, tension: .3, borderWidth: 1.5, fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } },
+        tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
+          titleColor: '#111827', bodyColor: '#374151' },
+      },
+      scales: {
+        x:  { ticks: { font: { size: 10 }, maxTicksLimit: 14, autoSkip: true }, grid: gridOpts },
+        yR: { position: 'left',  min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts,
+               title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
+        yS: { position: 'right', min: 0, max: 100, ticks: { font: { size: 10 }, callback: v => v+'%' }, grid: { display: false },
+               title: { display: true, text: 'Solved %', font: { size: 10 }, color: '#6b7280' } },
+      },
+    },
+  });
+}
+
 function renderCSAT(d) {
   csatData = d;
   if (!d || !d.available) return;
@@ -975,6 +1169,10 @@ function renderCSAT(d) {
 
   // Trend chart
   const trend = d.weekly_trend || [];
+  const isCompare = document.getElementById('csatCompare')?.checked;
+  const { from: cFrom, to: cTo } = getCsatTrendDateRange();
+  if (isCompare && _csatRaw && _csatRaw.days) { _renderCsatCompare(cFrom, cTo, _csatGraphBy); return; }
+
   if (charts.csatTrend) charts.csatTrend.destroy();
   if (trend.length === 0) {
     document.getElementById('csatTrendWrap').innerHTML =
