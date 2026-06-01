@@ -480,12 +480,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
         <div class="section-sub" id="csatSub">Post-call customer satisfaction survey &middot; filtered by selected date range</div>
-        <!-- View mode switcher -->
-        <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px;flex-shrink:0">
-          <button id="csatViewOverview" class="gbtn active" onclick="setCsatView('overview',this)" style="font-size:11px;padding:3px 10px">Overview</button>
-          <button id="csatViewTeam"     class="gbtn"        onclick="setCsatView('team',this)"     style="font-size:11px;padding:3px 10px">By Team</button>
-          <button id="csatViewMember"   class="gbtn"        onclick="setCsatView('member',this)"   style="font-size:11px;padding:3px 10px">By Member</button>
-        </div>
       </div>
     </div>
 
@@ -770,47 +764,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
     </div>
     </div><!-- end csatOverviewContent -->
-
-    <!-- ── By Team view ─────────────────────────────────────────────────── -->
-    <div id="csatTeamView" style="display:none">
-      <div class="card" style="padding:0;margin-bottom:14px">
-        <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div class="card-title">View by team</div>
-          <select id="csatTeamViewSelect" onchange="renderTeamDrillDown()"
-            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:180px">
-            <option value="">— Select a team —</option>
-          </select>
-          <span id="csatTeamViewSub" style="font-size:12px;color:var(--text3)"></span>
-        </div>
-        <div id="csatTeamDrillContent" style="padding:16px">
-          <div class="empty"><span>👆</span>Select a team to see its detailed CSAT breakdown</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── By Member view ──────────────────────────────────────────────── -->
-    <div id="csatMemberView" style="display:none">
-      <div class="card" style="padding:0;margin-bottom:14px">
-        <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div class="card-title">View by member</div>
-          <select id="csatMemberTeamFilter" onchange="filterMemberView()"
-            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:150px">
-            <option value="">All teams</option>
-          </select>
-          <input id="csatMemberSearch" type="text" placeholder="Search name…"
-            oninput="filterMemberView()"
-            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:160px;background:var(--surface2);color:var(--text1)">
-          <select id="csatMemberViewSelect" onchange="renderMemberDrillDown()"
-            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:230px">
-            <option value="">— Select a consultant —</option>
-          </select>
-          <span id="csatMemberViewSub" style="font-size:12px;color:var(--text3)"></span>
-        </div>
-        <div id="csatMemberDrillContent" style="padding:16px">
-          <div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>
-        </div>
-      </div>
-    </div>
   </div>
 
 
@@ -1299,8 +1252,16 @@ function _rebuildGlobalConsultantSelect(allCons) {
     list.map(c => `<option value="${c.cid}" ${c.cid===cur?'selected':''}>${c.name} · ${c.team||'—'} · ${c.avg_rating}★</option>`).join('');
 }
 
-// Team filter just re-narrows the consultant dropdown.
+// Selecting a team scopes the WHOLE page to that team (all its members combined),
+// and re-narrows the consultant dropdown to that team's members.
 function onGlobalConsultantTeamChange() {
+  if (!_csatRaw) return;
+  const team = document.getElementById('csatGlobalTeamFilter')?.value || '';
+  // Reset any consultant pick when the team changes.
+  const consSel = document.getElementById('csatGlobalConsultant');
+  if (consSel) consSel.value = '';
+  _csatScope = team ? { type: 'team', value: team } : { type: 'all' };
+  _csatComputeAndRender(state.from, state.to);
   _rebuildGlobalConsultantSelect();
 }
 
@@ -1308,32 +1269,39 @@ function onGlobalConsultantTeamChange() {
 function onGlobalConsultantChange() {
   if (!_csatRaw) return;
   const cid = document.getElementById('csatGlobalConsultant').value;
-  _csatScope = cid ? { type: 'member', value: cid } : { type: 'all' };
+  if (cid) {
+    _csatScope = { type: 'member', value: cid };
+  } else {
+    // Cleared the consultant → fall back to the team scope if a team is set, else all.
+    const team = document.getElementById('csatGlobalTeamFilter')?.value || '';
+    _csatScope = team ? { type: 'team', value: team } : { type: 'all' };
+  }
   _csatComputeAndRender(state.from, state.to);
 }
 
 function clearGlobalConsultant() {
   _csatScope = { type: 'all' };
-  const sel = document.getElementById('csatGlobalConsultant');
-  if (sel) sel.value = '';
+  const cs = document.getElementById('csatGlobalConsultant'); if (cs) cs.value = '';
+  const ts = document.getElementById('csatGlobalTeamFilter');  if (ts) ts.value = '';
   _csatComputeAndRender(state.from, state.to);
 }
 
 // Reflect the current scope in the bar: status text, clear button, and the calls
 // table. Called from renderCSAT so it always matches the rendered data.
 function _syncGlobalScopeBar() {
-  const statusEl = document.getElementById('csatGlobalScopeStatus');
-  const clearBtn = document.getElementById('csatGlobalScopeClear');
+  const statusEl  = document.getElementById('csatGlobalScopeStatus');
+  const clearBtn  = document.getElementById('csatGlobalScopeClear');
   const callsCard = document.getElementById('csatGlobalCallsCard');
-  const sel = document.getElementById('csatGlobalConsultant');
+  const consSel   = document.getElementById('csatGlobalConsultant');
+  const teamSel   = document.getElementById('csatGlobalTeamFilter');
   if (!statusEl) return;
 
-  // Keep the dropdown list fresh as the date range changes (preserves selection).
+  // Keep the consultant dropdown list fresh (preserves selection where relevant).
   if (_csatRaw) _rebuildGlobalConsultantSelect();
 
   if (_csatScope.type === 'member') {
     const c = (csatData?.all_consultants || []).find(x => x.cid === _csatScope.value);
-    if (sel && sel.value !== _csatScope.value) sel.value = _csatScope.value;
+    if (consSel && consSel.value !== _csatScope.value) consSel.value = _csatScope.value;
     if (c) {
       statusEl.innerHTML = `<span style="color:var(--green);font-weight:600">● Whole page focused on ${c.name}</span> · ${c.team||'—'} · ${fmt(c.total)} surveys`;
       _globalCallsCache = (c.calls || []);
@@ -1346,11 +1314,22 @@ function _syncGlobalScopeBar() {
       callsCard.style.display = 'none';
     }
     clearBtn.style.display = '';
+  } else if (_csatScope.type === 'team') {
+    if (teamSel && teamSel.value !== _csatScope.value) teamSel.value = _csatScope.value;
+    const t = (csatData?.teams || []).find(x => x.team === _csatScope.value);
+    if (t) {
+      statusEl.innerHTML = `<span style="color:var(--green);font-weight:600">● Whole page focused on ${t.team}</span> · ${fmt(t.total)} surveys · ${t.avg_rating}★ avg · ${t.solved_pct}% solved`;
+    } else {
+      statusEl.textContent = 'No data for this team in the selected period';
+    }
+    // Calls table is per-consultant only — hidden for a whole team.
+    callsCard.style.display = 'none';
+    clearBtn.style.display = '';
   } else {
-    statusEl.textContent = 'Showing all consultants — pick one to focus the entire page';
+    statusEl.textContent = 'Showing all teams & consultants — pick a team or consultant to focus the entire page';
     clearBtn.style.display = 'none';
     callsCard.style.display = 'none';
-    if (sel && sel.value) sel.value = '';
+    if (consSel && consSel.value) consSel.value = '';
   }
 }
 
@@ -1873,11 +1852,6 @@ function renderCSAT(d) {
   renderConsultantTable();
   renderFCR();
 
-  // Refresh drill-down views if currently active. Use the populate fns which now
-  // call the lightweight CONTENT renderers (no recompute) — safe inside renderCSAT.
-  if (_csatView === 'team')   _populateTeamDrillDown();
-  if (_csatView === 'member') _populateMemberView();
-
   // Keep the persistent top scope bar (status, clear button, calls table) in sync.
   _syncGlobalScopeBar();
 }
@@ -2003,9 +1977,6 @@ function renderFCR() {
   });
 }
 
-// ── View mode switcher ────────────────────────────────────────────────────────
-let _csatView = 'overview';
-
 // hear.com Unified Comm Journal — base for per-call deep links.
 const UCJ_BASE = 'https://comm-journal.audibene.net/table';
 function ucjCallUrl(callId) {
@@ -2022,326 +1993,9 @@ function ucjCallUrl(callId) {
   return UCJ_BASE + '?' + params.toString();
 }
 
-function setCsatView(mode, btn) {
-  _csatView = mode;
-  document.querySelectorAll('#csatSection .gbtn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('csatOverviewContent').style.display = mode === 'overview' ? '' : 'none';
-  document.getElementById('csatTeamView').style.display        = mode === 'team'     ? '' : 'none';
-  document.getElementById('csatMemberView').style.display      = mode === 'member'   ? '' : 'none';
+// (Removed: Overview/By Team/By Member tab views — replaced by the persistent
+//  top "Focus on consultant" scope bar, which scopes the whole page.)
 
-  // Clear any page-wide scope that doesn't match the view we're entering, then
-  // recompute so the page returns to the unscoped state for a fresh selection.
-  // (Overview is always unscoped; team view keeps only team scope; member only member.)
-  const keep = (mode === 'team'   && _csatScope.type === 'team')
-            || (mode === 'member' && _csatScope.type === 'member');
-  if (!keep && _csatScope.type !== 'all') {
-    _csatScope = { type: 'all' };
-    _csatComputeAndRender(state.from, state.to);
-  }
-  if (mode === 'team')   _populateTeamDrillDown();
-  if (mode === 'member') _populateMemberView();
-}
-
-// Re-apply the active scope, recompute the whole page, then re-render the
-// section-specific breakdown. csatData is already scoped after recompute.
-function _applyCsatScopeAndRefresh(afterRender) {
-  _csatComputeAndRender(state.from, state.to);
-  if (typeof afterRender === 'function') afterRender();
-}
-
-// ── By Team view ──────────────────────────────────────────────────────────────
-function _populateTeamDrillDown() {
-  if (!_csatRaw) return;
-  const sel = document.getElementById('csatTeamViewSelect');
-  if (!sel) return;
-  // Team list from the FULL (unscoped) dataset so the selector is stable.
-  // Uses the lightweight helper — NO recompute, so it can be safely called from renderCSAT.
-  const teams = _csatUnscopedTeams(state.from, state.to).teams
-    .slice().sort((a,b) => a.team.localeCompare(b.team));
-
-  const current = _csatScope.type === 'team' ? _csatScope.value : '';
-  sel.innerHTML = '<option value="">— Select a team —</option>' +
-    teams.map(t => `<option value="${t.team}" ${t.team===current?'selected':''}>${t.team} · ${t.avg_rating}★ · ${fmt(t.total)} surveys</option>`).join('');
-
-  if (current) { _renderTeamDrillContent(); }
-  else {
-    document.getElementById('csatTeamDrillContent').innerHTML =
-      '<div class="empty"><span>👆</span>Select a team — the whole page updates to that team</div>';
-  }
-}
-
-function renderTeamDrillDown() {
-  if (!_csatRaw) return;
-  const teamName = document.getElementById('csatTeamViewSelect').value;
-  // Drive the page-wide scope from the selector, then recompute everything.
-  // The recompute's renderCSAT tail-call refreshes the drill content via the view hook.
-  _csatScope = teamName ? { type: 'team', value: teamName } : { type: 'all' };
-  _csatComputeAndRender(state.from, state.to);
-  if (!teamName) {
-    document.getElementById('csatTeamViewSub').textContent = '';
-    document.getElementById('csatTeamDrillContent').innerHTML =
-      '<div class="empty"><span>👆</span>Select a team — the whole page updates to that team</div>';
-  }
-}
-
-// Renders ONLY the team-drill section from the already-scoped csatData. No recompute.
-function _renderTeamDrillContent() {
-  if (!_csatRaw) return;
-  const teamName = _csatScope.type === 'team' ? _csatScope.value : '';
-  if (!teamName) {
-    document.getElementById('csatTeamViewSub').textContent = '';
-    document.getElementById('csatTeamDrillContent').innerHTML =
-      '<div class="empty"><span>👆</span>Select a team — the whole page updates to that team</div>';
-    return;
-  }
-
-  // csatData is already scoped to this team. Its single team entry holds the totals.
-  const t = (csatData.teams||[]).find(x => x.team === teamName) ||
-            { team:teamName, avg_rating:0, solved_pct:0, total:0, low_pct:0, dist:[] };
-
-  const members = (csatData.all_consultants||[]).filter(c => c.team === teamName)
-    .sort((a,b) => b.avg_rating - a.avg_rating);
-
-  const ratingColor = t.avg_rating >= 4.5 ? 'var(--green)' : t.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
-  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
-  const maxPct = Math.max(...(t.dist||[]).map(d=>d.pct),1);
-
-  document.getElementById('csatTeamViewSub').textContent =
-    `Page synced to ${teamName} · ${fmt(t.total)} surveys · ${t.avg_rating}★ avg · ${t.solved_pct}% solved · ${t.low_pct}% low`;
-
-  document.getElementById('csatTeamDrillContent').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px">
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${t.avg_rating}</div>
-        <div style="font-size:11px;color:var(--text3)">Avg Rating</div>
-      </div>
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${t.solved_pct}%</div>
-        <div style="font-size:11px;color:var(--text3)">FCR (Solved)</div>
-      </div>
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(t.total)}</div>
-        <div style="font-size:11px;color:var(--text3)">Surveys</div>
-      </div>
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--red)">${t.low_pct}%</div>
-        <div style="font-size:11px;color:var(--text3)">Low ratings (1–2★)</div>
-      </div>
-    </div>
-
-    <div style="margin-bottom:20px">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Rating distribution</div>
-      <div style="display:flex;flex-direction:column;gap:6px;max-width:400px">
-        ${(t.dist||[]).map(d => `
-          <div style="display:flex;align-items:center;gap:8px">
-            <div style="font-size:11px;color:var(--text3);width:24px;text-align:right">${d.r}★</div>
-            <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
-              <div style="width:${Math.round(d.pct/maxPct*100)}%;height:100%;background:${barColors[d.r]};border-radius:4px;transition:width .4s"></div>
-            </div>
-            <div style="font-size:11px;color:var(--text3);min-width:70px">${d.count} (${d.pct}%)</div>
-          </div>`).join('')}
-      </div>
-    </div>
-
-    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">
-      ${members.length} consultants in ${teamName} · click a name to drill into their calls
-    </div>
-    ${members.length === 0
-      ? '<div class="empty"><span>👤</span>No consultant-level data for this team</div>'
-      : `<div class="table-wrap"><table>
-          <thead><tr>
-            <th style="padding-left:12px">Consultant</th>
-            <th class="r">Surveys</th>
-            <th class="r">Avg Rating</th>
-            <th class="r">Solved %</th>
-            <th class="r">Low %</th>
-          </tr></thead>
-          <tbody>
-            ${members.map(c => {
-              const rc = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
-              return `<tr style="cursor:pointer" onclick="goToMember('${c.cid.replace(/'/g,"\\'")}')">
-                <td style="padding-left:12px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${c.name}</td>
-                <td class="mono r">${fmt(c.total)}</td>
-                <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.avg_rating}</span></td>
-                <td class="mono r" style="color:${c.solved_pct>=74?'var(--green)':c.solved_pct>=60?'var(--amber)':'var(--red)'}">${c.solved_pct}%</td>
-                <td class="r"><span class="pill ${c.low_pct>20?'red':c.low_pct>10?'amber':'green'}">${c.low_pct}%</span></td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table></div>`
-    }`;
-}
-
-// Jump from a team row to the By Member view scoped to that consultant.
-function goToMember(cid) {
-  setCsatView('member', document.getElementById('csatViewMember'));
-  const sel = document.getElementById('csatMemberViewSelect');
-  if (sel) { sel.value = cid; renderMemberDrillDown(); }
-}
-
-// ── By Member view ────────────────────────────────────────────────────────────
-function _populateMemberView() {
-  if (!_csatRaw) return;
-  // Build the member + team selectors from the FULL dataset (lightweight, no recompute).
-  const allCons = _csatUnscopedConsultants(state.from, state.to);
-
-  const teamSel = document.getElementById('csatMemberTeamFilter');
-  if (teamSel) {
-    const teams = [...new Set(allCons.map(c=>c.team).filter(Boolean))].sort();
-    const cur = teamSel.value;
-    teamSel.innerHTML = '<option value="">All teams</option>' +
-      teams.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t}</option>`).join('');
-  }
-  _rebuildMemberSelect(allCons);
-
-  if (_csatScope.type === 'member') {
-    const sel = document.getElementById('csatMemberViewSelect');
-    if (sel) sel.value = _csatScope.value;
-    _renderMemberDrillContent();
-  } else {
-    document.getElementById('csatMemberDrillContent').innerHTML =
-      '<div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>';
-  }
-}
-
-// (Re)fill the member dropdown, honoring the team filter + search box.
-function _rebuildMemberSelect(allCons) {
-  const sel = document.getElementById('csatMemberViewSelect');
-  if (!sel) return;
-  const team = document.getElementById('csatMemberTeamFilter')?.value || '';
-  const q    = (document.getElementById('csatMemberSearch')?.value || '').toLowerCase();
-  let list = allCons.filter(c => {
-    if (team && c.team !== team) return false;
-    if (q && !(c.name||'').toLowerCase().includes(q)) return false;
-    return true;
-  }).sort((a,b) => (a.name||'').localeCompare(b.name||''));
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">— Select a consultant —</option>' +
-    list.map(c => `<option value="${c.cid}" ${c.cid===cur?'selected':''}>${c.name} · ${c.team||'—'} · ${c.avg_rating}★</option>`).join('');
-}
-
-// Search / team filter just re-narrows the dropdown (no scope change until a pick).
-function filterMemberView() {
-  if (!_csatRaw) return;
-  _rebuildMemberSelect(_csatUnscopedConsultants(state.from, state.to));
-}
-
-function renderMemberDrillDown() {
-  if (!_csatRaw) return;
-  const cid = document.getElementById('csatMemberViewSelect').value;
-  // Drive page-wide scope, then recompute. renderCSAT's view hook refreshes content.
-  _csatScope = cid ? { type: 'member', value: cid } : { type: 'all' };
-  _csatComputeAndRender(state.from, state.to);
-  if (!cid) {
-    document.getElementById('csatMemberViewSub').textContent = '';
-    document.getElementById('csatMemberDrillContent').innerHTML =
-      '<div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>';
-  }
-}
-
-// Renders ONLY the member-drill section from the already-scoped csatData. No recompute.
-function _renderMemberDrillContent() {
-  if (!_csatRaw) return;
-  const cid = _csatScope.type === 'member' ? _csatScope.value : '';
-  const content = document.getElementById('csatMemberDrillContent');
-  if (!cid) {
-    document.getElementById('csatMemberViewSub').textContent = '';
-    content.innerHTML = '<div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>';
-    return;
-  }
-
-  const c = (csatData.all_consultants||[]).find(x => x.cid === cid);
-  if (!c) { content.innerHTML = '<div class="empty"><span>👤</span>No data for this consultant in the selected period</div>'; return; }
-
-  const rc = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
-  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
-  const maxPct = Math.max(...(c.dist||[]).map(d=>d.pct),1);
-  const calls = (c.calls||[]);
-
-  document.getElementById('csatMemberViewSub').textContent =
-    `Page synced to ${c.name} · ${c.team||'—'} · ${fmt(c.total)} surveys · ${c.avg_rating}★ avg · ${c.solved_pct}% solved`;
-
-  content.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:18px">
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${rc}">${c.avg_rating}</div>
-        <div style="font-size:11px;color:var(--text3)">Avg Rating</div>
-      </div>
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${c.solved_pct}%</div>
-        <div style="font-size:11px;color:var(--text3)">Solved</div>
-      </div>
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(c.total)}</div>
-        <div style="font-size:11px;color:var(--text3)">Surveys</div>
-      </div>
-      <div class="card" style="text-align:center;padding:14px">
-        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--red)">${c.low_pct}%</div>
-        <div style="font-size:11px;color:var(--text3)">Low (1–2★)</div>
-      </div>
-    </div>
-
-    <div style="margin-bottom:18px">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Rating distribution</div>
-      <div style="display:flex;flex-direction:column;gap:6px;max-width:400px">
-        ${(c.dist||[]).map(d => `
-          <div style="display:flex;align-items:center;gap:8px">
-            <div style="font-size:11px;color:var(--text3);width:24px;text-align:right">${d.r}★</div>
-            <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
-              <div style="width:${Math.round(d.pct/maxPct*100)}%;height:100%;background:${barColors[d.r]};border-radius:4px;transition:width .4s"></div>
-            </div>
-            <div style="font-size:11px;color:var(--text3);min-width:70px">${d.count} (${d.pct}%)</div>
-          </div>`).join('')}
-      </div>
-    </div>
-
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-      <div style="font-size:12px;font-weight:600;color:var(--text2)">
-        Individual calls (${fmt(calls.length)}) · click a Call ID to open it in the Comm Journal
-      </div>
-      <input id="csatCallSearch" type="text" placeholder="Filter calls…" oninput="_renderMemberCalls()"
-        style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:160px;background:var(--surface2);color:var(--text1)">
-    </div>
-    <div class="table-wrap" style="max-height:460px;overflow-y:auto">
-      <table>
-        <thead><tr>
-          <th style="padding-left:12px">Call ID</th>
-          <th>Date</th>
-          <th class="r">Rating</th>
-          <th class="r">Solved</th>
-        </tr></thead>
-        <tbody id="csatMemberCallsBody"></tbody>
-      </table>
-    </div>`;
-
-  _memberCallsCache = calls;
-  _renderMemberCalls();
-}
-
-let _memberCallsCache = [];
-function _renderMemberCalls() {
-  const body = document.getElementById('csatMemberCallsBody');
-  if (!body) return;
-  const q = (document.getElementById('csatCallSearch')?.value || '').toLowerCase();
-  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
-  const rows = _memberCallsCache.filter(c =>
-    !q || (c.call_id||'').toLowerCase().includes(q) || String(c.rating).includes(q) || (c.date||'').includes(q));
-
-  body.innerHTML = rows.map(c => {
-    const rc = barColors[c.rating] || 'var(--text2)';
-    const url = ucjCallUrl(c.call_id);
-    return `<tr>
-      <td style="padding-left:12px;font-family:'JetBrains Mono',monospace;font-size:11px">
-        <a href="${url}" target="_blank" rel="noopener"
-           style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${c.call_id||'—'}</a>
-      </td>
-      <td style="font-size:12px;color:var(--text3)">${c.date||'—'}</td>
-      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating}★</span></td>
-      <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
-}
 
 
 // ── Team leaderboard sort ─────────────────────────────────────────────────────

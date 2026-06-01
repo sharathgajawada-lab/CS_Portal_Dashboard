@@ -227,8 +227,9 @@ def _build_csat_index(rows: list) -> dict:
         cid  = r["cid"]
         name = r["name"]
         bad_team = not team or team.strip().lower() in BAD_NAMES
-        bad_name = (not name or name.strip().lower() in BAD_NAMES or
-                    name.strip().lower().startswith("frank ai"))
+        # Frank AI bots (Voice AI team) are treated as consultants so the Voice AI
+        # team shows members and an individual-calls table like any other team.
+        bad_name = (not name or name.strip().lower() in BAD_NAMES)
 
         if d not in day_map:
             day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{}}
