@@ -552,9 +552,9 @@ thead th:hover .sort-arrow { color:var(--text2) }
               </select>
               <div id="csatLastControls" style="display:none;align-items:center;border-left:1px solid var(--border)">
                 <input type="number" id="csatLastN" value="30" min="1" max="9999"
-                  onchange="csatData && renderCSAT(csatData)"
+                  onchange="onCsatRangeTypeChange()"
                   style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
-                <select id="csatLastUnit" onchange="csatData && renderCSAT(csatData)" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 4px;cursor:pointer;outline:none">
+                <select id="csatLastUnit" onchange="onCsatRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 4px;cursor:pointer;outline:none">
                   <option value="days" selected>Days</option>
                   <option value="weeks">Weeks</option>
                   <option value="months">Months</option>
@@ -563,7 +563,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
                 </select>
               </div>
               <div id="csatCurrentControls" style="display:none;border-left:1px solid var(--border)">
-                <select id="csatCurrentUnit" onchange="csatData && renderCSAT(csatData)" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+                <select id="csatCurrentUnit" onchange="onCsatRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
                   <option value="week">Week</option>
                   <option value="month" selected>Month</option>
                   <option value="quarter">Quarter</option>
@@ -571,7 +571,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
                 </select>
               </div>
               <div id="csatPrevControls" style="display:none;border-left:1px solid var(--border)">
-                <select id="csatPrevUnit" onchange="csatData && renderCSAT(csatData)" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
+                <select id="csatPrevUnit" onchange="onCsatRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 6px;cursor:pointer;outline:none">
                   <option value="week">Week</option>
                   <option value="month" selected>Month</option>
                   <option value="quarter">Quarter</option>
@@ -582,7 +582,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
             <!-- Compare -->
             <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface2)">
-              <input type="checkbox" id="csatCompare" onchange="csatData && renderCSAT(csatData)" style="cursor:pointer">
+              <input type="checkbox" id="csatCompare" onchange="onCsatRangeTypeChange()" style="cursor:pointer">
               vs prev period
             </label>
 
@@ -603,6 +603,23 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')">⤢ Expand</button>
           <canvas id="csatTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: FCR trend full width -->
+    <div style="margin-bottom:16px">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+          <div>
+            <div class="card-title">&#x1F4DE; First-call resolution trend</div>
+            <div class="card-sub" id="fcrTrendSub">% of calls resolved on first contact &middot; by date</div>
+          </div>
+          <div id="fcrChart_controls_placeholder"></div>
+        </div>
+        <div class="chart-wrap" style="height:190px" id="fcrChartWrap">
+          <button class="chart-expand-btn" onclick="expandChart(charts.fcrChart,'First-call resolution trend')">&#x2922; Expand</button>
+          <canvas id="fcrChart"></canvas>
         </div>
       </div>
     </div>
@@ -900,13 +917,15 @@ function _chartCtrlChange(id) {
   _chartCtrl[id].unit    = document.getElementById(id+'_unit')?.value   || _chartCtrl[id].unit;
   _chartCtrl[id].compare = document.getElementById(id+'_compare')?.checked || false;
   if (id === 'csatDist') {
-    // Use chart-level date range for rating distribution
     const { from: df, to: dt } = getChartRange('csatDist');
     if (_csatRaw) _csatComputeAndRender(df, dt);
   }
   else if (id === 'csTeamTrend') {
     const { from: df, to: dt } = getChartRange('csTeamTrend');
     if (_csatRaw) _csatComputeAndRender(df, dt);
+  }
+  else if (id === 'fcrChart') {
+    if (_csatRaw) renderFCR();
   }
 }
 
@@ -969,6 +988,13 @@ function aggregateSeries(series, groupBy) {
       const day = d.getDay() || 7;
       const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
       key = mon.toISOString().slice(0,10);
+    } else if (groupBy === 'month') {
+      key = (p.week||p.date).slice(0,7) + '-01';
+    } else if (groupBy === 'quarter') {
+      const q = Math.floor(d.getMonth() / 3);
+      key = `${d.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`;
+    } else if (groupBy === 'year') {
+      key = `${d.getFullYear()}-01-01`;
     } else {
       key = (p.week||p.date).slice(0,7) + '-01';
     }
@@ -986,8 +1012,13 @@ function aggregateSeries(series, groupBy) {
 
 function fmtBucketDate(iso, groupBy) {
   const d = new Date(iso + 'T00:00:00');
-  if (groupBy === 'month') return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-  if (groupBy === 'week')  return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (groupBy === 'year')    return d.getFullYear().toString();
+  if (groupBy === 'quarter') {
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    return `Q${q} '${String(d.getFullYear()).slice(2)}`;
+  }
+  if (groupBy === 'month')   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  if (groupBy === 'week')    return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return new Date(iso+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
 }
 
@@ -999,6 +1030,7 @@ function setCsatGraphBy(gb, btn) {
 function setCsatGraphBySelect(gb) {
   _csatGraphBy = gb;
   if (csatData) renderCSAT(csatData);
+  if (_csatRaw) renderFCR();
 }
 
 function onCsatRangeTypeChange() {
@@ -1006,7 +1038,11 @@ function onCsatRangeTypeChange() {
   document.getElementById('csatLastControls').style.display    = type === 'last'     ? 'flex' : 'none';
   document.getElementById('csatCurrentControls').style.display = type === 'current'  ? 'flex' : 'none';
   document.getElementById('csatPrevControls').style.display    = type === 'previous' ? 'flex' : 'none';
-  if (csatData) renderCSAT(csatData);
+  // Re-compute data from raw index using new date range
+  if (_csatRaw) {
+    const { from, to } = getCsatTrendDateRange();
+    _csatComputeAndRender(from, to);
+  }
 }
 
 function getCsatTrendDateRange() {
@@ -1059,12 +1095,9 @@ async function loadCSAT(forceRefresh = false) {
 
 function _csatComputeAndRender(from, to) {
   // Sync any chart-level control set to 'selection' so it re-renders with the new global dates.
-  // This is the central hook: whenever the global date filter changes, call this function
-  // and every chart that respects the global filter will update automatically.
-  ['csatDist', 'csTeamTrend'].forEach(id => {
+  ['csatDist', 'csTeamTrend', 'fcrChart'].forEach(id => {
     if (_chartCtrl[id] && _chartCtrl[id].rangeType === 'selection') {
       // rangeType=selection → getChartRange(id) returns { from: state.from, to: state.to }
-      // which matches the incoming from/to — re-render will use the correct dates
     }
   });
   if (!_csatRaw?.days) return;
@@ -1287,14 +1320,18 @@ function renderCSAT(d) {
   document.getElementById('csatSub').textContent =
     `${fmt(d.total)} surveys · ${d.date_from} → ${d.date_to} · ${d.avg_rating}/5 avg · ${d.solved_pct}% solved`;
 
-  // Trend chart
-  const trend = d.weekly_trend || [];
+  // Trend chart — aggregate daily data according to _csatGraphBy
+  const dailyData = d.weekly_trend || [];  // named 'weekly_trend' but actually daily entries
+  const gb = _csatGraphBy || 'day';
   const isCompare = document.getElementById('csatCompare')?.checked;
   const { from: cFrom, to: cTo } = getCsatTrendDateRange();
-  if (isCompare && _csatRaw && _csatRaw.days) { _renderCsatCompare(cFrom, cTo, _csatGraphBy); return; }
+  if (isCompare && _csatRaw && _csatRaw.days) { _renderCsatCompare(cFrom, cTo, gb); return; }
+
+  // Aggregate daily series to the requested granularity
+  const trendAgg = aggregateSeries(dailyData, gb);
 
   if (charts.csatTrend) charts.csatTrend.destroy();
-  if (trend.length === 0) {
+  if (trendAgg.length === 0) {
     document.getElementById('csatTrendWrap').innerHTML =
       '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
   } else {
@@ -1313,39 +1350,40 @@ function renderCSAT(d) {
     charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
       type: 'line',
       data: {
-        labels: trend.map(t => new Date(t.week).toLocaleDateString('en-US', {month:'short',day:'numeric'})),
+        labels: trendAgg.map(t => fmtBucketDate(t.week || t.date, gb)),
         datasets: [
           {
             label: 'Avg Rating',
-            data: trend.map(t => t.avg_rating),
+            data: trendAgg.map(t => t.avg_rating),
             borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
-            fill: true, pointRadius: 2, tension: .3, borderWidth: 2,
+            fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
             yAxisID: 'y',
           },
           {
             label: 'Solved %',
-            data: trend.map(t => t.solved_pct),
+            data: trendAgg.map(t => t.solve_pct ?? t.solved_pct),
             borderColor: '#059669', backgroundColor: 'transparent',
-            pointRadius: 2, tension: .3, borderWidth: 2, borderDash: [4,3],
+            pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2, borderDash: [4,3],
             yAxisID: 'y2',
           },
         ],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
           tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
         },
         scales: {
           x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
-          y: { min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts, title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
+          y:  { min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts, title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
           y2: { position: 'right', min: 0, max: 100, ticks: { font: { size: 10 }, callback: v => v + '%' }, grid: { display: false }, title: { display: true, text: 'Solved %', font: { size: 10 }, color: '#6b7280' } },
         },
         onClick: (evt, els) => {
           if (!els.length) return;
-          const wk = trend[els[0].index]?.week;
-          if (wk) drillDate(wk); // drill into that week's Monday
+          const wk = (trendAgg[els[0].index]?.week || trendAgg[els[0].index]?.date);
+          if (wk) drillDate(wk);
         },
       },
     });
@@ -1520,6 +1558,124 @@ function renderCSAT(d) {
   document.getElementById('csatConsultantSub').textContent =
     `${allCons.length} consultants · all with surveys · sorted by avg rating`;
   renderConsultantTable();
+
+  // Render FCR chart using the same date range
+  renderFCR();
+}
+
+// ── First-call resolution trend chart ────────────────────────────────────────
+function renderFCR() {
+  if (!_csatRaw?.days) return;
+  const { from, to } = getChartRange('fcrChart');
+  const gb = getChartGroupBy('fcrChart');
+  const compare = isChartCompare('fcrChart');
+
+  // Build daily FCR series from raw index
+  function buildFCRSeries(fromDate, toDate) {
+    return Object.entries(_csatRaw.days)
+      .filter(([d]) => d >= fromDate && d <= toDate)
+      .sort(([a],[b]) => a < b ? -1 : 1)
+      .map(([d, dm]) => ({
+        date: d,
+        fcr: dm.t > 0 ? Math.round(dm.s / dm.t * 1000) / 10 : null,
+        total: dm.t, solved: dm.s,
+        // For aggregateSeries compatibility
+        _t: dm.t, _s: dm.s, avg_rating: 0, solve_pct: dm.t > 0 ? Math.round(dm.s/dm.t*1000)/10 : 0,
+        week: d,
+      }));
+  }
+
+  const curRaw = buildFCRSeries(from, to);
+
+  // Aggregate to selected groupBy
+  const curAgg = aggregateSeries(curRaw, gb).map(b => ({
+    date: b.week || b.date,
+    fcr: b._t > 0 ? Math.round(b._s / b._t * 1000) / 10 : null,
+    total: b._t,
+  }));
+
+  if (!curAgg.length) {
+    document.getElementById('fcrChartWrap').innerHTML =
+      '<div class="empty" style="padding:32px"><span>📞</span>No FCR data for selected period</div>';
+    return;
+  }
+
+  document.getElementById('fcrTrendSub').textContent =
+    `Avg FCR: ${curAgg.length ? Math.round(curAgg.filter(p=>p.fcr!==null).reduce((s,p)=>s+p.fcr,0)/curAgg.filter(p=>p.fcr!==null).length*10)/10 : '—'}% · ${fmtDate(from)} – ${fmtDate(to)} · by ${gb}`;
+
+  const labels = curAgg.map(p => fmtBucketDate(p.date, gb));
+  const fcrDatasets = [{
+    type: 'bar',
+    label: 'FCR %',
+    data: curAgg.map(p => p.fcr),
+    backgroundColor: curAgg.map(p =>
+      p.fcr === null ? 'transparent' :
+      p.fcr >= 80 ? 'rgba(5,150,105,.7)' :
+      p.fcr >= 65 ? 'rgba(196,122,10,.7)' : 'rgba(220,38,38,.65)'
+    ),
+    borderRadius: 3, borderSkipped: false,
+  }];
+
+  if (compare) {
+    const { prevFrom, prevTo } = (() => {
+      const curDays = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+      const pt = subtractUnit(from, 1, 'days');
+      const pf = subtractUnit(pt, curDays - 1, 'days');
+      return { prevFrom: pf, prevTo: pt };
+    })();
+    const prevRaw = buildFCRSeries(prevFrom, prevTo);
+    const prevAgg = aggregateSeries(prevRaw, gb).map(b => ({
+      date: b.week || b.date,
+      fcr: b._t > 0 ? Math.round(b._s / b._t * 1000) / 10 : null,
+    }));
+    if (prevAgg.length) {
+      fcrDatasets.push({
+        type: 'line',
+        label: `FCR % (prev ${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
+        data: labels.map((_, i) => prevAgg[i]?.fcr ?? null),
+        borderColor: 'rgba(107,114,128,.9)', borderDash: [5,4],
+        backgroundColor: 'transparent', pointRadius: 2, tension: .3, borderWidth: 2, fill: false,
+      });
+    }
+  }
+
+  if (charts.fcrChart) charts.fcrChart.destroy();
+  if (!document.getElementById('fcrChart')) {
+    document.getElementById('fcrChartWrap').innerHTML = '<canvas id="fcrChart"></canvas>';
+  }
+  charts.fcrChart = new Chart(document.getElementById('fcrChart'), {
+    type: 'bar',
+    data: { labels, datasets: fcrDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: compare, labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
+          titleColor: '#111827', bodyColor: '#374151',
+          callbacks: {
+            label: ctx => ctx.raw !== null ? `${ctx.raw}% FCR` : 'No data',
+            afterLabel: ctx => {
+              if (ctx.datasetIndex !== 0) return '';
+              const p = curAgg[ctx.dataIndex];
+              return p ? `${p.solved ?? '?'} solved / ${p.total ?? '?'} surveys` : '';
+            },
+          },
+        },
+        annotation: undefined,
+      },
+      scales: {
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14, font: { size: 10 } }, grid: gridOpts },
+        y: {
+          min: 0, max: 100,
+          ticks: { font: { size: 10 }, callback: v => v + '%' },
+          grid: gridOpts,
+          title: { display: true, text: 'First-call resolution %', font: { size: 10 }, color: '#6b7280' },
+        },
+      },
+    },
+  });
 }
 
 // ── Team leaderboard sort ─────────────────────────────────────────────────────
@@ -1984,6 +2140,7 @@ async function init() {
   [
     { id: 'csatDist',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
     { id: 'csTeamTrend', opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'fcrChart',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
   ].forEach(({ id, opts }) => {
     const pid = id + '_controls_placeholder';
     const el  = document.getElementById(pid);

@@ -1544,9 +1544,11 @@ function setGraphBySelect(chartKey, value) {
   if (chartKey === 'trend') renderTrend();
 }
 
-// Keep old setGraphBy for backwards compat
+// Keep old setGraphBy for backwards compat with any remaining data-* button usage
 function setGraphBy(chartKey, groupBy, btn) {
   _graphBy[chartKey] = groupBy;
+  document.querySelectorAll(`.gbtn[data-chart="${chartKey}"]`).forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
   if (chartKey === 'trend') renderTrend();
 }
 
@@ -1557,13 +1559,18 @@ function aggregateSeries(series, groupBy) {
     const d = new Date(p.date + 'T00:00:00');
     let key;
     if (groupBy === 'week') {
-      // ISO week start (Monday)
       const day = d.getDay() || 7;
       const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
       key = mon.toISOString().slice(0,10);
-    } else {
-      // Month
+    } else if (groupBy === 'month') {
       key = p.date.slice(0,7) + '-01';
+    } else if (groupBy === 'quarter') {
+      const q = Math.floor(d.getMonth() / 3);
+      key = `${d.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`;
+    } else if (groupBy === 'year') {
+      key = `${d.getFullYear()}-01-01`;
+    } else {
+      key = p.date.slice(0,7) + '-01'; // fallback to month
     }
     if (!buckets[key]) buckets[key] = { date: key, count: 0 };
     buckets[key].count += (p.count || 0);
@@ -1573,19 +1580,16 @@ function aggregateSeries(series, groupBy) {
 
 function fmtBucketDate(iso, groupBy) {
   const d = new Date(iso + 'T00:00:00');
-  if (groupBy === 'month') return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-  if (groupBy === 'week')  return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (groupBy === 'year')    return d.getFullYear().toString();
+  if (groupBy === 'quarter') {
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    return `Q${q} '${String(d.getFullYear()).slice(2)}`;
+  }
+  if (groupBy === 'month')   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  if (groupBy === 'week')    return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return fmtDate(iso);
 }
 
-function setGraphBy(chartKey, groupBy, btn) {
-  _graphBy[chartKey] = groupBy;
-  // Update button states
-  document.querySelectorAll(`.gbtn[data-chart="${chartKey}"]`).forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  // Re-render the relevant chart
-  if (chartKey === 'trend') renderTrend();
-}
 
 function renderTrend() {
   const activeEvent = filters.event;
