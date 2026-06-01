@@ -635,6 +635,25 @@ thead th:hover .sort-arrow { color:var(--text2) }
           <tbody id="articleTable"></tbody>
         </table>
       </div>
+      <!-- Show more/less row -->
+      <div id="articleExpandRow" style="display:none;padding:10px 20px 12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <button id="articleExpandBtn" onclick="toggleArticleExpand()"
+          style="font-size:12px;color:var(--blue);background:none;border:1px solid var(--blue);border-radius:6px;padding:5px 14px;cursor:pointer;font-weight:500;transition:background .15s"
+          onmouseover="this.style.background='rgba(37,99,235,.06)'" onmouseout="this.style.background='none'">
+          ▼ Show all articles
+        </button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--text3)">Show top</span>
+          <select id="artTopNSelect" onchange="renderArticleTable()"
+            style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none">
+            <option value="5" selected>5</option>
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="all">All</option>
+          </select>
+          <span style="font-size:11px;color:var(--text3)" id="articleCountLabel"></span>
+        </div>
+      </div>
       <div class="note" id="articleNote" style="margin:12px 20px 16px">ℹ️ Loading article data…</div>
     </div>
   </div>
@@ -690,6 +709,36 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div id="digestText">Loading&hellip;</div>
       </div>
       <div class="insights-grid" id="insightsGrid"></div>
+
+      <!-- Articles vs Videos + Consumption rate — two new charts -->
+      <div class="two-col" style="margin-bottom:14px">
+        <div class="card" id="artVidChartWrap" style="display:none">
+          <div class="card-title">&#x1F4DA; Articles read vs Videos watched vs Logins</div>
+          <div class="card-sub">Daily content consumption across media types</div>
+          <div class="chart-wrap" style="height:190px;margin-top:10px">
+            <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Articles vs Videos vs Logins')">&#x2922; Expand</button>
+            <canvas id="artVidChart"></canvas>
+          </div>
+        </div>
+        <div class="card" id="consumptionChartWrap" style="display:none">
+          <div class="card-title">&#x1F4CA; Consumption rate — articles per login</div>
+          <div class="card-sub">
+            <span style="display:inline-flex;align-items:center;gap:6px">
+              How many articles each login session produces
+              <span style="display:inline-flex;gap:4px">
+                <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(52,211,153,.8)"></span><span style="font-size:10px">≥3 (great)</span>
+                <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(196,122,10,.8)"></span><span style="font-size:10px">1.5–3</span>
+                <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(248,113,113,.7)"></span><span style="font-size:10px">&lt;1.5</span>
+              </span>
+            </span>
+          </div>
+          <div class="chart-wrap" style="height:190px;margin-top:10px">
+            <button class="chart-expand-btn" onclick="expandChart(charts.consumptionChart,'Daily consumption rate')">&#x2922; Expand</button>
+            <canvas id="consumptionChart"></canvas>
+          </div>
+        </div>
+      </div>
+
       <div class="two-col">
         <div class="card">
           <div class="card-title">&#x1F6A8; Articles needing attention</div>
@@ -1268,14 +1317,8 @@ async function _chartCtrlRender(id) {
     } catch(e) {}
   }
   else if (id === 'sessionTrendChart' || id === 'sessionActChart' || id === 'hourChart') {
-    // If only groupby changed and we already have session data, just re-render locally
-    const rangeType = _chartCtrl[id]?.rangeType || 'selection';
-    if (rangeType === 'selection' && sessionData) {
-      renderSessionSection();
-      const hourDist = sessionData.hour_distribution || {};
-      if (Object.keys(hourDist).length > 0) renderHourGridFromInsights(hourDist);
-      return;
-    }
+    // Always fetch with the current date range — the backend filters Supabase by date
+    // A local-only re-render would keep showing the previously loaded all-time data
     setStatus('sessionStatus', 'loading', 'Loading…');
     try {
       const r = await fetch(`/api/sessions/full?date_from=${from}&date_to=${to}`);
@@ -1283,12 +1326,19 @@ async function _chartCtrlRender(id) {
         const d = await r.json();
         if (d.available) {
           sessionData = d;
+          const coverage = d.total_users >= 50 ? 'full coverage' : d.total_users + ' users';
+          setStatus('sessionStatus', 'loaded',
+            `${fmt(d.total_sessions)} sessions · ${coverage} · ${fmtDate(from)} → ${fmtDate(to)}`);
           renderSessionSection(d);
           const hourDist = d.hour_distribution || {};
           if (Object.keys(hourDist).length > 0) renderHourGridFromInsights(hourDist);
+        } else {
+          setStatus('sessionStatus', 'error', 'No session data for selected period');
         }
       }
-    } catch(e) {}
+    } catch(e) {
+      setStatus('sessionStatus', 'error', 'Failed to load sessions');
+    }
   }
 }
 
@@ -1593,6 +1643,24 @@ function sortArticleTable(key) {
   renderArticleTable();
 }
 
+// ── Article table collapse state ──────────────────────────────────────────────
+let _artExpanded = false;
+
+function toggleArticleExpand() {
+  _artExpanded = !_artExpanded;
+  const btn = document.getElementById('articleExpandBtn');
+  const sel = document.getElementById('artTopNSelect');
+  if (_artExpanded) {
+    // Switch dropdown to "All" and re-render
+    if (sel) sel.value = 'all';
+    if (btn) btn.textContent = '▲ Show less';
+  } else {
+    if (sel) sel.value = '5';
+    if (btn) btn.textContent = '▼ Show all articles';
+  }
+  renderArticleTable();
+}
+
 function renderArticleTable() {
   // Apply current sort
   const rawArticles = (articleData?.articles || []).slice();
@@ -1604,8 +1672,23 @@ function renderArticleTable() {
       return _artSort.dir * (av < bv ? -1 : av > bv ? 1 : 0);
     });
   }
-  const articles = rawArticles;
+
+  // Determine how many to show
+  const topNSel = document.getElementById('artTopNSelect')?.value || '5';
+  const totalCount = rawArticles.length;
+  const showN = topNSel === 'all' ? totalCount : Math.min(parseInt(topNSel) || 5, totalCount);
+  const articles = rawArticles.slice(0, showN);
   const note     = articleData?.note || '';
+
+  // Show/update expand row
+  const expandRow = document.getElementById('articleExpandRow');
+  if (expandRow) expandRow.style.display = totalCount > 5 ? 'flex' : 'none';
+  const countLabel = document.getElementById('articleCountLabel');
+  if (countLabel) countLabel.textContent = `${showN} of ${totalCount}`;
+
+  // Sync expand button text
+  const btn = document.getElementById('articleExpandBtn');
+  if (btn) btn.textContent = (topNSel === 'all' || showN >= totalCount) ? '▲ Show less' : '▼ Show all articles';
 
   // Scale article views to the selected date range using time-series ratio
   const articleViewSeries  = rawData['article.viewed']?.series || [];
@@ -1618,8 +1701,8 @@ function renderArticleTable() {
   const allTimeTotal = articleData?.total_views || 1;
 
   document.getElementById('articleSub').textContent = isAllTime
-    ? `${articles.length} articles · ${fmt(allTimeTotal)} total views · all time`
-    : `${articles.length} articles · est. ${fmt(Math.round(filteredSeries))} views · ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
+    ? `${totalCount} articles · ${fmt(allTimeTotal)} total views · all time`
+    : `${totalCount} articles · est. ${fmt(Math.round(filteredSeries))} views · ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
   document.getElementById('articleNote').textContent =
     `ℹ️ ${note}${isAllTime ? '' : ' Views estimated for selected period using daily time-series.'} Time/bounce from timeline sample.`;
 
@@ -2073,15 +2156,24 @@ function renderInsights(intel) {
 
   // Digest
   document.getElementById('digestText').textContent = ins.weekly_digest || 'No significant changes';
-  document.getElementById('insightsSub').textContent = 
+  document.getElementById('insightsSub').textContent =
     `Computed at ${new Date(ins.computed_at).toLocaleTimeString()}`;
 
-  // Insight KPI cards
+  // ── KPI cards ─────────────────────────────────────────────────────────────
+  const totalLogins   = getTotal('auth.login');
+  const totalArticles = getTotal('article.viewed');
+  const totalVideos   = getTotal('video.watched');
+  const artPerLogin   = totalLogins > 0 ? Math.round(totalArticles / totalLogins * 100) / 100 : ins.consumption_ratio;
+  const vidPerLogin   = totalLogins > 0 ? Math.round(totalVideos   / totalLogins * 100) / 100 : 0;
+  const artVidRatio   = totalVideos > 0 ? Math.round(totalArticles / totalVideos * 10) / 10 : '∞';
+
   const cards = [
-    { label: 'Content consumption',  value: ins.consumption_ratio,   sub: 'articles per login',        color: '#c47a0a' },
-    { label: 'Search frustration',   value: ins.frustration_index,   sub: 'searches per login (lower=better)', color: ins.frustration_index > 2 ? '#f87171' : '#34d399' },
-    { label: 'Engagement velocity',  value: (ins.engagement_velocity > 0 ? '+' : '') + ins.engagement_velocity + '%', sub: 'logins vs prev 7 days', color: ins.engagement_velocity >= 0 ? '#34d399' : '#f87171' },
-    { label: 'Self-service rate',    value: ins.self_service_rate + '%', sub: 'sessions: login→article, no search', color: '#4f8ef7' },
+    { label: 'Articles per login',    value: artPerLogin,   sub: 'content reads per session',          color: '#c47a0a' },
+    { label: 'Videos per login',      value: vidPerLogin,   sub: 'video plays per session',             color: '#c03030' },
+    { label: 'Articles : Videos',     value: artVidRatio + '×', sub: 'reads vs plays ratio',            color: '#5b3fbf' },
+    { label: 'Search frustration',    value: ins.frustration_index, sub: 'searches/login (lower=better)', color: ins.frustration_index > 2 ? '#f87171' : '#34d399' },
+    { label: 'Engagement velocity',   value: (ins.engagement_velocity > 0 ? '+' : '') + ins.engagement_velocity + '%', sub: 'logins vs prev 7 days', color: ins.engagement_velocity >= 0 ? '#34d399' : '#f87171' },
+    { label: 'Self-service rate',     value: ins.self_service_rate + '%', sub: 'login→article, no search',color: '#4f8ef7' },
   ];
   document.getElementById('insightsGrid').innerHTML = cards.map(c => `
     <div class="insight-card" style="border-top:2px solid ${c.color}">
@@ -2090,7 +2182,97 @@ function renderInsights(intel) {
       <div class="sub">${c.sub}</div>
     </div>`).join('');
 
-  // Priority list
+  // ── Articles vs Videos chart ──────────────────────────────────────────────
+  const artSeries = (rawData['article.viewed']?.series || []).filter(p => p.date >= state.from && p.date <= state.to);
+  const vidSeries = (rawData['video.watched']?.series  || []).filter(p => p.date >= state.from && p.date <= state.to);
+  const logSeries = (rawData['auth.login']?.series     || []).filter(p => p.date >= state.from && p.date <= state.to);
+  const allDates  = [...new Set([...artSeries, ...vidSeries, ...logSeries].map(p => p.date))].sort();
+
+  if (allDates.length > 0) {
+    document.getElementById('artVidChartWrap').style.display = 'block';
+    const artMap = Object.fromEntries(artSeries.map(p => [p.date, p.count || 0]));
+    const vidMap = Object.fromEntries(vidSeries.map(p => [p.date, p.count || 0]));
+    const logMap = Object.fromEntries(logSeries.map(p => [p.date, p.count || 0]));
+
+    if (charts.artVidChart) charts.artVidChart.destroy();
+    charts.artVidChart = new Chart(document.getElementById('artVidChart'), {
+      type: 'line',
+      data: {
+        labels: allDates.map(d => fmtDate(d)),
+        datasets: [
+          { label: 'Articles read',  data: allDates.map(d => artMap[d] || 0), borderColor: '#c47a0a', backgroundColor: 'rgba(196,122,10,.08)',  fill: true, pointRadius: 1, tension: .3, borderWidth: 2 },
+          { label: 'Videos watched', data: allDates.map(d => vidMap[d] || 0), borderColor: '#c03030', backgroundColor: 'rgba(192,48,48,.06)',    fill: true, pointRadius: 1, tension: .3, borderWidth: 2 },
+          { label: 'Logins',         data: allDates.map(d => logMap[d] || 0), borderColor: '#0e6e45', backgroundColor: 'rgba(14,110,69,.05)',    fill: false,pointRadius: 1, tension: .3, borderWidth: 1.5, borderDash: [4,3] },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
+          tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
+        },
+        scales: {
+          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: gridOpts },
+          y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+        },
+      },
+    });
+  }
+
+  // ── Login vs Page view consumption rate chart ─────────────────────────────
+  // Consumption rate = articles read per login, plotted daily to show trend
+  if (allDates.length > 0) {
+    document.getElementById('consumptionChartWrap').style.display = 'block';
+    const consumptionData = allDates.map(d => {
+      const logins = logMap?.[d] || 0;
+      const arts   = artMap?.[d]  || 0;
+      return logins > 0 ? Math.round(arts / logins * 100) / 100 : null;
+    });
+
+    if (charts.consumptionChart) charts.consumptionChart.destroy();
+    charts.consumptionChart = new Chart(document.getElementById('consumptionChart'), {
+      type: 'bar',
+      data: {
+        labels: allDates.map(d => fmtDate(d)),
+        datasets: [
+          {
+            label: 'Articles per login',
+            data: consumptionData,
+            backgroundColor: consumptionData.map(v =>
+              v === null ? 'transparent' : v >= 3 ? 'rgba(52,211,153,.8)' : v >= 1.5 ? 'rgba(196,122,10,.8)' : 'rgba(248,113,113,.7)'
+            ),
+            borderRadius: 3,
+            borderSkipped: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151',
+            callbacks: {
+              label: ctx => ctx.raw !== null ? `${ctx.raw} articles/login` : 'No logins',
+              afterLabel: ctx => {
+                const d = allDates[ctx.dataIndex];
+                const logins = logMap?.[d] || 0;
+                const arts   = artMap?.[d]  || 0;
+                return `${arts} articles · ${logins} logins`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: gridOpts },
+          y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true,
+               title: { display: true, text: 'Articles / login', font: { size: 10 }, color: '#6b7280' } },
+        },
+      },
+    });
+  }
+
+  // ── Priority list ─────────────────────────────────────────────────────────
   const priority = intel.articles?.priority || [];
   document.getElementById('priorityList').innerHTML = priority.length
     ? priority.map(p => `
@@ -2101,10 +2283,9 @@ function renderInsights(intel) {
       </div>`).join('')
     : '<div class="empty" style="padding:20px"><span>✅</span>All articles healthy</div>';
 
-  // Hour of day chart
+  // ── Hour of day chart ─────────────────────────────────────────────────────
   const hours = ins.hour_distribution || {};
   const hourData = Array.from({length:24},(_,h) => hours[h] || 0);
-  const maxH = Math.max(...hourData, 1);
   if (charts.hourInsight) charts.hourInsight.destroy();
   charts.hourInsight = new Chart(document.getElementById('hourInsightChart'), {
     type: 'bar',
