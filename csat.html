@@ -844,7 +844,8 @@ function makeChartControls(id, opts = {}) {
   const unit = opts.defaultUnit || 'days';
   const gb   = opts.defaultGb   || 'day';
   _chartCtrl[id] = { rangeType: 'selection', n, unit, gb, compare: false };
-  const cmp = opts.compare ? `<label class="ctrl-compare"><input type="checkbox" id="${id}_compare" onchange="_chartCtrlChange('${id}')"> vs prev</label>` : '';
+  // All charts always get vs prev
+  const cmp = `<label class="ctrl-compare"><input type="checkbox" id="${id}_compare" onchange="_chartCtrlChange('${id}')"> vs prev</label>`;
   return `<div class="chart-controls-right" id="${id}_controls">
     <div class="ctrl-range-wrap">
       <select id="${id}_rangeType" onchange="_chartCtrlRangeType('${id}')">
@@ -1358,9 +1359,10 @@ function renderCSAT(d) {
     });
   }
 
-  // Rating distribution bar chart
+  // Rating distribution bar chart — with optional prev-period compare overlay
   const dist = d.rating_dist || [];
   const distColors = { 1: '#dc2626', 2: '#f87171', 3: '#d97706', 4: '#2563eb', 5: '#059669' };
+  const distCompare = isChartCompare('csatDist');
   if (charts.csatDist) charts.csatDist.destroy();
   if (!document.getElementById('csatDistChart')) {
     document.getElementById('csatDistWrap').innerHTML = '<canvas id="csatDistChart"></canvas>';
@@ -1374,23 +1376,56 @@ function renderCSAT(d) {
       document.getElementById('csatDistWrap').prepend(_b);
     })();
   }
+
+  // Build prev period dist if compare is on
+  let prevDist = [];
+  if (distCompare && _csatRaw?.days) {
+    const { from: df, to: dt } = getChartRange('csatDist');
+    const days = Math.round((new Date(dt) - new Date(df)) / 86400000) + 1;
+    const prevTo   = new Date(new Date(df + 'T00:00:00') - 86400000).toISOString().slice(0,10);
+    const prevFrom = subtractUnit(df, days, 'days');
+    const prevD = {}, prevT = { t:0 };
+    for (const [date, dm] of Object.entries(_csatRaw.days)) {
+      if (date >= prevFrom && date <= prevTo) {
+        for (const [r,c] of Object.entries(dm.d||{})) { prevD[+r] = (prevD[+r]||0) + c; prevT.t += c; }
+      }
+    }
+    prevDist = [1,2,3,4,5].map(r => ({ rating:r, count: prevD[r]||0, pct: prevT.t > 0 ? Math.round((prevD[r]||0)/prevT.t*1000)/10 : 0 }));
+  }
+
+  const distDatasets = [{
+    label: 'Current period',
+    data: dist.map(d => d.count),
+    backgroundColor: dist.map(d => distColors[d.rating]),
+    borderRadius: 4,
+  }];
+  if (distCompare && prevDist.length) {
+    distDatasets.push({
+      label: 'Prev period',
+      data: prevDist.map(d => d.count),
+      backgroundColor: dist.map(d => distColors[d.rating] + '55'),
+      borderRadius: 4,
+      borderWidth: 1.5,
+      borderColor: dist.map(d => distColors[d.rating]),
+    });
+  }
+
   charts.csatDist = new Chart(document.getElementById('csatDistChart'), {
     type: 'bar',
     data: {
       labels: ['1 ★', '2 ★', '3 ★', '4 ★', '5 ★'],
-      datasets: [{
-        data: dist.map(d => d.count),
-        backgroundColor: dist.map(d => distColors[d.rating]),
-        borderRadius: 4,
-      }],
+      datasets: distDatasets,
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { display: false },
+        legend: { display: distCompare, labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
         tooltip: {
           backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151',
-          callbacks: { label: ctx => `${fmt(ctx.raw)} surveys (${dist[ctx.dataIndex]?.pct}%)` },
+          callbacks: { label: ctx => {
+            const src = ctx.datasetIndex === 0 ? dist : prevDist;
+            return `${fmt(ctx.raw)} surveys (${src[ctx.dataIndex]?.pct ?? 0}%)`;
+          }},
         },
       },
       scales: {
@@ -1725,10 +1760,38 @@ function renderCSTeams(teamsData, teamDailyData) {
   const chartWrap = document.getElementById('csTeamTrendWrap');
   if (!chartWrap) return;
 
+  const teamCompare = isChartCompare('csTeamTrend');
+
   // Collect all dates across all CS teams
   const allDates = [...new Set(
     CS_TEAMS.flatMap(ct => Object.keys(teamDailyData[ct.key] || {}))
   )].sort();
+
+  if (!allDates.length) {
+    chartWrap.innerHTML = '<div class="empty" style="padding:20px"><span>📊</span>No daily data available</div>';
+    return;
+  }
+
+  // Build prev period team daily data if compare is on
+  let prevTeamDailyData = {};
+  let prevDates = [];
+  if (teamCompare && _csatRaw?.days) {
+    const { from: tdf, to: tdt } = getChartRange('csTeamTrend');
+    const tdays = Math.round((new Date(tdt) - new Date(tdf)) / 86400000) + 1;
+    const prevTo   = new Date(new Date(tdf + 'T00:00:00') - 86400000).toISOString().slice(0,10);
+    const prevFrom = subtractUnit(tdf, tdays, 'days');
+    for (const [date, dm] of Object.entries(_csatRaw.days)) {
+      if (date < prevFrom || date > prevTo) continue;
+      for (const [t, tv] of Object.entries(dm.tm||{})) {
+        if (!prevTeamDailyData[t]) prevTeamDailyData[t] = {};
+        if (!prevTeamDailyData[t][date]) prevTeamDailyData[t][date] = {t:0,sr:0,s:0};
+        prevTeamDailyData[t][date].t  += tv.t;
+        prevTeamDailyData[t][date].sr += tv.sr;
+        prevTeamDailyData[t][date].s  += tv.s||0;
+      }
+    }
+    prevDates = [...new Set(CS_TEAMS.flatMap(ct => Object.keys(prevTeamDailyData[ct.key]||{})))].sort();
+  }
 
   if (!allDates.length) {
     chartWrap.innerHTML = '<div class="empty" style="padding:20px"><span>📊</span>No daily data available</div>';
@@ -1764,49 +1827,81 @@ function renderCSTeams(teamsData, teamDailyData) {
 
   const activeTeams = CS_TEAMS.filter(ct => !ct.vcc && teamDailyData[ct.key]);
 
-  // Rating chart
+  // Rating chart — current + optional prev overlay
   if (charts.csTeamTrend) charts.csTeamTrend.destroy();
   if (!document.getElementById('csTeamTrendChart'))
     document.getElementById('csTeamTrendWrap').innerHTML = '<canvas id="csTeamTrendChart"></canvas>';
-  // Add expand buttons to team chart wraps
-  ['csTeamTrendWrap','csTeamSolvedWrap'].forEach(id => {
-    const wrap = document.getElementById(id);
-    if (wrap && !wrap.querySelector('.chart-expand-btn')) {
-      const _btn = document.createElement('button');
-      _btn.className = 'chart-expand-btn'; _btn.textContent = '⤢ Expand';
-      const chartKey = id === 'csTeamTrendWrap' ? 'csTeamTrend' : 'csTeamSolved';
-      const chartTitle = id === 'csTeamTrendWrap' ? 'Daily avg rating — CS teams' : 'Daily solved % — CS teams';
-      _btn.onclick = () => expandChart(charts[chartKey], chartTitle);
-      wrap.prepend(_btn);
-    }
-  });
-  charts.csTeamTrend = makeTeamChart('csTeamTrendChart',
-    activeTeams.map(ct => ({
-      label: ct.label,
-      data: allDates.map(d => { const dd = (teamDailyData[ct.key]||{})[d]; return dd?.t > 0 ? Math.round(dd.sr/dd.t*100)/100 : null; }),
-      borderColor: ct.color, backgroundColor: ct.color+'15',
-      pointRadius: 2, tension: .3, borderWidth: 2, spanGaps: true,
-    })),
+
+  const ratingDatasets = activeTeams.map(ct => ({
+    label: ct.label,
+    data: allDates.map(d => { const dd = (teamDailyData[ct.key]||{})[d]; return dd?.t > 0 ? Math.round(dd.sr/dd.t*100)/100 : null; }),
+    borderColor: ct.color, backgroundColor: ct.color+'15',
+    pointRadius: 2, tension: .3, borderWidth: 2, spanGaps: true,
+  }));
+  if (teamCompare && prevDates.length) {
+    activeTeams.forEach(ct => {
+      const prev = prevTeamDailyData[ct.key] || {};
+      ratingDatasets.push({
+        label: ct.label + ' (prev)',
+        data: allDates.map((_, i) => {
+          const pd = prevDates[i];
+          const dd = pd ? prev[pd] : null;
+          return dd?.t > 0 ? Math.round(dd.sr/dd.t*100)/100 : null;
+        }),
+        borderColor: ct.color, borderDash: [5,4], backgroundColor: 'transparent',
+        pointRadius: 1, tension: .3, borderWidth: 1.5, spanGaps: true,
+      });
+    });
+  }
+  charts.csTeamTrend = makeTeamChart('csTeamTrendChart', ratingDatasets,
     { min: 1, max: 5, stepSize: 1, ticks: { stepSize: 1 }, title: 'Avg Rating' }
   );
 
-  // Solved % chart
+  // Solved % chart — current + optional prev overlay
   const solvedWrap = document.getElementById('csTeamSolvedWrap');
   if (solvedWrap) {
     if (charts.csTeamSolved) charts.csTeamSolved.destroy();
     if (!document.getElementById('csTeamSolvedChart'))
       solvedWrap.innerHTML = '<canvas id="csTeamSolvedChart"></canvas>';
-    charts.csTeamSolved = makeTeamChart('csTeamSolvedChart',
-      activeTeams.map(ct => ({
-        label: ct.label,
-        data: allDates.map(d => { const dd = (teamDailyData[ct.key]||{})[d]; return dd?.t > 0 ? Math.round(dd.s/dd.t*1000)/10 : null; }),
-        borderColor: ct.color, backgroundColor: ct.color+'15',
-        pointRadius: 2, tension: .3, borderWidth: 2, spanGaps: true,
-        borderDash: [4,3],
-      })),
+
+    const solvedDatasets = activeTeams.map(ct => ({
+      label: ct.label,
+      data: allDates.map(d => { const dd = (teamDailyData[ct.key]||{})[d]; return dd?.t > 0 ? Math.round(dd.s/dd.t*1000)/10 : null; }),
+      borderColor: ct.color, backgroundColor: ct.color+'15',
+      pointRadius: 2, tension: .3, borderWidth: 2, spanGaps: true, borderDash: [4,3],
+    }));
+    if (teamCompare && prevDates.length) {
+      activeTeams.forEach(ct => {
+        const prev = prevTeamDailyData[ct.key] || {};
+        solvedDatasets.push({
+          label: ct.label + ' (prev)',
+          data: allDates.map((_, i) => {
+            const pd = prevDates[i];
+            const dd = pd ? prev[pd] : null;
+            return dd?.t > 0 ? Math.round(dd.s/dd.t*1000)/10 : null;
+          }),
+          borderColor: ct.color, borderDash: [2,3], backgroundColor: 'transparent',
+          pointRadius: 1, tension: .3, borderWidth: 1.5, spanGaps: true,
+        });
+      });
+    }
+    charts.csTeamSolved = makeTeamChart('csTeamSolvedChart', solvedDatasets,
       { min: 0, max: 100, ticks: { callback: v => v+'%' }, title: 'Solved %' }
     );
   }
+
+  // Add expand buttons to team chart wraps
+  ['csTeamTrendWrap','csTeamSolvedWrap'].forEach(wid => {
+    const wrap = document.getElementById(wid);
+    if (wrap && !wrap.querySelector('.chart-expand-btn')) {
+      const _btn = document.createElement('button');
+      _btn.className = 'chart-expand-btn'; _btn.textContent = '⤢ Expand';
+      const chartKey   = wid === 'csTeamTrendWrap' ? 'csTeamTrend' : 'csTeamSolved';
+      const chartTitle = wid === 'csTeamTrendWrap' ? 'Daily avg rating — CS teams' : 'Daily solved % — CS teams';
+      _btn.onclick = () => expandChart(charts[chartKey], chartTitle);
+      wrap.prepend(_btn);
+    }
+  });
 }
 
 // ── Consultant / Team detail panel ────────────────────────────────────────────
