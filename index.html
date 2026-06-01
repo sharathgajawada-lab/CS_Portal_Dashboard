@@ -1076,10 +1076,17 @@ const gridOpts = {
 
 // ── Render all ───────────────────────────────────────────────────────────────
 function renderAll() {
-  // Sync all charts set to 'selection' so they follow the global date filter
+  // Sync all charts set to 'selection' so they follow the global date filter.
+  // Only fire for charts that are fully initialised (controls injected + data available).
+  // artVidChart / consumptionChart use rawData and only render via renderInsights.
+  const skipIfNoData = new Set(['artVidChart', 'consumptionChart']);
   Object.keys(_chartCtrl).forEach(id => {
     if (_chartCtrl[id].rangeType === 'selection') {
-      // Trigger re-render with updated global dates
+      if (skipIfNoData.has(id)) {
+        // Re-render inline from existing intel data (no fetch needed)
+        if (intelData) renderInsights(intelData);
+        return;
+      }
       _chartCtrlRender(id);
     }
   });
@@ -1090,7 +1097,6 @@ function renderAll() {
   renderHeatmap();
   renderHourGrid();
   applyFilters();
-  // CSAT section lives on /csat page — not rendered here
 }
 
 function applyFilters() {
@@ -1352,7 +1358,6 @@ async function _chartCtrlRender(id) {
     if (intelData) renderInsights(intelData);
   }
   else if (id === 'sessionTrendChart' || id === 'sessionActChart' || id === 'hourChart') {
-    // Always fetch with the current date range — the backend filters Supabase by date
     setStatus('sessionStatus', 'loading', 'Loading…');
     try {
       const r = await fetch(`/api/sessions/full?date_from=${from}&date_to=${to}`);
@@ -1360,17 +1365,13 @@ async function _chartCtrlRender(id) {
         const d = await r.json();
         if (d.available) {
           sessionData = d;
-          // If compare is on, also fetch prev period in background
+          // Fetch prev period BEFORE rendering so compare line appears immediately
           if (compare) {
             const { prevFrom, prevTo } = _getPrevPeriod(from, to);
-            fetch(`/api/sessions/full?date_from=${prevFrom}&date_to=${prevTo}`)
-              .then(r2 => r2.ok ? r2.json() : null)
-              .then(prev => {
-                window._prevSessionData = prev?.available ? prev : null;
-                renderSessionSection(sessionData);
-                const hd = sessionData.hour_distribution || {};
-                if (Object.keys(hd).length > 0) renderHourGridFromInsights(hd);
-              }).catch(() => {});
+            try {
+              const r2 = await fetch(`/api/sessions/full?date_from=${prevFrom}&date_to=${prevTo}`);
+              window._prevSessionData = (r2.ok) ? await r2.json() : null;
+            } catch(e) { window._prevSessionData = null; }
           } else {
             window._prevSessionData = null;
           }
@@ -1394,9 +1395,9 @@ async function _chartCtrlRender(id) {
 // Called by renderCategories, renderInsights charts when compare is ticked.
 // Returns { prevFrom, prevTo } for the period equal in length to curFrom→curTo
 function _getPrevPeriod(curFrom, curTo) {
-  const days = Math.round((new Date(curTo) - new Date(curFrom)) / 86400000) + 1;
-  const prevTo  = new Date(new Date(curFrom + 'T00:00:00') - 86400000).toISOString().slice(0,10);
-  const prevFrom = subtractUnit(curFrom, days, 'days');
+  const days   = Math.round((new Date(curTo) - new Date(curFrom)) / 86400000) + 1;
+  const prevTo = subtractUnit(curFrom, 1, 'days');        // day before curFrom
+  const prevFrom = subtractUnit(prevTo, days - 1, 'days'); // same span length
   return { prevFrom, prevTo };
 }
 
