@@ -710,44 +710,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
       <div class="insights-grid" id="insightsGrid"></div>
 
-      <!-- Articles vs Videos + Consumption rate — two new charts -->
-      <div class="two-col" style="margin-bottom:14px">
-        <div class="card" id="artVidChartWrap" style="display:none">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-            <div>
-              <div class="card-title">&#x1F4DA; Articles read vs Videos watched vs Logins</div>
-              <div class="card-sub">Daily content consumption across media types</div>
-            </div>
-            <div id="artVidChart_controls_placeholder"></div>
-          </div>
-          <div class="chart-wrap" style="height:190px;margin-top:6px">
-            <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Articles vs Videos vs Logins')">&#x2922; Expand</button>
-            <canvas id="artVidChart"></canvas>
-          </div>
-        </div>
-        <div class="card" id="consumptionChartWrap" style="display:none">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-            <div>
-              <div class="card-title">&#x1F4CA; Consumption rate — articles per login</div>
-              <div class="card-sub">
-                <span style="display:inline-flex;align-items:center;gap:6px">
-                  Articles per login · <span style="display:inline-flex;gap:4px;align-items:center">
-                    <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgba(52,211,153,.8)"></span><span style="font-size:10px">≥3</span>
-                    <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgba(196,122,10,.8)"></span><span style="font-size:10px">1.5–3</span>
-                    <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgba(248,113,113,.7)"></span><span style="font-size:10px">&lt;1.5</span>
-                  </span>
-                </span>
-              </div>
-            </div>
-            <div id="consumptionChart_controls_placeholder"></div>
-          </div>
-          <div class="chart-wrap" style="height:190px;margin-top:6px">
-            <button class="chart-expand-btn" onclick="expandChart(charts.consumptionChart,'Daily consumption rate')">&#x2922; Expand</button>
-            <canvas id="consumptionChart"></canvas>
-          </div>
-        </div>
-      </div>
-
       <div class="two-col">
         <div class="card">
           <div class="card-title">&#x1F6A8; Articles needing attention</div>
@@ -760,6 +722,50 @@ thead th:hover .sort-arrow { color:var(--text2) }
           <div class="chart-wrap" style="height:150px;margin-top:8px">
             <canvas id="hourInsightChart"></canvas>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Content consumption charts — dedicated section below key insights -->
+  <div class="section" id="consumptionSection" style="display:none">
+    <div class="section-header">
+      <div class="section-title">Content consumption</div>
+      <div class="section-sub">Articles · videos · logins over time</div>
+    </div>
+    <div class="two-col">
+      <div class="card" id="artVidChartWrap">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+          <div>
+            <div class="card-title">&#x1F4DA; Articles read vs Videos watched vs Logins</div>
+            <div class="card-sub">Daily content consumption across media types</div>
+          </div>
+          <div id="artVidChart_controls_placeholder"></div>
+        </div>
+        <div class="chart-wrap" style="height:200px;margin-top:6px">
+          <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Articles vs Videos vs Logins')">&#x2922; Expand</button>
+          <canvas id="artVidChart"></canvas>
+        </div>
+      </div>
+      <div class="card" id="consumptionChartWrap">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+          <div>
+            <div class="card-title">&#x1F4CA; Consumption rate — articles per login</div>
+            <div class="card-sub">
+              <span style="display:inline-flex;align-items:center;gap:6px">
+                Articles per login &middot; <span style="display:inline-flex;gap:4px;align-items:center">
+                  <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgba(52,211,153,.8)"></span><span style="font-size:10px">&#x2265;3 great</span>
+                  <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgba(196,122,10,.8)"></span><span style="font-size:10px">1.5&ndash;3</span>
+                  <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgba(248,113,113,.7)"></span><span style="font-size:10px">&lt;1.5</span>
+                </span>
+              </span>
+            </div>
+          </div>
+          <div id="consumptionChart_controls_placeholder"></div>
+        </div>
+        <div class="chart-wrap" style="height:200px;margin-top:6px">
+          <button class="chart-expand-btn" onclick="expandChart(charts.consumptionChart,'Daily consumption rate')">&#x2922; Expand</button>
+          <canvas id="consumptionChart"></canvas>
         </div>
       </div>
     </div>
@@ -902,6 +908,7 @@ let searchData  = null;
 let sessionData = null;
 let videoData   = null;
 let catData     = null;
+let prevCatData = null;   // prev-period categories for compare overlay
 let intelData   = null;  // full intel response
 
 let filters = { event: null, dow: null };
@@ -1190,19 +1197,21 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
     const cur  = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= curFrom  && p.date <= curTo),  gb);
     const prev = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb);
 
+    // Current period → bars; prev period → dashed line (easy to distinguish)
     datasets.push({
-      label: `${ev.label} (${fmtDate(curFrom)}–${fmtDate(curTo)})`,
+      type: 'bar',
+      label: `${ev.label} (current)`,
       data: cur.map(p => p.count||0),
-      borderColor: ev.color, backgroundColor: ev.color + '20',
-      fill: keys.length === 1,
-      pointRadius: 2, tension: .3, borderWidth: 2.5,
+      backgroundColor: ev.color + '77',
+      borderRadius: 2, borderSkipped: false,
     });
     datasets.push({
-      label: `${ev.label} (${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
+      type: 'line',
+      label: `${ev.label} (prev ${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
       data: prev.map(p => p.count||0),
       borderColor: ev.color, backgroundColor: 'transparent',
       borderDash: [5,4], fill: false,
-      pointRadius: 2, tension: .3, borderWidth: 1.5,
+      pointRadius: 2, tension: .3, borderWidth: 2,
     });
   });
 
@@ -1211,7 +1220,7 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
 
   if (charts.trend) charts.trend.destroy();
   charts.trend = new Chart(document.getElementById('trendChart'), {
-    type: 'line',
+    type: 'bar',
     data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -1221,9 +1230,7 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
         tooltip: {
           backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
           titleColor: '#111827', bodyColor: '#374151',
-          callbacks: {
-            title: ctx => `Day ${ctx[0].dataIndex + 1}`,
-          }
+          callbacks: { title: ctx => `Day ${ctx[0].dataIndex + 1}` },
         },
       },
       scales: {
@@ -1324,7 +1331,20 @@ async function _chartCtrlRender(id) {
     setStatus('catStatus', 'loading', 'Loading…');
     try {
       const r = await fetch(`/api/categories?date_from=${from}&date_to=${to}`);
-      if (r.ok) { catData = await r.json(); renderCategories(); }
+      if (r.ok) {
+        catData = await r.json();
+        // Fetch prev period too when compare is on
+        if (compare) {
+          const { prevFrom, prevTo } = _getPrevPeriod(from, to);
+          try {
+            const r2 = await fetch(`/api/categories?date_from=${prevFrom}&date_to=${prevTo}`);
+            if (r2.ok) prevCatData = await r2.json();
+          } catch(e) { prevCatData = null; }
+        } else {
+          prevCatData = null;
+        }
+        renderCategories();
+      }
     } catch(e) {}
   }
   else if (id === 'artVidChart' || id === 'consumptionChart') {
@@ -1333,7 +1353,6 @@ async function _chartCtrlRender(id) {
   }
   else if (id === 'sessionTrendChart' || id === 'sessionActChart' || id === 'hourChart') {
     // Always fetch with the current date range — the backend filters Supabase by date
-    // A local-only re-render would keep showing the previously loaded all-time data
     setStatus('sessionStatus', 'loading', 'Loading…');
     try {
       const r = await fetch(`/api/sessions/full?date_from=${from}&date_to=${to}`);
@@ -1341,6 +1360,20 @@ async function _chartCtrlRender(id) {
         const d = await r.json();
         if (d.available) {
           sessionData = d;
+          // If compare is on, also fetch prev period in background
+          if (compare) {
+            const { prevFrom, prevTo } = _getPrevPeriod(from, to);
+            fetch(`/api/sessions/full?date_from=${prevFrom}&date_to=${prevTo}`)
+              .then(r2 => r2.ok ? r2.json() : null)
+              .then(prev => {
+                window._prevSessionData = prev?.available ? prev : null;
+                renderSessionSection(sessionData);
+                const hd = sessionData.hour_distribution || {};
+                if (Object.keys(hd).length > 0) renderHourGridFromInsights(hd);
+              }).catch(() => {});
+          } else {
+            window._prevSessionData = null;
+          }
           const coverage = d.total_users >= 50 ? 'full coverage' : d.total_users + ' users';
           setStatus('sessionStatus', 'loaded',
             `${fmt(d.total_sessions)} sessions · ${coverage} · ${fmtDate(from)} → ${fmtDate(to)}`);
@@ -1828,23 +1861,56 @@ function renderCategories() {
   const cats = catData.categories.filter(c => c.count > 0).slice(0, topN);
   if (!cats.length) return;
   if (charts.cat) charts.cat.destroy();
+
+  const catColors = ['#4f8ef7','#0e6e45','#c47a0a','#5b3fbf','#c03030','#0f6e56','#b45309'];
+  const compare = isChartCompare('catChart');
+
+  // Build prev-period category totals from rawData time-series (date-filterable, always available)
+  let prevMap = {};
+  if (compare) {
+    const { from, to } = getChartRange('catChart');
+    const { prevFrom, prevTo } = _getPrevPeriod(from, to);
+    const catSeries = rawData['category.viewed']?.series || [];
+    const curTotal  = catSeries.filter(p => p.date >= from    && p.date <= to   ).reduce((s,p) => s+(p.count||0), 0);
+    const prevTotal = catSeries.filter(p => p.date >= prevFrom && p.date <= prevTo).reduce((s,p) => s+(p.count||0), 0);
+    // Scale each category proportionally by the time-series ratio
+    const ratio = curTotal > 0 ? prevTotal / curTotal : 0;
+    prevMap = Object.fromEntries(cats.map(c => [c.path || c.label, Math.round((c.count || 0) * ratio)]));
+  }
+
+  const chartType = compare ? 'bar' : 'doughnut';
+
+  const datasets = compare
+    ? [
+        { label: 'Current period', data: cats.map(c => c.count),
+          backgroundColor: cats.map((_, i) => catColors[i % catColors.length]),
+          borderRadius: 4, borderWidth: 0, type: 'bar' },
+        { label: 'Prev period', data: cats.map(c => prevMap[c.path || c.label] || 0),
+          borderColor: cats.map((_, i) => catColors[i % catColors.length]),
+          backgroundColor: 'transparent',
+          type: 'line', pointRadius: 4, pointStyle: 'circle',
+          tension: 0, borderWidth: 2, borderDash: [5,4], fill: false },
+      ]
+    : [{ data: cats.map(c => c.count),
+         backgroundColor: cats.map((_, i) => catColors[i % catColors.length]),
+         borderWidth: 0, hoverOffset: 4 }];
+
   charts.cat = new Chart(document.getElementById('catChart'), {
-    type: 'doughnut',
-    data: {
-      labels:   cats.map(c => c.label || 'Home'),
-      datasets: [{
-        data: cats.map(c => c.count),
-        backgroundColor: ['#4f8ef7','#0e6e45','#c47a0a','#5b3fbf','#c03030','#0f6e56','#b45309'],
-        borderWidth: 0, hoverOffset: 4,
-      }],
-    },
+    type: chartType,
+    data: { labels: cats.map(c => c.label || 'Home'), datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'right', labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280', padding: 8 } },
+        legend: compare
+          ? { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } }
+          : { position: 'right', labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280', padding: 8 } },
         tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
       },
-      cutout: '65%',
+      ...(compare ? {} : { cutout: '65%' }),
+      ...(compare ? { scales: {
+        x: { ticks: { font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+      }} : {}),
     },
   });
 }
@@ -1904,32 +1970,62 @@ function renderSessionSection() {
   // Duration trend — respect the section-level groupby from makeChartControls
   const daily = d.daily_avg || [];
   const gb = getChartGroupBy('sessionTrendChart');
+  const sessCompare = isChartCompare('sessionTrendChart');
   if (charts.sessionTrend) charts.sessionTrend.destroy();
   if (daily.length === 0) {
     document.getElementById('sessionTrendWrap').innerHTML =
       '<div class="empty" style="padding:32px"><span>📈</span>Not enough timeline data yet · will populate after next 2-hour refresh</div>';
   } else {
-  const aggDaily = aggregateSeries(daily.map(p => ({ date: p.date, count: p.avg_seconds })), gb);
-  charts.sessionTrend = new Chart(document.getElementById('sessionTrendChart'), {
-    type: 'line',
-    data: {
-      labels:   aggDaily.map(p => fmtBucketDate(p.date, gb)),
-      datasets: [{
-        label: 'Avg session (min)',
-        data:  aggDaily.map(p => Math.round((p.count || 0) / 60 * 10) / 10),
-        borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
-        fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} min` }, backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' } },
-      scales: {
-        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
-        y: { ticks: { font: { size: 10 }, callback: v => v + 'm' }, grid: gridOpts, beginAtZero: true },
+    const aggDaily = aggregateSeries(daily.map(p => ({ date: p.date, count: p.avg_seconds })), gb);
+    const curData  = aggDaily.map(p => Math.round((p.count || 0) / 60 * 10) / 10);
+
+    const sessDatasets = [{
+      type: 'bar',
+      label: 'Avg session (current)',
+      data: curData,
+      backgroundColor: 'rgba(37,99,235,.55)',
+      borderRadius: 3, borderSkipped: false,
+    }];
+
+    if (sessCompare && d.prev_daily_avg?.length) {
+      const aggPrev = aggregateSeries(d.prev_daily_avg.map(p => ({ date: p.date, count: p.avg_seconds })), gb);
+      sessDatasets.push({
+        type: 'line',
+        label: 'Avg session (prev period)',
+        data: aggPrev.map(p => Math.round((p.count||0)/60*10)/10),
+        borderColor: '#2563eb', borderDash: [5,4], backgroundColor: 'transparent',
+        pointRadius: 2, tension: .3, borderWidth: 2, fill: false,
+      });
+    } else if (sessCompare && window._prevSessionData?.daily_avg?.length) {
+      // Fallback: use separately-fetched prev period data
+      const aggPrev = aggregateSeries(window._prevSessionData.daily_avg.map(p => ({ date: p.date, count: p.avg_seconds })), gb);
+      sessDatasets.push({
+        type: 'line',
+        label: 'Avg session (prev period)',
+        data: aggPrev.map(p => Math.round((p.count||0)/60*10)/10),
+        borderColor: '#2563eb', borderDash: [5,4], backgroundColor: 'transparent',
+        pointRadius: 2, tension: .3, borderWidth: 2, fill: false,
+      });
+    }
+
+    charts.sessionTrend = new Chart(document.getElementById('sessionTrendChart'), {
+      type: 'bar',
+      data: {
+        labels: aggDaily.map(p => fmtBucketDate(p.date, gb)),
+        datasets: sessDatasets,
       },
-    },
-  });
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: sessCompare, labels: { boxWidth: 10, font:{size:11}, color:'#6b7280' } },
+          tooltip: { callbacks: { label: ctx => `${ctx.raw} min` }, backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
+        },
+        scales: {
+          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
+          y: { ticks: { font: { size: 10 }, callback: v => v + 'm' }, grid: gridOpts, beginAtZero: true },
+        },
+      },
+    });
   } // end daily.length guard
 
   // Activity breakdown
@@ -2219,7 +2315,7 @@ function renderInsights(intel) {
   const logMap = Object.fromEntries(logSeries.map(p => [p.date, p.count || 0]));
 
   if (allDates.length > 0) {
-    document.getElementById('artVidChartWrap').style.display = 'block';
+    document.getElementById('consumptionSection').style.display = 'block';
     const { from: artVidFrom, to: artVidTo } = getChartRange('artVidChart');
     const artVidCompare = isChartCompare('artVidChart');
     const { prevFrom: avPrevFrom, prevTo: avPrevTo } = _getPrevPeriod(artVidFrom, artVidTo);
@@ -2239,23 +2335,23 @@ function renderInsights(intel) {
       : [];
 
     const artVidDatasets = [
-      { label: 'Articles read',  data: allDates.map(d => artMap[d] || 0), borderColor: '#c47a0a', backgroundColor: 'rgba(196,122,10,.08)',  fill: true,  pointRadius: 1, tension: .3, borderWidth: 2 },
-      { label: 'Videos watched', data: allDates.map(d => vidMap[d] || 0), borderColor: '#c03030', backgroundColor: 'rgba(192,48,48,.06)',    fill: true,  pointRadius: 1, tension: .3, borderWidth: 2 },
-      { label: 'Logins',         data: allDates.map(d => logMap[d] || 0), borderColor: '#0e6e45', backgroundColor: 'rgba(14,110,69,.05)',    fill: false, pointRadius: 1, tension: .3, borderWidth: 1.5, borderDash: [4,3] },
+      { type: 'bar', label: 'Articles read',  data: allDates.map(d => artMap[d] || 0), backgroundColor: 'rgba(196,122,10,.55)', borderRadius: 2, borderSkipped: false },
+      { type: 'bar', label: 'Videos watched', data: allDates.map(d => vidMap[d] || 0), backgroundColor: 'rgba(192,48,48,.50)',   borderRadius: 2, borderSkipped: false },
+      { type: 'bar', label: 'Logins',         data: allDates.map(d => logMap[d] || 0), backgroundColor: 'rgba(14,110,69,.40)',   borderRadius: 2, borderSkipped: false },
     ];
     if (artVidCompare && prevDates.length) {
       artVidDatasets.push(
-        { label: `Articles (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`, data: prevDates.map(d => prevArtMap[d]||0), borderColor: '#c47a0a', borderDash:[5,4], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
-        { label: `Videos (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`,   data: prevDates.map(d => prevVidMap[d]||0), borderColor: '#c03030', borderDash:[5,4], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
-        { label: `Logins (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`,   data: prevDates.map(d => prevLogMap[d]||0), borderColor: '#0e6e45', borderDash:[3,3], fill:false, pointRadius:1, tension:.3, borderWidth:1   },
+        { type: 'line', label: `Articles (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`, data: prevDates.map(d => prevArtMap[d]||0), borderColor: '#c47a0a', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
+        { type: 'line', label: `Videos (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`,   data: prevDates.map(d => prevVidMap[d]||0), borderColor: '#c03030', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
+        { type: 'line', label: `Logins (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`,   data: prevDates.map(d => prevLogMap[d]||0), borderColor: '#0e6e45', borderDash:[3,3], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
       );
     }
 
     if (charts.artVidChart) charts.artVidChart.destroy();
     charts.artVidChart = new Chart(document.getElementById('artVidChart'), {
-      type: 'line',
+      type: 'bar',
       data: {
-        labels: artVidCompare && prevDates.length ? allDates.map((d,i) => fmtDate(d)) : allDates.map(d => fmtDate(d)),
+        labels: allDates.map(d => fmtDate(d)),
         datasets: artVidDatasets,
       },
       options: {
@@ -2275,7 +2371,6 @@ function renderInsights(intel) {
 
   // ── Login vs Page view consumption rate chart ─────────────────────────────
   if (allDates.length > 0) {
-    document.getElementById('consumptionChartWrap').style.display = 'block';
     const consumCompare = isChartCompare('consumptionChart');
     const { from: cFrom, to: cTo } = getChartRange('consumptionChart');
     const { prevFrom: cPrevFrom, prevTo: cPrevTo } = _getPrevPeriod(cFrom, cTo);
