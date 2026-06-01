@@ -752,16 +752,22 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <div class="card" style="padding:0;margin-bottom:14px">
         <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <div class="card-title">View by member</div>
-          <input id="csatMemberSearch" type="text" placeholder="Search consultant name…"
-            oninput="filterMemberView()"
-            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:200px;background:var(--surface2);color:var(--text1)">
           <select id="csatMemberTeamFilter" onchange="filterMemberView()"
-            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:160px">
+            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:150px">
             <option value="">All teams</option>
+          </select>
+          <input id="csatMemberSearch" type="text" placeholder="Search name…"
+            oninput="filterMemberView()"
+            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:160px;background:var(--surface2);color:var(--text1)">
+          <select id="csatMemberViewSelect" onchange="renderMemberDrillDown()"
+            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:230px">
+            <option value="">— Select a consultant —</option>
           </select>
           <span id="csatMemberViewSub" style="font-size:12px;color:var(--text3)"></span>
         </div>
-        <div id="csatMemberGrid" style="padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px"></div>
+        <div id="csatMemberDrillContent" style="padding:16px">
+          <div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1138,6 +1144,88 @@ async function loadCSAT(forceRefresh = false) {
   }
 }
 
+// ── Global CSAT scope ─────────────────────────────────────────────────────────
+// When a team or member is selected in the By Team / By Member views, the WHOLE
+// page (KPIs, distribution, trend, FCR, leaderboards) is re-scoped to that subset.
+// _csatScope = { type:'all' } | { type:'team', value:teamName } | { type:'member', value:cid }
+let _csatScope = { type: 'all' };
+let _csatScopedDays = null;  // scoped day_map, rebuilt on every compute; used by trend/FCR/compare
+
+// Return a day_map filtered to the active scope. Each day is rebuilt so its
+// top-level totals (t/sr/s/l/d) reflect ONLY the scoped team/member, and the
+// tm/cn sub-maps are narrowed to match. 'all' returns the raw map unchanged.
+function _csatScopeDays(rawDays) {
+  if (!_csatScope || _csatScope.type === 'all') return rawDays;
+  const out = {};
+  for (const [d, dm] of Object.entries(rawDays)) {
+    let src = null, tm = {}, cn = {};
+    if (_csatScope.type === 'team') {
+      src = (dm.tm || {})[_csatScope.value];
+      if (!src) continue;
+      tm = { [_csatScope.value]: src };
+      // keep only consultants belonging to this team
+      for (const [cid, cv] of Object.entries(dm.cn || {})) {
+        if ((cv.tm || '').trim() === _csatScope.value) cn[cid] = cv;
+      }
+    } else { // member
+      src = (dm.cn || {})[_csatScope.value];
+      if (!src) continue;
+      cn = { [_csatScope.value]: src };
+      tm = { [src.tm || '—']: src };
+    }
+    out[d] = {
+      t: src.t || 0, sr: src.sr || 0, s: src.s || 0, l: src.l || 0,
+      d: Object.assign({}, src.d || {}),
+      tm, cn,
+    };
+  }
+  return out;
+}
+
+// Build team list + per-team daily series from the FULL (unscoped) day map for a
+// date range. Used by the CS Teams comparison section so it always shows every team.
+function _csatUnscopedTeams(fromIso, toIso) {
+  const raw = _csatRaw?.days || {};
+  const lo = fromIso || _csatRaw?.date_min, hi = toIso || _csatRaw?.date_max;
+  const teams = {}, teamDaily = {};
+  for (const [d, dm] of Object.entries(raw)) {
+    if (d < lo || d > hi) continue;
+    for (const [t, tv] of Object.entries(dm.tm || {})) {
+      if (!teams[t]) teams[t] = {t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
+      teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
+      if (tv.d) for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(tv.d[r]||0);
+      if (!teamDaily[t]) teamDaily[t] = {};
+      if (!teamDaily[t][d]) teamDaily[t][d] = {t:0,sr:0,s:0};
+      teamDaily[t][d].t+=tv.t; teamDaily[t][d].sr+=tv.sr; teamDaily[t][d].s+=tv.s||0;
+    }
+  }
+  const teamList = Object.entries(teams).filter(([,v])=>v.t>=1).map(([t,v]) => ({
+    team:t, avg_rating: Math.round(v.sr/v.t*100)/100, solved_pct: Math.round(v.s/v.t*1000)/10,
+    total:v.t, low_pct: Math.round(v.l/v.t*1000)/10,
+    dist:[1,2,3,4,5].map(r=>({r,count:v.d?.[r]||0,pct:v.t>0?Math.round((v.d?.[r]||0)/v.t*1000)/10:0}))
+  })).sort((a,b)=>b.avg_rating-a.avg_rating);
+  return { teams: teamList, team_daily: teamDaily };
+}
+
+// Lightweight unscoped consultant list for populating the team/member selectors,
+// WITHOUT triggering a full recompute (avoids re-entrancy with renderCSAT).
+function _csatUnscopedConsultants(fromIso, toIso) {
+  const raw = _csatRaw?.days || {};
+  const lo = fromIso || _csatRaw?.date_min, hi = toIso || _csatRaw?.date_max;
+  const cons = {};
+  for (const [d, dm] of Object.entries(raw)) {
+    if (d < lo || d > hi) continue;
+    for (const [cid, cv] of Object.entries(dm.cn || {})) {
+      if (!cons[cid]) cons[cid] = {n:cv.n, tm:cv.tm, t:0, sr:0};
+      cons[cid].t += cv.t; cons[cid].sr += cv.sr;
+    }
+  }
+  return Object.entries(cons).filter(([,v])=>v.t>=1).map(([cid,v]) => ({
+    cid, name:v.n, team:v.tm, total:v.t,
+    avg_rating: Math.round(v.sr/v.t*100)/100,
+  }));
+}
+
 function _csatComputeAndRender(from, to) {
   // Sync any chart-level control set to 'selection' so it re-renders with the new global dates.
   ['csatDist', 'csTeamTrend', 'fcrChart'].forEach(id => {
@@ -1146,7 +1234,8 @@ function _csatComputeAndRender(from, to) {
     }
   });
   if (!_csatRaw?.days) return;
-  const days  = _csatRaw.days;
+  const days  = _csatScopeDays(_csatRaw.days);
+  _csatScopedDays = days;  // shared with trend / FCR / compare renderers
   const lo    = from || _csatRaw.date_min;
   const hi    = to   || _csatRaw.date_max;
   // Generate a dense day-by-day spine from lo→hi so all dates are represented
@@ -1211,9 +1300,15 @@ function _csatComputeAndRender(from, to) {
 
     // Consultants from dm.cn when available
     for (const [cid, cv] of Object.entries(dm.cn||{})) {
-      if (!cons[cid]) cons[cid]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
+      if (!cons[cid]) cons[cid]={n:cv.n,tm:cv.tm,t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0},calls:[]};
       cons[cid].t+=cv.t; cons[cid].sr+=cv.sr; cons[cid].s+=cv.s; cons[cid].l+=cv.l;
       if (cv.d) for (let r=1;r<=5;r++) cons[cid].d[r]=(cons[cid].d[r]||0)+(cv.d[r]||0);
+      // Per-call records: tag each with the day key so the table can show a date.
+      if (Array.isArray(cv.c)) {
+        for (const call of cv.c) {
+          cons[cid].calls.push({ call_id: call.i, rating: call.r, solved: !!call.s, date: d });
+        }
+      }
     }
   }
   // We don't have per-row solved+rating in the index — use day-level solved ratio
@@ -1256,7 +1351,8 @@ function _csatComputeAndRender(from, to) {
       solved_pct: Math.round(v.s/v.t*1000)/10,
       total: v.t,
       low_pct: Math.round(v.l/v.t*1000)/10,
-      dist: [1,2,3,4,5].map(r => ({ r, count: v.d?.[r]||0, pct: v.t>0 ? Math.round((v.d?.[r]||0)/v.t*1000)/10 : 0 }))
+      dist: [1,2,3,4,5].map(r => ({ r, count: v.d?.[r]||0, pct: v.t>0 ? Math.round((v.d?.[r]||0)/v.t*1000)/10 : 0 })),
+      calls: (v.calls||[]).slice().sort((a,b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0)
     }))
     .sort((a,b) => b.avg_rating - a.avg_rating);
 
@@ -1282,7 +1378,7 @@ function _csatComputeAndRender(from, to) {
 
 // ── CSAT comparison renderer ──────────────────────────────────────────────────
 function _renderCsatCompare(curFrom, curTo, gb) {
-  const days = _csatRaw.days || {};
+  const days = _csatScopedDays || _csatRaw.days || {};
   const curDays  = Math.round((new Date(curTo) - new Date(curFrom)) / 86400000) + 1;
   const prevTo   = subtractUnit(curFrom, 1, 'days');
   const prevFrom = subtractUnit(prevTo, curDays - 1, 'days');
@@ -1473,7 +1569,7 @@ function renderCSAT(d) {
     const prevTo   = subtractUnit(df, 1, 'days');
     const prevFrom = subtractUnit(prevTo, periodDays - 1, 'days');
     const prevD = {}, prevT = { t:0 };
-    for (const [date, dm] of Object.entries(_csatRaw.days)) {
+    for (const [date, dm] of Object.entries(_csatScopedDays || _csatRaw.days)) {
       if (date >= prevFrom && date <= prevTo) {
         for (const [r,c] of Object.entries(dm.d||{})) { prevD[+r] = (prevD[+r]||0) + c; prevT.t += c; }
       }
@@ -1531,8 +1627,14 @@ function renderCSAT(d) {
     document.getElementById('csatDistSub').textContent = 'No surveys in selected period';
   }
 
-  // CS Teams dedicated section
-  renderCSTeams(d.teams || [], d.team_daily || {});
+  // CS Teams dedicated section — always compares ALL teams, so it uses the
+  // UNSCOPED dataset even when the page is scoped to a single team/member.
+  if (_csatScope.type === 'all') {
+    renderCSTeams(d.teams || [], d.team_daily || {});
+  } else {
+    const u = _csatUnscopedTeams(d.date_from, d.date_to);
+    renderCSTeams(u.teams, u.team_daily);
+  }
 
   // Team leaderboard
   const teams = d.teams || [];
@@ -1618,7 +1720,8 @@ function renderCSAT(d) {
   renderConsultantTable();
   renderFCR();
 
-  // Refresh drill-down views if currently active
+  // Refresh drill-down views if currently active. Use the populate fns which now
+  // call the lightweight CONTENT renderers (no recompute) — safe inside renderCSAT.
   if (_csatView === 'team')   _populateTeamDrillDown();
   if (_csatView === 'member') _populateMemberView();
 }
@@ -1638,7 +1741,7 @@ function renderFCR() {
     const end = new Date(toDate + 'T00:00:00');
     while (d <= end) {
       const iso = d.toISOString().slice(0,10);
-      const dm  = _csatRaw.days[iso];
+      const dm  = (_csatScopedDays || _csatRaw.days)[iso];
       spine.push({
         date: iso, week: iso,
         fcr:   dm && dm.t > 0 ? Math.round(dm.s / dm.t * 1000) / 10 : null,
@@ -1747,6 +1850,22 @@ function renderFCR() {
 // ── View mode switcher ────────────────────────────────────────────────────────
 let _csatView = 'overview';
 
+// hear.com Unified Comm Journal — base for per-call deep links.
+const UCJ_BASE = 'https://comm-journal.audibene.net/table';
+function ucjCallUrl(callId) {
+  // Filter the journal to a single call via its global search box.
+  const params = new URLSearchParams({
+    columnFilters: '[]',
+    density: 'sparse',
+    globalFilter: callId || '',
+    page: '0',
+    pageSize: '10',
+    pinnedColumns: 'date-customerContactPoint-contactPoint',
+    unpinnedColumns: 'channel-direction-content-country',
+  });
+  return UCJ_BASE + '?' + params.toString();
+}
+
 function setCsatView(mode, btn) {
   _csatView = mode;
   document.querySelectorAll('#csatSection .gbtn').forEach(b => b.classList.remove('active'));
@@ -1754,28 +1873,76 @@ function setCsatView(mode, btn) {
   document.getElementById('csatOverviewContent').style.display = mode === 'overview' ? '' : 'none';
   document.getElementById('csatTeamView').style.display        = mode === 'team'     ? '' : 'none';
   document.getElementById('csatMemberView').style.display      = mode === 'member'   ? '' : 'none';
+
+  // Clear any page-wide scope that doesn't match the view we're entering, then
+  // recompute so the page returns to the unscoped state for a fresh selection.
+  // (Overview is always unscoped; team view keeps only team scope; member only member.)
+  const keep = (mode === 'team'   && _csatScope.type === 'team')
+            || (mode === 'member' && _csatScope.type === 'member');
+  if (!keep && _csatScope.type !== 'all') {
+    _csatScope = { type: 'all' };
+    _csatComputeAndRender(state.from, state.to);
+  }
   if (mode === 'team')   _populateTeamDrillDown();
   if (mode === 'member') _populateMemberView();
 }
 
+// Re-apply the active scope, recompute the whole page, then re-render the
+// section-specific breakdown. csatData is already scoped after recompute.
+function _applyCsatScopeAndRefresh(afterRender) {
+  _csatComputeAndRender(state.from, state.to);
+  if (typeof afterRender === 'function') afterRender();
+}
+
+// ── By Team view ──────────────────────────────────────────────────────────────
 function _populateTeamDrillDown() {
-  if (!csatData) return;
+  if (!_csatRaw) return;
   const sel = document.getElementById('csatTeamViewSelect');
   if (!sel) return;
-  const teams = (csatData.teams || []).sort((a,b) => a.team.localeCompare(b.team));
+  // Team list from the FULL (unscoped) dataset so the selector is stable.
+  // Uses the lightweight helper — NO recompute, so it can be safely called from renderCSAT.
+  const teams = _csatUnscopedTeams(state.from, state.to).teams
+    .slice().sort((a,b) => a.team.localeCompare(b.team));
+
+  const current = _csatScope.type === 'team' ? _csatScope.value : '';
   sel.innerHTML = '<option value="">— Select a team —</option>' +
-    teams.map(t => `<option value="${t.team}">${t.team} · ${t.avg_rating}★ · ${fmt(t.total)} surveys</option>`).join('');
-  document.getElementById('csatTeamDrillContent').innerHTML =
-    '<div class="empty"><span>👆</span>Select a team to see its detailed CSAT breakdown</div>';
+    teams.map(t => `<option value="${t.team}" ${t.team===current?'selected':''}>${t.team} · ${t.avg_rating}★ · ${fmt(t.total)} surveys</option>`).join('');
+
+  if (current) { _renderTeamDrillContent(); }
+  else {
+    document.getElementById('csatTeamDrillContent').innerHTML =
+      '<div class="empty"><span>👆</span>Select a team — the whole page updates to that team</div>';
+  }
 }
 
 function renderTeamDrillDown() {
-  if (!csatData) return;
+  if (!_csatRaw) return;
   const teamName = document.getElementById('csatTeamViewSelect').value;
-  if (!teamName) { document.getElementById('csatTeamDrillContent').innerHTML = '<div class="empty"><span>👆</span>Select a team</div>'; return; }
+  // Drive the page-wide scope from the selector, then recompute everything.
+  // The recompute's renderCSAT tail-call refreshes the drill content via the view hook.
+  _csatScope = teamName ? { type: 'team', value: teamName } : { type: 'all' };
+  _csatComputeAndRender(state.from, state.to);
+  if (!teamName) {
+    document.getElementById('csatTeamViewSub').textContent = '';
+    document.getElementById('csatTeamDrillContent').innerHTML =
+      '<div class="empty"><span>👆</span>Select a team — the whole page updates to that team</div>';
+  }
+}
 
-  const t = (csatData.teams||[]).find(t => t.team === teamName);
-  if (!t) return;
+// Renders ONLY the team-drill section from the already-scoped csatData. No recompute.
+function _renderTeamDrillContent() {
+  if (!_csatRaw) return;
+  const teamName = _csatScope.type === 'team' ? _csatScope.value : '';
+  if (!teamName) {
+    document.getElementById('csatTeamViewSub').textContent = '';
+    document.getElementById('csatTeamDrillContent').innerHTML =
+      '<div class="empty"><span>👆</span>Select a team — the whole page updates to that team</div>';
+    return;
+  }
+
+  // csatData is already scoped to this team. Its single team entry holds the totals.
+  const t = (csatData.teams||[]).find(x => x.team === teamName) ||
+            { team:teamName, avg_rating:0, solved_pct:0, total:0, low_pct:0, dist:[] };
 
   const members = (csatData.all_consultants||[]).filter(c => c.team === teamName)
     .sort((a,b) => b.avg_rating - a.avg_rating);
@@ -1785,10 +1952,9 @@ function renderTeamDrillDown() {
   const maxPct = Math.max(...(t.dist||[]).map(d=>d.pct),1);
 
   document.getElementById('csatTeamViewSub').textContent =
-    `${fmt(t.total)} surveys · ${t.avg_rating}★ avg · ${t.solved_pct}% solved · ${t.low_pct}% low`;
+    `Page synced to ${teamName} · ${fmt(t.total)} surveys · ${t.avg_rating}★ avg · ${t.solved_pct}% solved · ${t.low_pct}% low`;
 
   document.getElementById('csatTeamDrillContent').innerHTML = `
-    <!-- Team KPIs -->
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px">
       <div class="card" style="text-align:center;padding:14px">
         <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${t.avg_rating}</div>
@@ -1808,7 +1974,6 @@ function renderTeamDrillDown() {
       </div>
     </div>
 
-    <!-- Rating distribution -->
     <div style="margin-bottom:20px">
       <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Rating distribution</div>
       <div style="display:flex;flex-direction:column;gap:6px;max-width:400px">
@@ -1823,9 +1988,8 @@ function renderTeamDrillDown() {
       </div>
     </div>
 
-    <!-- Members table -->
     <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">
-      ${members.length} consultants in ${teamName}
+      ${members.length} consultants in ${teamName} · click a name to drill into their calls
     </div>
     ${members.length === 0
       ? '<div class="empty"><span>👤</span>No consultant-level data for this team</div>'
@@ -1840,7 +2004,7 @@ function renderTeamDrillDown() {
           <tbody>
             ${members.map(c => {
               const rc = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
-              return `<tr style="cursor:pointer" onclick="openCsatDetail('consultant','cons_${c.cid.replace(/[^a-z0-9]/gi,'_')}')">
+              return `<tr style="cursor:pointer" onclick="goToMember('${c.cid.replace(/'/g,"\\'")}')">
                 <td style="padding-left:12px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${c.name}</td>
                 <td class="mono r">${fmt(c.total)}</td>
                 <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.avg_rating}</span></td>
@@ -1853,74 +2017,176 @@ function renderTeamDrillDown() {
     }`;
 }
 
+// Jump from a team row to the By Member view scoped to that consultant.
+function goToMember(cid) {
+  setCsatView('member', document.getElementById('csatViewMember'));
+  const sel = document.getElementById('csatMemberViewSelect');
+  if (sel) { sel.value = cid; renderMemberDrillDown(); }
+}
+
+// ── By Member view ────────────────────────────────────────────────────────────
 function _populateMemberView() {
-  if (!csatData) return;
+  if (!_csatRaw) return;
+  // Build the member + team selectors from the FULL dataset (lightweight, no recompute).
+  const allCons = _csatUnscopedConsultants(state.from, state.to);
+
   const teamSel = document.getElementById('csatMemberTeamFilter');
   if (teamSel) {
-    const teams = [...new Set((csatData.all_consultants||[]).map(c=>c.team).filter(Boolean))].sort();
+    const teams = [...new Set(allCons.map(c=>c.team).filter(Boolean))].sort();
+    const cur = teamSel.value;
     teamSel.innerHTML = '<option value="">All teams</option>' +
-      teams.map(t => `<option value="${t}">${t}</option>`).join('');
+      teams.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t}</option>`).join('');
   }
-  filterMemberView();
+  _rebuildMemberSelect(allCons);
+
+  if (_csatScope.type === 'member') {
+    const sel = document.getElementById('csatMemberViewSelect');
+    if (sel) sel.value = _csatScope.value;
+    _renderMemberDrillContent();
+  } else {
+    document.getElementById('csatMemberDrillContent').innerHTML =
+      '<div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>';
+  }
 }
 
-function filterMemberView() {
-  if (!csatData) return;
-  const q    = (document.getElementById('csatMemberSearch')?.value || '').toLowerCase();
+// (Re)fill the member dropdown, honoring the team filter + search box.
+function _rebuildMemberSelect(allCons) {
+  const sel = document.getElementById('csatMemberViewSelect');
+  if (!sel) return;
   const team = document.getElementById('csatMemberTeamFilter')?.value || '';
-  let members = (csatData.all_consultants || []).filter(c => {
+  const q    = (document.getElementById('csatMemberSearch')?.value || '').toLowerCase();
+  let list = allCons.filter(c => {
     if (team && c.team !== team) return false;
-    if (q && !c.name?.toLowerCase().includes(q)) return false;
+    if (q && !(c.name||'').toLowerCase().includes(q)) return false;
     return true;
-  }).sort((a,b) => b.avg_rating - a.avg_rating);
+  }).sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Select a consultant —</option>' +
+    list.map(c => `<option value="${c.cid}" ${c.cid===cur?'selected':''}>${c.name} · ${c.team||'—'} · ${c.avg_rating}★</option>`).join('');
+}
+
+// Search / team filter just re-narrows the dropdown (no scope change until a pick).
+function filterMemberView() {
+  if (!_csatRaw) return;
+  _rebuildMemberSelect(_csatUnscopedConsultants(state.from, state.to));
+}
+
+function renderMemberDrillDown() {
+  if (!_csatRaw) return;
+  const cid = document.getElementById('csatMemberViewSelect').value;
+  // Drive page-wide scope, then recompute. renderCSAT's view hook refreshes content.
+  _csatScope = cid ? { type: 'member', value: cid } : { type: 'all' };
+  _csatComputeAndRender(state.from, state.to);
+  if (!cid) {
+    document.getElementById('csatMemberViewSub').textContent = '';
+    document.getElementById('csatMemberDrillContent').innerHTML =
+      '<div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>';
+  }
+}
+
+// Renders ONLY the member-drill section from the already-scoped csatData. No recompute.
+function _renderMemberDrillContent() {
+  if (!_csatRaw) return;
+  const cid = _csatScope.type === 'member' ? _csatScope.value : '';
+  const content = document.getElementById('csatMemberDrillContent');
+  if (!cid) {
+    document.getElementById('csatMemberViewSub').textContent = '';
+    content.innerHTML = '<div class="empty"><span>👆</span>Select a consultant — the whole page updates to that member</div>';
+    return;
+  }
+
+  const c = (csatData.all_consultants||[]).find(x => x.cid === cid);
+  if (!c) { content.innerHTML = '<div class="empty"><span>👤</span>No data for this consultant in the selected period</div>'; return; }
+
+  const rc = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+  const maxPct = Math.max(...(c.dist||[]).map(d=>d.pct),1);
+  const calls = (c.calls||[]);
 
   document.getElementById('csatMemberViewSub').textContent =
-    `${members.length} consultant${members.length!==1?'s':''}`;
+    `Page synced to ${c.name} · ${c.team||'—'} · ${fmt(c.total)} surveys · ${c.avg_rating}★ avg · ${c.solved_pct}% solved`;
 
-  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+  content.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:18px">
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${rc}">${c.avg_rating}</div>
+        <div style="font-size:11px;color:var(--text3)">Avg Rating</div>
+      </div>
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${c.solved_pct}%</div>
+        <div style="font-size:11px;color:var(--text3)">Solved</div>
+      </div>
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(c.total)}</div>
+        <div style="font-size:11px;color:var(--text3)">Surveys</div>
+      </div>
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--red)">${c.low_pct}%</div>
+        <div style="font-size:11px;color:var(--text3)">Low (1–2★)</div>
+      </div>
+    </div>
 
-  document.getElementById('csatMemberGrid').innerHTML = members.map(c => {
-    const rc = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
-    const maxPct = Math.max(...(c.dist||[]).map(d=>d.pct),1);
-    const detailKey = 'cons_' + c.cid.replace(/[^a-z0-9]/gi,'_');
-    // Store for click
-    _csatDetailData[detailKey] = c;
-    return `
-      <div class="card" style="cursor:pointer;padding:14px;transition:box-shadow .15s"
-           onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow=''"
-           onclick="openCsatDetail('consultant','${detailKey}')">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="font-size:13px;font-weight:600;color:var(--blue)">${c.name}</div>
-          <span class="pill ${c.low_pct>20?'red':c.low_pct>10?'amber':'green'}" style="font-size:10px">${c.low_pct}% low</span>
-        </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">${c.team || '—'}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:12px">
-          <div style="text-align:center">
-            <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${rc}">${c.avg_rating}</div>
-            <div style="font-size:9px;color:var(--text3)">Avg ★</div>
-          </div>
-          <div style="text-align:center">
-            <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${c.solved_pct}%</div>
-            <div style="font-size:9px;color:var(--text3)">Solved</div>
-          </div>
-          <div style="text-align:center">
-            <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(c.total)}</div>
-            <div style="font-size:9px;color:var(--text3)">Surveys</div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:3px">
-          ${(c.dist||[]).map(d => `
-            <div style="display:flex;align-items:center;gap:5px">
-              <div style="font-size:9px;color:var(--text3);width:12px;text-align:right">${d.r}★</div>
-              <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
-                <div style="width:${Math.round(d.pct/maxPct*100)}%;height:100%;background:${barColors[d.r]};border-radius:2px"></div>
-              </div>
-              <div style="font-size:9px;color:var(--text3);width:28px;text-align:right">${d.pct}%</div>
-            </div>`).join('')}
-        </div>
-      </div>`;
-  }).join('') || '<div class="empty" style="grid-column:1/-1"><span>👤</span>No consultants match this filter</div>';
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Rating distribution</div>
+      <div style="display:flex;flex-direction:column;gap:6px;max-width:400px">
+        ${(c.dist||[]).map(d => `
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="font-size:11px;color:var(--text3);width:24px;text-align:right">${d.r}★</div>
+            <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+              <div style="width:${Math.round(d.pct/maxPct*100)}%;height:100%;background:${barColors[d.r]};border-radius:4px;transition:width .4s"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text3);min-width:70px">${d.count} (${d.pct}%)</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2)">
+        Individual calls (${fmt(calls.length)}) · click a Call ID to open it in the Comm Journal
+      </div>
+      <input id="csatCallSearch" type="text" placeholder="Filter calls…" oninput="_renderMemberCalls()"
+        style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:160px;background:var(--surface2);color:var(--text1)">
+    </div>
+    <div class="table-wrap" style="max-height:460px;overflow-y:auto">
+      <table>
+        <thead><tr>
+          <th style="padding-left:12px">Call ID</th>
+          <th>Date</th>
+          <th class="r">Rating</th>
+          <th class="r">Solved</th>
+        </tr></thead>
+        <tbody id="csatMemberCallsBody"></tbody>
+      </table>
+    </div>`;
+
+  _memberCallsCache = calls;
+  _renderMemberCalls();
 }
+
+let _memberCallsCache = [];
+function _renderMemberCalls() {
+  const body = document.getElementById('csatMemberCallsBody');
+  if (!body) return;
+  const q = (document.getElementById('csatCallSearch')?.value || '').toLowerCase();
+  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+  const rows = _memberCallsCache.filter(c =>
+    !q || (c.call_id||'').toLowerCase().includes(q) || String(c.rating).includes(q) || (c.date||'').includes(q));
+
+  body.innerHTML = rows.map(c => {
+    const rc = barColors[c.rating] || 'var(--text2)';
+    const url = ucjCallUrl(c.call_id);
+    return `<tr>
+      <td style="padding-left:12px;font-family:'JetBrains Mono',monospace;font-size:11px">
+        <a href="${url}" target="_blank" rel="noopener"
+           style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${c.call_id||'—'}</a>
+      </td>
+      <td style="font-size:12px;color:var(--text3)">${c.date||'—'}</td>
+      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating}★</span></td>
+      <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+}
+
 
 // ── Team leaderboard sort ─────────────────────────────────────────────────────
 const _teamSort = { key: 'avg_rating', dir: -1 };

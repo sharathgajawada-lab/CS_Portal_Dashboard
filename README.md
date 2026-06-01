@@ -99,3 +99,23 @@ Upload a new file via the **Update CSAT** button on the `/csat` page (password-p
 | `POST` | `/upload/csat` | Upload new CSAT CSV/XLSX |
 | `GET` | `/debug/csat` | Verify CSAT data loaded |
 | `GET` | `/debug/cms` | Test CMS connectivity |
+
+---
+
+## CSAT views & per-call drill-down (Call ID → UCJ)
+
+The `/csat` page has three synchronized subpages, switched via the Overview / By Team / By Member toggle:
+
+- **Overview** — unscoped: all teams and consultants.
+- **By Team** — a team selector at the top. Picking a team re-scopes the *entire page* (KPIs, rating distribution, CSAT trend, FCR trend, leaderboards) to that team, and shows a per-team breakdown with its consultants. The CS Teams comparison cards always stay unscoped so they keep comparing all teams.
+- **By Member** — team filter + search + a consultant selector. Picking a consultant re-scopes the whole page to that member and renders an **individual-calls table**: each row shows the **Call ID** (a clickable deep link into the Unified Comm Journal, filtered to that call via `globalFilter`), the date, the star rating, and solved/unsolved.
+
+### Required CSV column
+
+`call_quality.csv` now includes a `CALL_ID` column. It is captured by the startup CSV loader, the `.xlsx` parser, and the upload endpoint, and stored per-call under `days[date].cn[cid].c` as `{i: call_id, r: rating, s: solved}`. Rows without a `CALL_ID` are still counted in the aggregates but produce no per-call row.
+
+| Column | Type | Example |
+|--------|------|---------|
+| `CALL_ID` | string | `CAa9b4e29c07c03415649b92bdabb227e8` |
+
+UCJ base: `https://comm-journal.audibene.net/table` — the Call ID is passed as the `globalFilter` query param.

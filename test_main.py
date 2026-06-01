@@ -27,11 +27,11 @@ client = TestClient(app)
 
 def _sample_rows():
     return [
-        {"rating": 5, "cid": "c1", "name": "Alice", "team": "Team A", "date": "2026-05-01", "solved": True},
-        {"rating": 3, "cid": "c2", "name": "Bob",   "team": "Team A", "date": "2026-05-01", "solved": False},
-        {"rating": 4, "cid": "c1", "name": "Alice", "team": "Team A", "date": "2026-05-02", "solved": True},
-        {"rating": 2, "cid": "c3", "name": "Carol", "team": "Team B", "date": "2026-05-02", "solved": False},
-        {"rating": 1, "cid": "c2", "name": "Bob",   "team": "Team A", "date": "2026-05-03", "solved": False},
+        {"rating": 5, "cid": "c1", "name": "Alice", "team": "Team A", "date": "2026-05-01", "solved": True,  "call_id": "CA001"},
+        {"rating": 3, "cid": "c2", "name": "Bob",   "team": "Team A", "date": "2026-05-01", "solved": False, "call_id": "CA002"},
+        {"rating": 4, "cid": "c1", "name": "Alice", "team": "Team A", "date": "2026-05-02", "solved": True,  "call_id": "CA003"},
+        {"rating": 2, "cid": "c3", "name": "Carol", "team": "Team B", "date": "2026-05-02", "solved": False, "call_id": "CA004"},
+        {"rating": 1, "cid": "c2", "name": "Bob",   "team": "Team A", "date": "2026-05-03", "solved": False, "call_id": "CA005"},
     ]
 
 
@@ -103,6 +103,23 @@ class TestBuildCsatIndex:
         cn = idx["days"]["2026-05-01"]["cn"]
         assert "c1" in cn
         assert cn["c1"]["n"] == "Alice"
+
+    def test_consultant_has_call_records(self):
+        """Per-call records must be captured under cn[cid]['c'] for the By Member calls table."""
+        idx = _build_csat_index(_sample_rows())
+        cn = idx["days"]["2026-05-01"]["cn"]
+        assert "c" in cn["c1"]
+        assert cn["c1"]["c"] == [{"i": "CA001", "r": 5, "s": 1}]
+        # Bob unsolved → s=0
+        assert cn["c2"]["c"] == [{"i": "CA002", "r": 3, "s": 0}]
+
+    def test_call_records_skip_blank_call_id(self):
+        """Rows without a call_id must not produce a per-call record (no crash, no empty entry)."""
+        rows = [{"rating": 5, "cid": "c9", "name": "Dave", "team": "Team A",
+                 "date": "2026-05-01", "solved": True}]  # no call_id key at all
+        idx = _build_csat_index(rows)
+        cn = idx["days"]["2026-05-01"]["cn"]
+        assert cn["c9"]["c"] == []
 
     def test_rating_distribution_d_key(self):
         idx = _build_csat_index(_sample_rows())

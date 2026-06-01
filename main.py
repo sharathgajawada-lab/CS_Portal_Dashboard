@@ -252,12 +252,17 @@ def _build_csat_index(rows: list) -> dict:
         if not bad_name:
             # Per-day consultant data — ensures team totals == sum of consultant totals
             if cid not in dm["cn"]:
-                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
+                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"c":[]}
             dm["cn"][cid]["t"]  += 1
             dm["cn"][cid]["sr"] += r["rating"]
             dm["cn"][cid]["s"]  += int(r["solved"])
             dm["cn"][cid]["l"]  += int(r["rating"] <= 2)
             dm["cn"][cid]["d"][r["rating"]] = dm["cn"][cid]["d"].get(r["rating"], 0) + 1
+            # Per-call record for individual-call tables (Call ID → UCJ link).
+            # Compact keys: i=call_id, r=rating, s=solved(0/1). Date comes from the day key.
+            call_id = r.get("call_id") or ""
+            if call_id:
+                dm["cn"][cid]["c"].append({"i": call_id, "r": r["rating"], "s": int(r["solved"])})
 
         if not bad_name:
             try:
@@ -327,6 +332,7 @@ def _load_csat_csv():
                         "team":   row["CONSULTANT_TEAM"].strip(),
                         "date":   date_str,
                         "solved": row["SOLVED"].strip().lower() == "true",
+                        "call_id": (row.get("CALL_ID") or "").strip(),
                     })
                 except (ValueError, KeyError):
                     continue
@@ -370,6 +376,7 @@ def _parse_excel_bytes(data: bytes) -> list:
             team    = str(row[col["CONSULTANT_TEAM"]] or "").strip()
             dt_val  = row[col["DATETIME"]]
             solved  = str(row[col["SOLVED"]] or "").strip().lower() == "true"
+            call_id = str(row[col["CALL_ID"]] or "").strip() if "CALL_ID" in col else ""
             if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
                 date_str = dt_val.strftime("%Y-%m-%d")
             elif isinstance(dt_val, (int, float)):
@@ -380,7 +387,8 @@ def _parse_excel_bytes(data: bytes) -> list:
             if not (1 <= rating <= 5) or not cid or not date_str:
                 continue
             rows.append({"rating":rating,"cid":cid,"name":name,
-                         "team":team,"date":date_str,"solved":solved})
+                         "team":team,"date":date_str,"solved":solved,
+                         "call_id":call_id})
         except (TypeError, ValueError):
             continue
     return rows
@@ -1222,6 +1230,7 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
                         "team":   row["CONSULTANT_TEAM"].strip(),
                         "date":   raw_date[:10].strip(),
                         "solved": row["SOLVED"].strip().lower() == "true",
+                        "call_id": (row.get("CALL_ID") or "").strip(),
                     })
                 except (KeyError, ValueError):
                     continue
