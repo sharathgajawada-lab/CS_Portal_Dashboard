@@ -474,11 +474,19 @@ thead th:hover .sort-arrow { color:var(--text2) }
   <!-- ── CSAT: Call Quality Survey ─────────────────────────────────────────── -->
   <div class="section" id="csatSection">
     <div class="section-header">
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div class="section-title">Call quality &amp; CSAT</div>
         <span class="section-status loading" id="csatStatus"><span class="spinner"></span> Loading&hellip;</span>
       </div>
-      <div class="section-sub" id="csatSub">Post-call customer satisfaction survey &middot; filtered by selected date range</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+        <div class="section-sub" id="csatSub">Post-call customer satisfaction survey &middot; filtered by selected date range</div>
+        <!-- View mode switcher -->
+        <div style="display:flex;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px;flex-shrink:0">
+          <button id="csatViewOverview" class="gbtn active" onclick="setCsatView('overview',this)" style="font-size:11px;padding:3px 10px">Overview</button>
+          <button id="csatViewTeam"     class="gbtn"        onclick="setCsatView('team',this)"     style="font-size:11px;padding:3px 10px">By Team</button>
+          <button id="csatViewMember"   class="gbtn"        onclick="setCsatView('member',this)"   style="font-size:11px;padding:3px 10px">By Member</button>
+        </div>
+      </div>
     </div>
 
     <!-- Row 1: KPIs left, charts right -->
@@ -663,6 +671,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
 
     <!-- Row 3: Team leaderboard + All consultants full width -->
+    <div id="csatOverviewContent">
     <div class="two-col" style="align-items:start">
 
       <div class="card" style="padding:0">
@@ -718,6 +727,42 @@ thead th:hover .sort-arrow { color:var(--text2) }
         </div>
       </div>
 
+    </div>
+    </div><!-- end csatOverviewContent -->
+
+    <!-- ── By Team view ─────────────────────────────────────────────────── -->
+    <div id="csatTeamView" style="display:none">
+      <div class="card" style="padding:0;margin-bottom:14px">
+        <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div class="card-title">View by team</div>
+          <select id="csatTeamViewSelect" onchange="renderTeamDrillDown()"
+            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:180px">
+            <option value="">— Select a team —</option>
+          </select>
+          <span id="csatTeamViewSub" style="font-size:12px;color:var(--text3)"></span>
+        </div>
+        <div id="csatTeamDrillContent" style="padding:16px">
+          <div class="empty"><span>👆</span>Select a team to see its detailed CSAT breakdown</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── By Member view ──────────────────────────────────────────────── -->
+    <div id="csatMemberView" style="display:none">
+      <div class="card" style="padding:0;margin-bottom:14px">
+        <div style="padding:14px 16px 12px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div class="card-title">View by member</div>
+          <input id="csatMemberSearch" type="text" placeholder="Search consultant name…"
+            oninput="filterMemberView()"
+            style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:200px;background:var(--surface2);color:var(--text1)">
+          <select id="csatMemberTeamFilter" onchange="filterMemberView()"
+            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:160px">
+            <option value="">All teams</option>
+          </select>
+          <span id="csatMemberViewSub" style="font-size:12px;color:var(--text3)"></span>
+        </div>
+        <div id="csatMemberGrid" style="padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px"></div>
+      </div>
     </div>
   </div>
 
@@ -1558,9 +1603,11 @@ function renderCSAT(d) {
   document.getElementById('csatConsultantSub').textContent =
     `${allCons.length} consultants · all with surveys · sorted by avg rating`;
   renderConsultantTable();
-
-  // Render FCR chart using the same date range
   renderFCR();
+
+  // Refresh drill-down views if currently active
+  if (_csatView === 'team')   _populateTeamDrillDown();
+  if (_csatView === 'member') _populateMemberView();
 }
 
 // ── First-call resolution trend chart ────────────────────────────────────────
@@ -1676,6 +1723,184 @@ function renderFCR() {
       },
     },
   });
+}
+
+// ── View mode switcher ────────────────────────────────────────────────────────
+let _csatView = 'overview';
+
+function setCsatView(mode, btn) {
+  _csatView = mode;
+  document.querySelectorAll('#csatSection .gbtn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('csatOverviewContent').style.display = mode === 'overview' ? '' : 'none';
+  document.getElementById('csatTeamView').style.display        = mode === 'team'     ? '' : 'none';
+  document.getElementById('csatMemberView').style.display      = mode === 'member'   ? '' : 'none';
+  if (mode === 'team')   _populateTeamDrillDown();
+  if (mode === 'member') _populateMemberView();
+}
+
+function _populateTeamDrillDown() {
+  if (!csatData) return;
+  const sel = document.getElementById('csatTeamViewSelect');
+  if (!sel) return;
+  const teams = (csatData.teams || []).sort((a,b) => a.team.localeCompare(b.team));
+  sel.innerHTML = '<option value="">— Select a team —</option>' +
+    teams.map(t => `<option value="${t.team}">${t.team} · ${t.avg_rating}★ · ${fmt(t.total)} surveys</option>`).join('');
+  document.getElementById('csatTeamDrillContent').innerHTML =
+    '<div class="empty"><span>👆</span>Select a team to see its detailed CSAT breakdown</div>';
+}
+
+function renderTeamDrillDown() {
+  if (!csatData) return;
+  const teamName = document.getElementById('csatTeamViewSelect').value;
+  if (!teamName) { document.getElementById('csatTeamDrillContent').innerHTML = '<div class="empty"><span>👆</span>Select a team</div>'; return; }
+
+  const t = (csatData.teams||[]).find(t => t.team === teamName);
+  if (!t) return;
+
+  const members = (csatData.all_consultants||[]).filter(c => c.team === teamName)
+    .sort((a,b) => b.avg_rating - a.avg_rating);
+
+  const ratingColor = t.avg_rating >= 4.5 ? 'var(--green)' : t.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+  const maxPct = Math.max(...(t.dist||[]).map(d=>d.pct),1);
+
+  document.getElementById('csatTeamViewSub').textContent =
+    `${fmt(t.total)} surveys · ${t.avg_rating}★ avg · ${t.solved_pct}% solved · ${t.low_pct}% low`;
+
+  document.getElementById('csatTeamDrillContent').innerHTML = `
+    <!-- Team KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px">
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${t.avg_rating}</div>
+        <div style="font-size:11px;color:var(--text3)">Avg Rating</div>
+      </div>
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${t.solved_pct}%</div>
+        <div style="font-size:11px;color:var(--text3)">FCR (Solved)</div>
+      </div>
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(t.total)}</div>
+        <div style="font-size:11px;color:var(--text3)">Surveys</div>
+      </div>
+      <div class="card" style="text-align:center;padding:14px">
+        <div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--red)">${t.low_pct}%</div>
+        <div style="font-size:11px;color:var(--text3)">Low ratings (1–2★)</div>
+      </div>
+    </div>
+
+    <!-- Rating distribution -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Rating distribution</div>
+      <div style="display:flex;flex-direction:column;gap:6px;max-width:400px">
+        ${(t.dist||[]).map(d => `
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="font-size:11px;color:var(--text3);width:24px;text-align:right">${d.r}★</div>
+            <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+              <div style="width:${Math.round(d.pct/maxPct*100)}%;height:100%;background:${barColors[d.r]};border-radius:4px;transition:width .4s"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text3);min-width:70px">${d.count} (${d.pct}%)</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Members table -->
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">
+      ${members.length} consultants in ${teamName}
+    </div>
+    ${members.length === 0
+      ? '<div class="empty"><span>👤</span>No consultant-level data for this team</div>'
+      : `<div class="table-wrap"><table>
+          <thead><tr>
+            <th style="padding-left:12px">Consultant</th>
+            <th class="r">Surveys</th>
+            <th class="r">Avg Rating</th>
+            <th class="r">Solved %</th>
+            <th class="r">Low %</th>
+          </tr></thead>
+          <tbody>
+            ${members.map(c => {
+              const rc = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+              return `<tr style="cursor:pointer" onclick="openCsatDetail('consultant','cons_${c.cid.replace(/[^a-z0-9]/gi,'_')}')">
+                <td style="padding-left:12px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${c.name}</td>
+                <td class="mono r">${fmt(c.total)}</td>
+                <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.avg_rating}</span></td>
+                <td class="mono r" style="color:${c.solved_pct>=74?'var(--green)':c.solved_pct>=60?'var(--amber)':'var(--red)'}">${c.solved_pct}%</td>
+                <td class="r"><span class="pill ${c.low_pct>20?'red':c.low_pct>10?'amber':'green'}">${c.low_pct}%</span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>`
+    }`;
+}
+
+function _populateMemberView() {
+  if (!csatData) return;
+  const teamSel = document.getElementById('csatMemberTeamFilter');
+  if (teamSel) {
+    const teams = [...new Set((csatData.all_consultants||[]).map(c=>c.team).filter(Boolean))].sort();
+    teamSel.innerHTML = '<option value="">All teams</option>' +
+      teams.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+  filterMemberView();
+}
+
+function filterMemberView() {
+  if (!csatData) return;
+  const q    = (document.getElementById('csatMemberSearch')?.value || '').toLowerCase();
+  const team = document.getElementById('csatMemberTeamFilter')?.value || '';
+  let members = (csatData.all_consultants || []).filter(c => {
+    if (team && c.team !== team) return false;
+    if (q && !c.name?.toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a,b) => b.avg_rating - a.avg_rating);
+
+  document.getElementById('csatMemberViewSub').textContent =
+    `${members.length} consultant${members.length!==1?'s':''}`;
+
+  const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
+
+  document.getElementById('csatMemberGrid').innerHTML = members.map(c => {
+    const rc = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
+    const maxPct = Math.max(...(c.dist||[]).map(d=>d.pct),1);
+    const detailKey = 'cons_' + c.cid.replace(/[^a-z0-9]/gi,'_');
+    // Store for click
+    _csatDetailData[detailKey] = c;
+    return `
+      <div class="card" style="cursor:pointer;padding:14px;transition:box-shadow .15s"
+           onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow=''"
+           onclick="openCsatDetail('consultant','${detailKey}')">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:600;color:var(--blue)">${c.name}</div>
+          <span class="pill ${c.low_pct>20?'red':c.low_pct>10?'amber':'green'}" style="font-size:10px">${c.low_pct}% low</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">${c.team || '—'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:12px">
+          <div style="text-align:center">
+            <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${rc}">${c.avg_rating}</div>
+            <div style="font-size:9px;color:var(--text3)">Avg ★</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${c.solved_pct}%</div>
+            <div style="font-size:9px;color:var(--text3)">Solved</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(c.total)}</div>
+            <div style="font-size:9px;color:var(--text3)">Surveys</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${(c.dist||[]).map(d => `
+            <div style="display:flex;align-items:center;gap:5px">
+              <div style="font-size:9px;color:var(--text3);width:12px;text-align:right">${d.r}★</div>
+              <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+                <div style="width:${Math.round(d.pct/maxPct*100)}%;height:100%;background:${barColors[d.r]};border-radius:2px"></div>
+              </div>
+              <div style="font-size:9px;color:var(--text3);width:28px;text-align:right">${d.pct}%</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }).join('') || '<div class="empty" style="grid-column:1/-1"><span>👤</span>No consultants match this filter</div>';
 }
 
 // ── Team leaderboard sort ─────────────────────────────────────────────────────
@@ -1915,9 +2140,41 @@ function renderCSTeams(teamsData, teamDailyData) {
   // activeTeams = all CS_TEAMS entries that have daily data in this period
   const activeTeams = CS_TEAMS.filter(ct => teamDailyData[ct.key] && Object.keys(teamDailyData[ct.key]).length > 0);
 
-  // Collect all dates across active teams
-  const allDates = [...new Set(
+  // Collect all dates across active teams then aggregate by graph-by
+  const rawDates = [...new Set(
     activeTeams.flatMap(ct => Object.keys(teamDailyData[ct.key] || {}))
+  )].sort();
+
+  const teamGb = getChartGroupBy('csTeamTrend');
+
+  // Aggregate each team's daily data into the chosen bucket size
+  function aggregateTeamData(teamKey, dataMap, metric) {
+    // metric: 'rating' or 'solved'
+    const raw = rawDates.map(d => {
+      const dd = (dataMap[teamKey]||{})[d];
+      return { date: d, _t: dd?.t||0, _sr: dd?.sr||0, _s: dd?.s||0 };
+    }).filter(p => p._t > 0);
+    if (teamGb === 'day') return raw;
+    const buckets = {};
+    raw.forEach(p => {
+      const d = new Date(p.date + 'T00:00:00');
+      let key;
+      if (teamGb === 'week') { const day=d.getDay()||7; const mon=new Date(d); mon.setDate(d.getDate()-day+1); key=mon.toISOString().slice(0,10); }
+      else if (teamGb === 'month')   { key = p.date.slice(0,7)+'-01'; }
+      else if (teamGb === 'quarter') { const q=Math.floor(d.getMonth()/3); key=`${d.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`; }
+      else if (teamGb === 'year')    { key=`${d.getFullYear()}-01-01`; }
+      else key = p.date.slice(0,7)+'-01';
+      if (!buckets[key]) buckets[key] = { date:key, _t:0, _sr:0, _s:0 };
+      buckets[key]._t  += p._t;
+      buckets[key]._sr += p._sr;
+      buckets[key]._s  += p._s;
+    });
+    return Object.values(buckets).sort((a,b)=>a.date<b.date?-1:1);
+  }
+
+  // Build allDates from aggregated buckets
+  const allDates = [...new Set(
+    activeTeams.flatMap(ct => aggregateTeamData(ct.key, teamDailyData, 'rating').map(p => p.date))
   )].sort();
 
   if (!allDates.length) {
@@ -1953,7 +2210,7 @@ function renderCSTeams(teamsData, teamDailyData) {
   const makeTeamChart = (canvasId, datasets, yConfig) => new Chart(document.getElementById(canvasId), {
     type: 'bar',
     data: {
-      labels: allDates.map(d => new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})),
+      labels: allDates.map(d => fmtBucketDate(d, teamGb)),
       datasets,
     },
     options: {
@@ -1976,16 +2233,15 @@ function renderCSTeams(teamsData, teamDailyData) {
   chartWrap.innerHTML = '<canvas id="csTeamTrendChart"></canvas>';
   charts.csTeamTrend = null;
 
-  const ratingDatasets = activeTeams.map(ct => ({
-    type: 'bar',
-    label: ct.label,
-    data: allDates.map(d => {
-      const dd = (teamDailyData[ct.key]||{})[d];
-      return dd?.t > 0 ? Math.round(dd.sr/dd.t*100)/100 : null;
-    }),
-    backgroundColor: ct.color + '88',
-    borderRadius: 2, borderSkipped: false,
-  }));
+  const ratingDatasets = activeTeams.map(ct => {
+    const agg = aggregateTeamData(ct.key, teamDailyData, 'rating');
+    const aggMap = Object.fromEntries(agg.map(p=>[p.date, p._t>0 ? Math.round(p._sr/p._t*100)/100 : null]));
+    return {
+      type: 'bar', label: ct.label,
+      data: allDates.map(d => aggMap[d] ?? null),
+      backgroundColor: ct.color + '88', borderRadius: 2, borderSkipped: false,
+    };
+  });
 
   if (teamCompare && prevDates.length) {
     activeTeams.forEach(ct => {
@@ -2013,16 +2269,15 @@ function renderCSTeams(teamsData, teamDailyData) {
     solvedWrap.innerHTML = '<canvas id="csTeamSolvedChart"></canvas>';
     charts.csTeamSolved = null;
 
-    const solvedDatasets = activeTeams.map(ct => ({
-      type: 'bar',
-      label: ct.label,
-      data: allDates.map(d => {
-        const dd = (teamDailyData[ct.key]||{})[d];
-        return dd?.t > 0 ? Math.round(dd.s/dd.t*1000)/10 : null;
-      }),
-      backgroundColor: ct.color + '88',
-      borderRadius: 2, borderSkipped: false,
-    }));
+    const solvedDatasets = activeTeams.map(ct => {
+      const agg = aggregateTeamData(ct.key, teamDailyData, 'solved');
+      const aggMap = Object.fromEntries(agg.map(p=>[p.date, p._t>0 ? Math.round(p._s/p._t*1000)/10 : null]));
+      return {
+        type: 'bar', label: ct.label,
+        data: allDates.map(d => aggMap[d] ?? null),
+        backgroundColor: ct.color + '88', borderRadius: 2, borderSkipped: false,
+      };
+    });
 
     if (teamCompare && prevDates.length) {
       activeTeams.forEach(ct => {

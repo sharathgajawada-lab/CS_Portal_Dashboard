@@ -1257,18 +1257,23 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
 const _chartCtrl = {};  // { chartId: { from, to, gb, compare } }
 
 function makeChartControls(id, opts = {}) {
-  // opts: { defaultN, defaultUnit, defaultGb, label }
+  // opts: { defaultN, defaultUnit, defaultGb, noGraphBy }
   const n    = opts.defaultN    || 30;
   const unit = opts.defaultUnit || 'days';
   const gb   = opts.defaultGb   || 'day';
   _chartCtrl[id] = { rangeType: 'selection', n, unit, gb, compare: false };
 
-  // All charts get vs prev — no opts.compare gate needed
-  const cmp = `
-    <label class="ctrl-compare">
-      <input type="checkbox" id="${id}_compare" onchange="_chartCtrlChange('${id}')">
-      vs prev
-    </label>`;
+  const gbControl = opts.noGraphBy ? '' : `
+      <div style="display:flex;align-items:center;gap:4px">
+        <span class="ctrl-label">Graph by</span>
+        <select class="ctrl-select" id="${id}_gb" onchange="_chartCtrlChange('${id}')">
+          <option value="day"     ${gb==='day'?'selected':''}>Day</option>
+          <option value="week"    ${gb==='week'?'selected':''}>Week</option>
+          <option value="month"   ${gb==='month'?'selected':''}>Month</option>
+          <option value="quarter" ${gb==='quarter'?'selected':''}>Quarter</option>
+          <option value="year"    ${gb==='year'?'selected':''}>Year</option>
+        </select>
+      </div>`;
 
   return `
     <div class="chart-controls-right" id="${id}_controls">
@@ -1294,17 +1299,11 @@ function makeChartControls(id, opts = {}) {
         <div id="${id}_curWrap"  style="display:none"><select class="ctrl-select" style="border:none;background:transparent" id="${id}_curUnit"  onchange="_chartCtrlChange('${id}')"><option value="week">Week</option><option value="month" selected>Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></div>
         <div id="${id}_prevWrap" style="display:none"><select class="ctrl-select" style="border:none;background:transparent" id="${id}_prevUnit" onchange="_chartCtrlChange('${id}')"><option value="week">Week</option><option value="month" selected>Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></div>
       </div>
-      ${cmp}
-      <div style="display:flex;align-items:center;gap:4px">
-        <span class="ctrl-label">Graph by</span>
-        <select class="ctrl-select" id="${id}_gb" onchange="_chartCtrlChange('${id}')">
-          <option value="day"     ${gb==='day'?'selected':''}>Day</option>
-          <option value="week"    ${gb==='week'?'selected':''}>Week</option>
-          <option value="month"   ${gb==='month'?'selected':''}>Month</option>
-          <option value="quarter" ${gb==='quarter'?'selected':''}>Quarter</option>
-          <option value="year"    ${gb==='year'?'selected':''}>Year</option>
-        </select>
-      </div>
+      <label class="ctrl-compare">
+        <input type="checkbox" id="${id}_compare" onchange="_chartCtrlChange('${id}')">
+        vs prev
+      </label>
+      ${gbControl}
     </div>`;
 }
 
@@ -2308,151 +2307,127 @@ function renderInsights(intel) {
       <div class="sub">${c.sub}</div>
     </div>`).join('');
 
-  // ── Articles vs Videos chart ──────────────────────────────────────────────
+  // ── Articles vs Videos chart + Consumption chart ────────────────────────────
   const artSeries = (rawData['article.viewed']?.series || []).filter(p => p.date >= state.from && p.date <= state.to);
   const vidSeries = (rawData['video.watched']?.series  || []).filter(p => p.date >= state.from && p.date <= state.to);
   const logSeries = (rawData['auth.login']?.series     || []).filter(p => p.date >= state.from && p.date <= state.to);
   const allDates  = [...new Set([...artSeries, ...vidSeries, ...logSeries].map(p => p.date))].sort();
 
-  // Hoist maps at function scope so both chart blocks can use them
+  // Raw daily maps (used for tooltip detail in consumption chart)
   const artMap = Object.fromEntries(artSeries.map(p => [p.date, p.count || 0]));
   const vidMap = Object.fromEntries(vidSeries.map(p => [p.date, p.count || 0]));
   const logMap = Object.fromEntries(logSeries.map(p => [p.date, p.count || 0]));
 
   if (allDates.length > 0) {
     document.getElementById('consumptionSection').style.display = 'block';
+
+    // ── artVidChart ───────────────────────────────────────────────────────────
     const { from: artVidFrom, to: artVidTo } = getChartRange('artVidChart');
+    const avGb = getChartGroupBy('artVidChart');
     const artVidCompare = isChartCompare('artVidChart');
     const { prevFrom: avPrevFrom, prevTo: avPrevTo } = _getPrevPeriod(artVidFrom, artVidTo);
 
-    // Build prev period maps if compare is on
-    const prevArtMap = artVidCompare ? Object.fromEntries(
-      (rawData['article.viewed']?.series || []).filter(p => p.date >= avPrevFrom && p.date <= avPrevTo).map(p => [p.date, p.count||0])
-    ) : {};
-    const prevVidMap = artVidCompare ? Object.fromEntries(
-      (rawData['video.watched']?.series  || []).filter(p => p.date >= avPrevFrom && p.date <= avPrevTo).map(p => [p.date, p.count||0])
-    ) : {};
-    const prevLogMap = artVidCompare ? Object.fromEntries(
-      (rawData['auth.login']?.series     || []).filter(p => p.date >= avPrevFrom && p.date <= avPrevTo).map(p => [p.date, p.count||0])
-    ) : {};
-    const prevDates = artVidCompare
-      ? [...new Set(Object.keys(prevArtMap).concat(Object.keys(prevVidMap)).concat(Object.keys(prevLogMap)))].sort()
-      : [];
+    // Aggregate each series to the chosen grouping
+    const aggArt = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
+    const aggVid = aggregateSeries(vidSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
+    const aggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
+    const aggDates  = aggArt.map(p => p.date);
+    const aggArtMap = Object.fromEntries(aggArt.map(p=>[p.date,p.count]));
+    const aggVidMap = Object.fromEntries(aggVid.map(p=>[p.date,p.count]));
+    const aggLogMap = Object.fromEntries(aggLog.map(p=>[p.date,p.count]));
 
     const artVidDatasets = [
-      { type: 'bar', label: 'Articles read',  data: allDates.map(d => artMap[d] || 0), backgroundColor: 'rgba(196,122,10,.55)', borderRadius: 2, borderSkipped: false },
-      { type: 'bar', label: 'Videos watched', data: allDates.map(d => vidMap[d] || 0), backgroundColor: 'rgba(192,48,48,.50)',   borderRadius: 2, borderSkipped: false },
-      { type: 'bar', label: 'Logins',         data: allDates.map(d => logMap[d] || 0), backgroundColor: 'rgba(14,110,69,.40)',   borderRadius: 2, borderSkipped: false },
+      { type:'bar', label:'Articles read',  data:aggDates.map(d=>aggArtMap[d]||0), backgroundColor:'rgba(196,122,10,.55)', borderRadius:2, borderSkipped:false },
+      { type:'bar', label:'Videos watched', data:aggDates.map(d=>aggVidMap[d]||0), backgroundColor:'rgba(192,48,48,.50)',   borderRadius:2, borderSkipped:false },
+      { type:'bar', label:'Logins',         data:aggDates.map(d=>aggLogMap[d]||0), backgroundColor:'rgba(14,110,69,.40)',   borderRadius:2, borderSkipped:false },
     ];
-    if (artVidCompare && prevDates.length) {
+    if (artVidCompare) {
+      const pArtAgg = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0})), avGb);
+      const pVidAgg = aggregateSeries((rawData['video.watched']?.series ||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0})), avGb);
+      const pLogAgg = aggregateSeries((rawData['auth.login']?.series    ||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0})), avGb);
       artVidDatasets.push(
-        { type: 'line', label: `Articles (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`, data: prevDates.map(d => prevArtMap[d]||0), borderColor: '#c47a0a', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
-        { type: 'line', label: `Videos (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`,   data: prevDates.map(d => prevVidMap[d]||0), borderColor: '#c03030', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
-        { type: 'line', label: `Logins (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`,   data: prevDates.map(d => prevLogMap[d]||0), borderColor: '#0e6e45', borderDash:[3,3], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
+        { type:'line', label:'Articles (prev)', data:aggDates.map((_,i)=>pArtAgg[i]?.count??null), borderColor:'#c47a0a', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
+        { type:'line', label:'Videos (prev)',   data:aggDates.map((_,i)=>pVidAgg[i]?.count??null), borderColor:'#c03030', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
+        { type:'line', label:'Logins (prev)',   data:aggDates.map((_,i)=>pLogAgg[i]?.count??null), borderColor:'#0e6e45', borderDash:[3,3], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
       );
     }
-
     if (charts.artVidChart) charts.artVidChart.destroy();
     charts.artVidChart = new Chart(document.getElementById('artVidChart'), {
-      type: 'bar',
-      data: {
-        labels: allDates.map(d => fmtDate(d)),
-        datasets: artVidDatasets,
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
-          tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
+      type:'bar',
+      data:{ labels:aggDates.map(d=>fmtBucketDate(d,avGb)), datasets:artVidDatasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ labels:{ boxWidth:10, font:{size:11}, color:'#6b7280' } },
+          tooltip:{ backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1, titleColor:'#111827', bodyColor:'#374151' },
         },
-        scales: {
-          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: gridOpts },
-          y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+        scales:{
+          x:{ ticks:{ maxRotation:45, autoSkip:true, maxTicksLimit:12, font:{size:10} }, grid:gridOpts },
+          y:{ ticks:{ font:{size:10} }, grid:gridOpts, beginAtZero:true },
         },
       },
     });
-  }
 
-  // ── Login vs Page view consumption rate chart ─────────────────────────────
-  if (allDates.length > 0) {
+    // ── consumptionChart ───────────────────────────────────────────────────────
     const consumCompare = isChartCompare('consumptionChart');
     const { from: cFrom, to: cTo } = getChartRange('consumptionChart');
+    const cGb = getChartGroupBy('consumptionChart');
     const { prevFrom: cPrevFrom, prevTo: cPrevTo } = _getPrevPeriod(cFrom, cTo);
 
-    const consumptionData = allDates.map(d => {
-      const logins = logMap[d] || 0;
-      const arts   = artMap[d] || 0;
-      return logins > 0 ? Math.round(arts / logins * 100) / 100 : null;
-    });
+    const cAggArt = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), cGb);
+    const cAggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), cGb);
+    const cAggDates = cAggArt.map(p=>p.date);
+    const cArtMap   = Object.fromEntries(cAggArt.map(p=>[p.date,p.count]));
+    const cLogMap   = Object.fromEntries(cAggLog.map(p=>[p.date,p.count]));
 
+    const consumptionData = cAggDates.map(d => {
+      const l = cLogMap[d]||0, a = cArtMap[d]||0;
+      return l > 0 ? Math.round(a/l*100)/100 : null;
+    });
     const consumDatasets = [{
-      label: 'Articles per login',
+      label:'Articles per login',
       data: consumptionData,
       backgroundColor: consumptionData.map(v =>
-        v === null ? 'transparent' : v >= 3 ? 'rgba(52,211,153,.8)' : v >= 1.5 ? 'rgba(196,122,10,.8)' : 'rgba(248,113,113,.7)'
+        v===null?'transparent': v>=3?'rgba(52,211,153,.8)': v>=1.5?'rgba(196,122,10,.8)':'rgba(248,113,113,.7)'
       ),
-      borderRadius: 3, borderSkipped: false,
+      borderRadius:3, borderSkipped:false,
     }];
-
     if (consumCompare) {
-      const prevLogSeriesC = Object.fromEntries(
-        (rawData['auth.login']?.series||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>[p.date,p.count||0])
-      );
-      const prevArtSeriesC = Object.fromEntries(
-        (rawData['article.viewed']?.series||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>[p.date,p.count||0])
-      );
-      const prevConsumption = allDates.map((_, i) => {
-        const pd = Object.keys(prevLogSeriesC).sort()[i];
-        if (!pd) return null;
-        const l = prevLogSeriesC[pd] || 0;
-        const a = prevArtSeriesC[pd] || 0;
-        return l > 0 ? Math.round(a/l*100)/100 : null;
-      });
+      const pCArtAgg = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>({date:p.date,count:p.count||0})), cGb);
+      const pCLogAgg = aggregateSeries((rawData['auth.login']?.series    ||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>({date:p.date,count:p.count||0})), cGb);
       consumDatasets.push({
-        type: 'line',
-        label: `Prev (${fmtDate(cPrevFrom)}–${fmtDate(cPrevTo)})`,
-        data: prevConsumption,
-        borderColor: 'rgba(107,114,128,.7)', borderDash: [5,4],
-        pointRadius: 2, tension: .3, borderWidth: 1.5, fill: false,
-        backgroundColor: 'transparent',
+        type:'line', label:`Prev (${fmtDate(cPrevFrom)}–${fmtDate(cPrevTo)})`,
+        data: cAggDates.map((_,i) => { const l=pCLogAgg[i]?.count||0, a=pCArtAgg[i]?.count||0; return l>0?Math.round(a/l*100)/100:null; }),
+        borderColor:'rgba(107,114,128,.7)', borderDash:[5,4], pointRadius:2, tension:.3, borderWidth:1.5, fill:false, backgroundColor:'transparent',
       });
     }
-
     if (charts.consumptionChart) charts.consumptionChart.destroy();
     charts.consumptionChart = new Chart(document.getElementById('consumptionChart'), {
-      type: 'bar',
-      data: {
-        labels: allDates.map(d => fmtDate(d)),
-        datasets: consumDatasets,
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: consumCompare, labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
-          tooltip: {
-            backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151',
-            callbacks: {
-              label: ctx => ctx.raw !== null ? `${ctx.raw} articles/login` : 'No logins',
-              afterLabel: ctx => {
-                if (ctx.datasetIndex !== 0) return '';
-                const d = allDates[ctx.dataIndex];
-                return `${artMap[d]||0} articles · ${logMap[d]||0} logins`;
-              },
+      type:'bar',
+      data:{ labels:cAggDates.map(d=>fmtBucketDate(d,cGb)), datasets:consumDatasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:consumCompare, labels:{ boxWidth:10, font:{size:11}, color:'#6b7280' } },
+          tooltip:{
+            backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1, titleColor:'#111827', bodyColor:'#374151',
+            callbacks:{
+              label: ctx => ctx.raw!==null ? `${ctx.raw} articles/login` : 'No logins',
+              afterLabel: ctx => { if(ctx.datasetIndex!==0) return ''; const d=cAggDates[ctx.dataIndex]; return `${cArtMap[d]||0} arts · ${cLogMap[d]||0} logins`; },
             },
           },
         },
-        scales: {
-          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: gridOpts },
-          y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true,
-               title: { display: true, text: 'Articles / login', font: { size: 10 }, color: '#6b7280' } },
+        scales:{
+          x:{ ticks:{ maxRotation:45, autoSkip:true, maxTicksLimit:12, font:{size:10} }, grid:gridOpts },
+          y:{ ticks:{ font:{size:10} }, grid:gridOpts, beginAtZero:true, title:{ display:true, text:'Articles / login', font:{size:10}, color:'#6b7280' } },
         },
       },
     });
   }
 
-  // ── Priority list ─────────────────────────────────────────────────────────
+    // ── Priority list ─────────────────────────────────────────────────────────
   const priority = intel.articles?.priority || [];
   document.getElementById('priorityList').innerHTML = priority.length
     ? priority.map(p => `
@@ -2569,8 +2544,9 @@ async function init() {
       const el = document.getElementById(pid);
       if (el) {
         const id = pid.replace('_controls_placeholder','');
+        const noGb = id === 'catChart' || id === 'hourChart'; // categorical, not time-series
         el.outerHTML = makeChartControls(id, {
-          defaultN: 30, defaultUnit: 'days', defaultGb: 'day',
+          defaultN: 30, defaultUnit: 'days', defaultGb: 'day', noGraphBy: noGb,
         });
       }
     });
