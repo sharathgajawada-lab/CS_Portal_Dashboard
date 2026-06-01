@@ -1191,33 +1191,62 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
     ? [activeEvent]
     : ['auth.login', 'article.viewed', 'search.performed', 'video.watched'];
 
-  const aggCur  = aggregateSeries((rawData['auth.login']?.series||[]).filter(p => p.date >= curFrom  && p.date <= curTo),  gb);
-  const aggPrev = aggregateSeries((rawData['auth.login']?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb);
+  // Build the full date spine from curFrom→curTo so every day is represented,
+  // even if a particular event has no data for that day (gaps become 0, not missing).
+  function makeDateSpine(fromIso, toIso, groupBy) {
+    // Generate every day in range first, then aggregate into buckets
+    const spine = [];
+    const d = new Date(fromIso + 'T00:00:00');
+    const end = new Date(toIso + 'T00:00:00');
+    while (d <= end) { spine.push({ date: d.toISOString().slice(0,10), count: 0 }); d.setDate(d.getDate()+1); }
+    return aggregateSeries(spine, groupBy);
+  }
 
-  // X axis: use current period dates as labels, overlay prev period at same positions
-  const labels = aggCur.map(p => fmtBucketDate(p.date, gb));
+  const spineAgg = makeDateSpine(curFrom, curTo, gb);
+  const labels   = spineAgg.map(p => fmtBucketDate(p.date, gb));
+  const nBuckets = labels.length;
 
   const datasets = [];
   keys.forEach(key => {
-    const ev   = EVENTS.find(e => e.key === key);
-    const cur  = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= curFrom  && p.date <= curTo),  gb);
-    const prev = aggregateSeries((rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb);
+    const ev = EVENTS.find(e => e.key === key);
 
-    // Current period → bars; prev period → dashed line (easy to distinguish)
+    // Current period — aggregate then align to the full spine (zeros for missing days)
+    const curAgg = aggregateSeries(
+      (rawData[key]?.series||[]).filter(p => p.date >= curFrom && p.date <= curTo), gb
+    );
+    // Build map from spine bucket date → position index
+    const spineIndexMap = Object.fromEntries(spineAgg.map((p, i) => [p.date, i]));
+    const curData = new Array(nBuckets).fill(0);
+    curAgg.forEach(p => {
+      const idx = spineIndexMap[p.date];
+      if (idx !== undefined) curData[idx] = p.count || 0;
+    });
+
+    // Prev period — build full spine then align by position (day 1 of prev = position 0)
+    const prevSpine = makeDateSpine(prevFrom, prevTo, gb);
+    const prevAgg = aggregateSeries(
+      (rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb
+    );
+    const prevDateMap = Object.fromEntries(prevAgg.map(p => [p.date, p.count||0]));
+    const prevData = prevSpine.map(p => prevDateMap[p.date] ?? 0).slice(0, nBuckets);
+    // Pad to nBuckets if prev period is shorter (shouldn't happen, but safety net)
+    while (prevData.length < nBuckets) prevData.push(null);
+
     datasets.push({
       type: 'bar',
       label: `${ev.label} (current)`,
-      data: cur.map(p => p.count||0),
+      data: curData,
       backgroundColor: ev.color + '77',
       borderRadius: 2, borderSkipped: false,
     });
     datasets.push({
       type: 'line',
       label: `${ev.label} (prev ${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
-      data: prev.map(p => p.count||0),
+      data: prevData,
       borderColor: ev.color, backgroundColor: 'transparent',
       borderDash: [5,4], fill: false,
       pointRadius: 2, tension: .3, borderWidth: 2,
+      spanGaps: false,  // show gaps honestly rather than interpolating
     });
   });
 
@@ -1236,11 +1265,19 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
         tooltip: {
           backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
           titleColor: '#111827', bodyColor: '#374151',
-          callbacks: { title: ctx => `Day ${ctx[0].dataIndex + 1}` },
+          callbacks: {
+              title: ctx => {
+                const i = ctx[0]?.dataIndex;
+                const curLabel = labels[i] || `Day ${i+1}`;
+                const prevSpineRef = makeDateSpine(prevFrom, prevTo, gb);
+                const prevLabel = prevSpineRef[i] ? fmtBucketDate(prevSpineRef[i].date, gb) : '—';
+                return `${curLabel}  ·  prev: ${prevLabel}`;
+              },
+            },
         },
       },
       scales: {
-        x: { ticks: { font: { size: 10 } }, grid: gridOpts },
+        x: { ticks: { font: { size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 16 }, grid: gridOpts },
         y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
       },
     },
@@ -1605,6 +1642,15 @@ function renderTrend() {
     return;
   }
 
+  // Helper: generate a full dense date spine from tFrom→tTo then aggregate
+  function makeSpine(fromIso, toIso, groupBy) {
+    const spine = [];
+    const d = new Date(fromIso + 'T00:00:00');
+    const end = new Date(toIso + 'T00:00:00');
+    while (d <= end) { spine.push({ date: d.toISOString().slice(0,10), count: 0 }); d.setDate(d.getDate()+1); }
+    return aggregateSeries(spine, groupBy);
+  }
+
   // Helper: filter series by tFrom/tTo then aggregate
   const filteredSeries = (key) => {
     const raw = getSeries(key).filter(p => p.date >= tFrom && p.date <= tTo);
@@ -1612,26 +1658,28 @@ function renderTrend() {
   };
 
   if (activeEvent) {
-    const s  = filteredSeries(activeEvent);
-    const ev = EVENTS.find(e => e.key === activeEvent);
-    labels   = s.map(p => fmtBucketDate(p.date, gb));
+    const spine = makeSpine(tFrom, tTo, gb);
+    const s     = filteredSeries(activeEvent);
+    const ev    = EVENTS.find(e => e.key === activeEvent);
+    const sMap  = Object.fromEntries(s.map(p => [p.date, p.count||0]));
+    labels   = spine.map(p => fmtBucketDate(p.date, gb));
     datasets = [{
-      label: ev.label, data: s.map(p => p.count || 0),
+      label: ev.label, data: spine.map(p => sMap[p.date] || 0),
       borderColor: ev.color, backgroundColor: ev.color + '18',
       fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2.5,
     }];
     document.getElementById('trendSub').textContent = `${ev.label} · ${fmtDate(tFrom)} – ${fmtDate(tTo)} · by ${gb}`;
   } else {
     const mainKeys = ['auth.login', 'article.viewed', 'search.performed', 'video.watched'];
-    const refSeries = filteredSeries('auth.login');
-    labels = refSeries.map(p => fmtBucketDate(p.date, gb));
+    const spine = makeSpine(tFrom, tTo, gb);
+    labels = spine.map(p => fmtBucketDate(p.date, gb));
     datasets = mainKeys.map(key => {
-      const ev = EVENTS.find(e => e.key === key);
-      const s  = filteredSeries(key);
-      const valMap = Object.fromEntries(s.map(p => [p.date, p.count || 0]));
+      const ev  = EVENTS.find(e => e.key === key);
+      const s   = filteredSeries(key);
+      const map = Object.fromEntries(s.map(p => [p.date, p.count||0]));
       return {
         label: ev.label,
-        data:  refSeries.map(p => valMap[p.date] || 0),
+        data:  spine.map(p => map[p.date] || 0),
         borderColor: ev.color, backgroundColor: 'transparent',
         fill: false, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
         borderDash: key === 'search.performed' ? [4,3] : key === 'video.watched' ? [2,2] : [],
@@ -2311,7 +2359,15 @@ function renderInsights(intel) {
   const artSeries = (rawData['article.viewed']?.series || []).filter(p => p.date >= state.from && p.date <= state.to);
   const vidSeries = (rawData['video.watched']?.series  || []).filter(p => p.date >= state.from && p.date <= state.to);
   const logSeries = (rawData['auth.login']?.series     || []).filter(p => p.date >= state.from && p.date <= state.to);
-  const allDates  = [...new Set([...artSeries, ...vidSeries, ...logSeries].map(p => p.date))].sort();
+
+  // Generate a dense day-by-day spine from the global filter range.
+  // This ensures all days are represented even when CMS returns sparse data.
+  function makeInsightSpine(fromIso, toIso) {
+    const spine = []; const d = new Date(fromIso + 'T00:00:00'); const end = new Date(toIso + 'T00:00:00');
+    while (d <= end) { spine.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+    return spine;
+  }
+  const allDates = makeInsightSpine(state.from, state.to);
 
   // Raw daily maps (used for tooltip detail in consumption chart)
   const artMap = Object.fromEntries(artSeries.map(p => [p.date, p.count || 0]));

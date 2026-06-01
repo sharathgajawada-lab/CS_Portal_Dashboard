@@ -515,7 +515,20 @@ async def _timeseries(project, event):
                 daily[d] += int(p.get("count", 0) or 0)
             except Exception:
                 pass
-    return [{"date": d, "count": daily[d]} for d in sorted(daily)]
+    if not daily:
+        return []
+    # Fill in zero-count days so the series is dense (no gaps).
+    # This prevents the frontend from truncating charts when some events
+    # have sparse data for parts of the date range.
+    from datetime import date as _date, timedelta as _td
+    d_min = _date.fromisoformat(min(daily))
+    d_max = _date.fromisoformat(max(daily))
+    result = []
+    cur = d_min
+    while cur <= d_max:
+        result.append({"date": cur.isoformat(), "count": daily.get(cur.isoformat(), 0)})
+        cur += _td(days=1)
+    return result
 
 async def _topn(project, event, group_by="itemId", n=10):
     data = await _call(f"{CMS_BASE}/{project}/query/top-n",
