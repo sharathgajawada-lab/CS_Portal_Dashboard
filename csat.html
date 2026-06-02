@@ -644,8 +644,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           </div>
         </div>
         <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
-          <button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')">⤢ Expand</button>
-          <canvas id="csatTrendChart"></canvas>
+          <!-- Trend charts (rating & solved %) are injected here by JS -->
         </div>
       </div>
     </div>
@@ -1544,49 +1543,47 @@ function _renderCsatCompare(curFrom, curTo, gb) {
   const subEl = document.getElementById('csatTrendSub');
   if (subEl) subEl.textContent = `Current: ${fmtDate(curFrom)} – ${fmtDate(curTo)} vs Prev: ${fmtDate(prevFrom)} – ${fmtDate(prevTo)}`;
 
-  if (charts.csatTrend) charts.csatTrend.destroy();
-  if (!document.getElementById('csatTrendChart'))
-    document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
+  // Destroy any previous split trend charts
+  if (charts.csatTrendRating) { charts.csatTrendRating.destroy(); charts.csatTrendRating = null; }
+  if (charts.csatTrendSolved) { charts.csatTrendSolved.destroy(); charts.csatTrendSolved = null; }
+  // Build two canvases for compare mode
+  document.getElementById('csatTrendWrap').innerHTML = `
+    <div style="height:120px;margin-bottom:8px"><button class="chart-expand-btn" onclick="expandChart(charts.csatTrendRating,'Daily avg rating')">⤢ Expand</button><canvas id="csatTrendRatingChart"></canvas></div>
+    <div style="height:120px"><button class="chart-expand-btn" onclick="expandChart(charts.csatTrendSolved,'Daily solved %')">⤢ Expand</button><canvas id="csatTrendSolvedChart"></canvas></div>
+  `;
 
-  charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
+  // Rating chart: current bars + prev dashed line
+  charts.csatTrendRating = new Chart(document.getElementById('csatTrendRatingChart'), {
     type: 'bar',
     data: {
       labels,
       datasets: [
-        // Current period — bars
-        { type: 'bar', label: 'Avg Rating (current)', yAxisID: 'yR',
-          data: curSeries.map(p => p.avg_rating),
-          backgroundColor: 'rgba(59,130,246,.55)', borderRadius: 3, borderSkipped: false },
-        // Prev period — dashed lines
-        { type: 'line', label: 'Avg Rating (prev)', yAxisID: 'yR',
-          data: prevSeries.map(p => p.avg_rating),
-          borderColor: '#3b82f6', borderDash: [5,4], backgroundColor: 'transparent',
-          pointRadius: 2, tension: .3, borderWidth: 2, fill: false },
-        { type: 'bar', label: 'Solved % (current)', yAxisID: 'yS',
-          data: curSeries.map(p => p.solve_pct),
-          backgroundColor: 'rgba(16,185,129,.45)', borderRadius: 3, borderSkipped: false },
-        { type: 'line', label: 'Solved % (prev)', yAxisID: 'yS',
-          data: prevSeries.map(p => p.solve_pct),
-          borderColor: '#10b981', borderDash: [5,4], backgroundColor: 'transparent',
-          pointRadius: 2, tension: .3, borderWidth: 2, fill: false },
+        { type: 'bar', label: 'Avg Rating (current)', data: curSeries.map(p => p.avg_rating), backgroundColor: 'rgba(59,130,246,.55)', borderRadius: 3, borderSkipped: false, yAxisID: 'yR' },
+        { type: 'line', label: 'Avg Rating (prev)', data: prevSeries.map(p => p.avg_rating), borderColor: '#3b82f6', borderDash: [5,4], backgroundColor: 'transparent', pointRadius: 2, tension: .3, borderWidth: 2, fill: false, yAxisID: 'yR' },
       ],
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } },
-        tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
-          titleColor: '#111827', bodyColor: '#374151' },
-      },
-      scales: {
-        x:  { ticks: { font: { size: 10 }, maxTicksLimit: 14, autoSkip: true }, grid: gridOpts },
-        yR: { position: 'left',  min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts,
-               title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
-        yS: { position: 'right', min: 0, max: 100, ticks: { font: { size: 10 }, callback: v => v+'%' }, grid: { display: false },
-               title: { display: true, text: 'Solved %', font: { size: 10 }, color: '#6b7280' } },
-      },
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } }, tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1 } },
+      scales: { x: { ticks: { font: { size: 10 }, maxTicksLimit: 14, autoSkip: true }, grid: gridOpts }, yR: { position: 'left', min: 1, max: 5, ticks: { stepSize: 1 }, grid: gridOpts, title: { display: true, text: 'Avg Rating' } } },
+    }
+  });
+
+  // Solved % chart: current bars + prev dashed line
+  charts.csatTrendSolved = new Chart(document.getElementById('csatTrendSolvedChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Solved % (current)', data: curSeries.map(p => p.solve_pct), backgroundColor: 'rgba(16,185,129,.45)', borderRadius: 3, borderSkipped: false, yAxisID: 'yS' },
+        { type: 'line', label: 'Solved % (prev)', data: prevSeries.map(p => p.solve_pct), borderColor: '#10b981', borderDash: [5,4], backgroundColor: 'transparent', pointRadius: 2, tension: .3, borderWidth: 2, fill: false, yAxisID: 'yS' },
+      ],
     },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } }, tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, callbacks: { label: ctx => ctx.raw !== null ? `${ctx.raw}%` : 'No data' } } },
+      scales: { x: { ticks: { font: { size: 10 }, maxTicksLimit: 14, autoSkip: true }, grid: gridOpts }, yS: { position: 'right', min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { display: false }, title: { display: true, text: 'Solved %' } } },
+    }
   });
 }
 
@@ -1616,62 +1613,39 @@ function renderCSAT(d) {
   // Aggregate daily series to the requested granularity
   const trendAgg = aggregateSeries(dailyData, gb);
 
-  if (charts.csatTrend) charts.csatTrend.destroy();
+  // Render two stacked charts: Avg Rating (top) and Solved % (bottom)
+  if (charts.csatTrendRating) { charts.csatTrendRating.destroy(); charts.csatTrendRating = null; }
+  if (charts.csatTrendSolved) { charts.csatTrendSolved.destroy(); charts.csatTrendSolved = null; }
   if (trendAgg.length === 0) {
     document.getElementById('csatTrendWrap').innerHTML =
       '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
   } else {
-    if (!document.getElementById('csatTrendChart')) {
-      document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
-      (function() {
-        var _b = document.createElement('button');
-        _b.className = 'chart-expand-btn';
-        _b.textContent = '\u2922 Expand';
-        _b.setAttribute('data-chart', 'charts.csatTrend');
-        _b.setAttribute('data-title', 'CSAT trend');
-        _b.onclick = function() { handleExpandClick(this); };
-        document.getElementById('csatTrendWrap').prepend(_b);
-      })();
-    }
-    charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
+    // Create two canvases stacked vertically
+    document.getElementById('csatTrendWrap').innerHTML = `
+      <div style="height:120px;margin-bottom:8px"><button class="chart-expand-btn" onclick="expandChart(charts.csatTrendRating,'Daily avg rating')">⤢ Expand</button><canvas id="csatTrendRatingChart"></canvas></div>
+      <div style="height:120px"><button class="chart-expand-btn" onclick="expandChart(charts.csatTrendSolved,'Daily solved %')">⤢ Expand</button><canvas id="csatTrendSolvedChart"></canvas></div>
+    `;
+    const labels = trendAgg.map(t => fmtBucketDate(t.week || t.date, gb));
+
+    charts.csatTrendRating = new Chart(document.getElementById('csatTrendRatingChart'), {
       type: 'line',
-      data: {
-        labels: trendAgg.map(t => fmtBucketDate(t.week || t.date, gb)),
-        datasets: [
-          {
-            label: 'Avg Rating',
-            data: trendAgg.map(t => t.avg_rating),
-            borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
-            fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
-            yAxisID: 'y',
-          },
-          {
-            label: 'Solved %',
-            data: trendAgg.map(t => t.solve_pct ?? t.solved_pct),
-            borderColor: '#059669', backgroundColor: 'transparent',
-            pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2, borderDash: [4,3],
-            yAxisID: 'y2',
-          },
-        ],
-      },
+      data: { labels, datasets: [{ label: 'Avg Rating', data: trendAgg.map(t => t.avg_rating), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)', fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2 }] },
       options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
-          tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
-        },
-        scales: {
-          x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
-          y:  { min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: gridOpts, title: { display: true, text: 'Avg Rating', font: { size: 10 }, color: '#6b7280' } },
-          y2: { position: 'right', min: 0, max: 100, ticks: { font: { size: 10 }, callback: v => v + '%' }, grid: { display: false }, title: { display: true, text: 'Solved %', font: { size: 10 }, color: '#6b7280' } },
-        },
-        onClick: (evt, els) => {
-          if (!els.length) return;
-          const wk = (trendAgg[els[0].index]?.week || trendAgg[els[0].index]?.date);
-          if (wk) drillDate(wk);
-        },
-      },
+        responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1 } },
+        scales: { x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts }, y: { min: 1, max: 5, ticks: { stepSize: 1 }, grid: gridOpts, title: { display: true, text: 'Avg Rating' } } },
+        onClick: (evt, els) => { if (!els.length) return; const wk = (trendAgg[els[0].index]?.week || trendAgg[els[0].index]?.date); if (wk) drillDate(wk); }
+      }
+    });
+
+    charts.csatTrendSolved = new Chart(document.getElementById('csatTrendSolvedChart'), {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Solved %', data: trendAgg.map(t => t.solve_pct ?? t.solved_pct), borderColor: '#059669', backgroundColor: 'transparent', pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, callbacks: { label: ctx => ctx.raw !== null ? `${ctx.raw}%` : 'No data' } } },
+        scales: { x: { display: false }, y: { position: 'right', min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { display: false }, title: { display: true, text: 'Solved %' } } },
+      }
     });
   }
 
