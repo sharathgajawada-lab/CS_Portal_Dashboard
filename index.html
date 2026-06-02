@@ -771,6 +771,28 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
   </div>
 
+  <div class="section" id="conversionSection" style="display:none">
+    <div class="section-header">
+      <div class="chart-controls">
+        <div class="section-title">Conversion rate</div>
+        <div id="conversionChart_controls_placeholder"></div>
+      </div>
+      <div class="section-sub">Conversion rate = logins ÷ total page views</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="card-title">&#x1F4C8; Conversion rate</div>
+          <div class="card-sub">Logins divided by total page views over time</div>
+        </div>
+        <button class="chart-expand-btn" onclick="expandChart(charts.conversionChart,'Conversion rate')">⤢ Expand</button>
+      </div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="conversionChart"></canvas>
+      </div>
+    </div>
+  </div>
+
   <!-- Session analytics -->
   <div class="section">
     <div class="section-header">
@@ -1079,7 +1101,7 @@ function renderAll() {
   // Sync all charts set to 'selection' so they follow the global date filter.
   // Only fire for charts that are fully initialised (controls injected + data available).
   // artVidChart / consumptionChart use rawData and only render via renderInsights.
-  const skipIfNoData = new Set(['artVidChart', 'consumptionChart']);
+  const skipIfNoData = new Set(['artVidChart', 'consumptionChart', 'conversionChart']);
   Object.keys(_chartCtrl).forEach(id => {
     if (_chartCtrl[id].rangeType === 'selection') {
       if (skipIfNoData.has(id)) {
@@ -1389,7 +1411,7 @@ async function _chartCtrlRender(id) {
       }
     } catch(e) {}
   }
-  else if (id === 'artVidChart' || id === 'consumptionChart') {
+  else if (id === 'artVidChart' || id === 'consumptionChart' || id === 'conversionChart') {
     // These use rawData which is already in memory — just re-render from insights
     if (intelData) renderInsights(intelData);
   }
@@ -2376,6 +2398,7 @@ function renderInsights(intel) {
 
   if (allDates.length > 0) {
     document.getElementById('consumptionSection').style.display = 'block';
+    document.getElementById('conversionSection').style.display = 'block';
 
     // ── artVidChart ───────────────────────────────────────────────────────────
     const { from: artVidFrom, to: artVidTo } = getChartRange('artVidChart');
@@ -2478,6 +2501,71 @@ function renderInsights(intel) {
         scales:{
           x:{ ticks:{ maxRotation:45, autoSkip:true, maxTicksLimit:12, font:{size:10} }, grid:gridOpts },
           y:{ ticks:{ font:{size:10} }, grid:gridOpts, beginAtZero:true, title:{ display:true, text:'Articles / login', font:{size:10}, color:'#6b7280' } },
+        },
+      },
+    });
+
+    // ── conversionChart ───────────────────────────────────────────────────────
+    const convCompare = isChartCompare('conversionChart');
+    const { from: cvFrom, to: cvTo } = getChartRange('conversionChart');
+    const cvGb = getChartGroupBy('conversionChart');
+    const { prevFrom: cvPrevFrom, prevTo: cvPrevTo } = _getPrevPeriod(cvFrom, cvTo);
+
+    const cvAggPv = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), cvGb);
+    const cvAggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), cvGb);
+    const cvDates   = cvAggPv.map(p=>p.date);
+    const cvPvMap   = Object.fromEntries(cvAggPv.map(p=>[p.date,p.count]));
+    const cvLogMap  = Object.fromEntries(cvAggLog.map(p=>[p.date,p.count]));
+    const conversionData = cvDates.map(d => {
+      const p = cvPvMap[d]||0;
+      const l = cvLogMap[d]||0;
+      return p > 0 ? Math.round((l / p) * 10000) / 10000 : null;
+    });
+    const conversionDatasets = [{
+      label:'Logins ÷ page views',
+      data: conversionData,
+      backgroundColor: conversionData.map(v =>
+        v===null ? 'transparent' : v >= 0.05 ? 'rgba(16,185,129,.85)' : v >= 0.02 ? 'rgba(245,158,11,.8)' : 'rgba(248,113,113,.7)'
+      ),
+      borderRadius:3, borderSkipped:false,
+    }];
+    if (convCompare) {
+      const pCvPv = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
+      const pCvLog = aggregateSeries((rawData['auth.login']?.series    ||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
+      conversionDatasets.push({
+        type:'line', label:`Prev (${fmtDate(cvPrevFrom)}–${fmtDate(cvPrevTo)})`,
+        data: cvDates.map((_,i) => {
+          const p = pCvPv[i]?.count||0;
+          const l = pCvLog[i]?.count||0;
+          return p > 0 ? Math.round((l / p) * 10000) / 10000 : null;
+        }),
+        borderColor:'rgba(107,114,128,.7)', borderDash:[5,4], pointRadius:2, tension:.3, borderWidth:1.5, fill:false, backgroundColor:'transparent',
+      });
+    }
+    if (charts.conversionChart) charts.conversionChart.destroy();
+    charts.conversionChart = new Chart(document.getElementById('conversionChart'), {
+      type:'bar',
+      data:{ labels:cvDates.map(d=>fmtBucketDate(d,cvGb)), datasets:conversionDatasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:convCompare, labels:{ boxWidth:10, font:{size:11}, color:'#6b7280' } },
+          tooltip:{
+            backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1, titleColor:'#111827', bodyColor:'#374151',
+            callbacks:{
+              label: ctx => ctx.raw!==null ? `${Math.round(ctx.raw*10000)/100}% conversion` : 'No page views',
+              afterLabel: ctx => {
+                if (ctx.datasetIndex !== 0) return '';
+                const d = cvDates[ctx.dataIndex];
+                return `${cvLogMap[d]||0} logins · ${cvPvMap[d]||0} page views`;
+              },
+            },
+          },
+        },
+        scales:{
+          x:{ ticks:{ maxRotation:45, autoSkip:true, maxTicksLimit:12, font:{size:10} }, grid:gridOpts },
+          y:{ ticks:{ font:{size:10}, callback: v => v===null?'':`${Math.round(v*100)}%` }, grid:gridOpts, beginAtZero:true, title:{ display:true, text:'Conversion rate', font:{size:10}, color:'#0e6e45' } },
         },
       },
     });
@@ -2596,7 +2684,7 @@ async function init() {
 
     // Inject chart controls into placeholder divs
     ['catChart_controls_placeholder','sessionTrendChart_controls_placeholder','hourChart_controls_placeholder',
-     'artVidChart_controls_placeholder','consumptionChart_controls_placeholder'].forEach(pid => {
+     'artVidChart_controls_placeholder','consumptionChart_controls_placeholder','conversionChart_controls_placeholder'].forEach(pid => {
       const el = document.getElementById(pid);
       if (el) {
         const id = pid.replace('_controls_placeholder','');
