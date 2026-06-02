@@ -304,8 +304,114 @@ def _build_csat_index(rows: list) -> dict:
     print(f"[csat] index built: {len(rows):,} rows · {len(day_map)} days · {len(week_cons)} weeks", flush=True)
     return index_data
 
+def _parse_csv_text(text: str) -> list:
+    """Parse CSAT CSV text (from disk or Domo export) into survey rows."""
+    rows = []
+    for row in csv.DictReader(io.StringIO(text)):
+        try:
+            raw_date = row.get("DATE") or row.get("DATETIME") or ""
+            date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
+            rows.append({
+                "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
+                "cid":    row["CONSULTANT_ID"],
+                "name":   row["CONSULTANT_NAME"],
+                "team":   row["CONSULTANT_TEAM"].strip(),
+                "date":   date_str,
+                "solved": str(row["SOLVED"]).strip().lower() == "true",
+                "call_id": (row.get("CALL_ID") or "").strip(),
+            })
+        except (ValueError, KeyError):
+            continue
+    return rows
+
+
+# ── Domo automated pull ────────────────────────────────────────────────────────
+# Pulls the CSAT dataset straight from Domo on the 2-hour refresh cycle, so the
+# manual "Update CSAT" upload is no longer required. Credentials come from env
+# vars set in Render (never hard-coded):
+#   DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID
+# The OAuth client must be created at developer.domo.com with the `data` scope
+# (requires a Domo admin). Tokens last ~1 hour; we fetch a fresh one each pull.
+DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
+DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
+DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "")
+DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
+
+
+def _domo_configured() -> bool:
+    return bool(DOMO_CLIENT_ID and DOMO_CLIENT_SECRET and DOMO_DATASET_ID)
+
+
+def _domo_fetch_csv() -> str | None:
+    """Authenticate to Domo and export the CSAT dataset as CSV text.
+
+    Returns the CSV string on success, or None on any failure (caller falls
+    back to the bundled CSV). Synchronous httpx — called from the refresh loop
+    via asyncio.to_thread so it never blocks the event loop.
+    """
+    if not _domo_configured():
+        return None
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            # 1) OAuth client-credentials grant → bearer token (Basic auth: id:secret).
+            tok = client.get(
+                f"{DOMO_API_BASE}/oauth/token",
+                params={"grant_type": "client_credentials", "scope": "data"},
+                auth=(DOMO_CLIENT_ID, DOMO_CLIENT_SECRET),
+            )
+            if tok.status_code != 200:
+                print(f"[domo] auth failed: HTTP {tok.status_code} {tok.text[:200]}", flush=True)
+                return None
+            token = tok.json().get("access_token")
+            if not token:
+                print("[domo] auth ok but no access_token in response", flush=True)
+                return None
+
+            # 2) Export dataset as CSV (includeHeader so DictReader gets column names).
+            exp = client.get(
+                f"{DOMO_API_BASE}/v1/datasets/{DOMO_DATASET_ID}/data",
+                params={"includeHeader": "true"},
+                headers={"Authorization": f"Bearer {token}", "Accept": "text/csv"},
+            )
+            if exp.status_code != 200:
+                print(f"[domo] export failed: HTTP {exp.status_code} {exp.text[:200]}", flush=True)
+                return None
+            csv_text = exp.text
+            if not csv_text or "CONSULTANT_ID" not in csv_text:
+                print("[domo] export returned unexpected/empty data — keeping previous", flush=True)
+                return None
+            print(f"[domo] exported dataset {DOMO_DATASET_ID[:8]}… ({len(csv_text)//1024} KB)", flush=True)
+            return csv_text
+    except Exception as e:
+        print(f"[domo] pull error: {e}", flush=True)
+        return None
+
+
+def _refresh_csat_from_domo() -> bool:
+    """Pull from Domo and rebuild the CSAT index. Returns True if it succeeded."""
+    csv_text = _domo_fetch_csv()
+    if csv_text is None:
+        return False
+    rows = _parse_csv_text(csv_text)
+    if not rows:
+        print("[domo] parsed 0 rows — keeping previous index", flush=True)
+        return False
+    _build_csat_index(rows)
+    _save_csat_json()
+    print(f"[domo] CSAT index rebuilt from Domo — {len(rows)} rows", flush=True)
+    return True
+
+
 def _load_csat_csv():
-    """Load call quality CSV at startup and build index."""
+    """Load CSAT data at startup. Prefer a live Domo pull; fall back to bundled CSV."""
+    if _domo_configured():
+        print("[csat] Domo configured — pulling at startup", flush=True)
+        if _refresh_csat_from_domo():
+            return
+        print("[csat] Domo pull failed at startup — falling back to bundled CSV", flush=True)
+    else:
+        print("[csat] Domo not configured (set DOMO_* env vars) — using bundled CSV", flush=True)
+
     paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "call_quality.csv"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "call_quality.csv"),
@@ -319,26 +425,9 @@ def _load_csat_csv():
     for path in paths:
         if not os.path.exists(path):
             continue
-        rows = []
         with open(path, newline='', encoding='utf-8') as f:
-            for row in csv.DictReader(f):
-                try:
-                    # Support both DATE and DATETIME column names
-                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
-                    date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
-                    rows.append({
-                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
-                        "cid":    row["CONSULTANT_ID"],
-                        "name":   row["CONSULTANT_NAME"],
-                        "team":   row["CONSULTANT_TEAM"].strip(),
-                        "date":   date_str,
-                        "solved": row["SOLVED"].strip().lower() == "true",
-                        "call_id": (row.get("CALL_ID") or "").strip(),
-                    })
-                except (ValueError, KeyError):
-                    continue
+            rows = _parse_csv_text(f.read())
         _build_csat_index(rows)
-        # Save JSON for serving
         _save_csat_json()
         print(f"[csat] loaded from {path}", flush=True)
         return
@@ -1019,6 +1108,12 @@ async def _refresh_loop():
             await full_refresh()
         except Exception as ex:
             print(f"[loop] error: {ex}", flush=True)
+        # Refresh CSAT from Domo on the same 2-hour cycle (no-op if not configured).
+        if _domo_configured():
+            try:
+                await asyncio.to_thread(_refresh_csat_from_domo)
+            except Exception as ex:
+                print(f"[loop] domo csat refresh error: {ex}", flush=True)
         await asyncio.sleep(REFRESH_SEC)
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
@@ -1314,6 +1409,13 @@ async def debug_csat():
         "cwd": os.getcwd(),
         "paths_checked": {p: os.path.exists(p) for p in paths},
         "sample": _csat_rows[:2] if _csat_rows else [],
+        "domo": {
+            "configured": _domo_configured(),
+            "client_id_set": bool(DOMO_CLIENT_ID),
+            "secret_set": bool(DOMO_CLIENT_SECRET),
+            "dataset_id_set": bool(DOMO_DATASET_ID),
+            "source": "domo" if _domo_configured() else "bundled_csv",
+        },
     }
 
 @app.get("/health")
@@ -1352,6 +1454,29 @@ async def api_refresh():
         asyncio.create_task(full_refresh())
         return {"status": "refresh started", "note": "Takes ~30-60s. Check /health for completion."}
     return {"status": "refresh already running", "note": "Check /health for progress."}
+
+@app.get("/api/refresh/csat")
+async def api_refresh_csat():
+    """Manually pull the latest CSAT data from Domo and rebuild the index.
+    Replaces the manual 'Update CSAT' upload when Domo is configured.
+    """
+    if not _domo_configured():
+        return JSONResponse(
+            {"status": "domo not configured",
+             "note": "Set DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID env vars."},
+            status_code=400,
+        )
+    ok = await asyncio.to_thread(_refresh_csat_from_domo)
+    if ok:
+        idx = _csat_index.get("index_data", {})
+        return {"status": "csat refreshed from domo",
+                "data_min": idx.get("date_min"),
+                "data_max": idx.get("date_max"),
+                "rows": idx.get("total_rows")}
+    return JSONResponse(
+        {"status": "domo pull failed", "note": "Check server logs for the [domo] error line."},
+        status_code=502,
+    )
 
 @app.get("/cache/clear")
 async def clear_cache():

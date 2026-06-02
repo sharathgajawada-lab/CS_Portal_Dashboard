@@ -460,7 +460,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="header-right">
       <div class="live-dot"></div>
       <div class="last-updated" id="lastUpdated">—</div>
-      <button class="export-btn" onclick="showUploadModal()" title="Upload new call quality Excel" style="background:var(--blue);color:#fff;border-color:var(--blue)">⬆ Update CSAT</button>
+      <button class="export-btn" id="domoRefreshBtn" onclick="refreshFromDomo()" title="Pull the latest CSAT data live from Domo" style="background:var(--blue);color:#fff;border-color:var(--blue)">↻ Refresh from Domo</button>
     </div>
   </div>
 
@@ -2531,6 +2531,36 @@ function showUploadModal() {
 }
 function hideUploadModal() {
   document.getElementById('uploadModal').style.display = 'none';
+}
+
+// Pull the latest CSAT data live from Domo, then reload the page data.
+async function refreshFromDomo() {
+  const btn = document.getElementById('domoRefreshBtn');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Pulling from Domo…'; }
+  try {
+    const r = await fetch('/api/refresh/csat');
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && (j.status || '').includes('refreshed')) {
+      if (btn) btn.textContent = '✓ Updated';
+      await loadCSAT(true);                 // re-fetch the rebuilt index
+      _populateGlobalConsultantBar();
+      document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
+    } else if (r.status === 400) {
+      // Domo not configured on the server — fall back to manual upload.
+      if (btn) btn.textContent = orig;
+      showUploadModal();
+      return;
+    } else {
+      if (btn) btn.textContent = '✕ Pull failed';
+      console.warn('Domo refresh failed:', j);
+    }
+  } catch (e) {
+    if (btn) btn.textContent = '✕ Error';
+    console.warn('Domo refresh error:', e);
+  } finally {
+    if (btn) setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
+  }
 }
 
 async function submitCSATUpload() {
