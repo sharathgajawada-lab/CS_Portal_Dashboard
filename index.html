@@ -939,7 +939,7 @@ let catData     = null;
 let prevCatData = null;   // prev-period categories for compare overlay
 let intelData   = null;  // full intel response
 
-let filters = { event: null, dow: null };
+let filters = { event: null, dow: null, category: null };
 const charts = {};
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
@@ -1021,7 +1021,7 @@ function clearFilter(type) {
   applyFilters();
 }
 function clearAllFilters() {
-  filters = { event: null, dow: null };
+  filters = { event: null, dow: null, category: null };
   updateFilterBar();
   applyFilters();
 }
@@ -1032,9 +1032,11 @@ function updateFilterBar() {
   if (!active.length) { bar.classList.remove('visible'); chips.innerHTML = ''; return; }
   bar.classList.add('visible');
   chips.innerHTML = active.map(([type, val]) => {
-    const label = type === 'event'
-      ? (EVENTS.find(e => e.key === val)?.label || val)
-      : `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][val]}s`;
+    let label = '';
+    if (type === 'event') label = EVENTS.find(e => e.key === val)?.label || val;
+    else if (type === 'dow') label = `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][val]}s`;
+    else if (type === 'category') label = (val || '').toString().replace('/ ', ' ');
+    else label = String(val);
     return `<span class="filter-chip">${label}<button onclick="clearFilter('${type}')">✕</button></span>`;
   }).join('');
 }
@@ -1778,7 +1780,21 @@ function toggleArticleExpand() {
 
 function renderArticleTable() {
   // Apply current sort
-  const rawArticles = (articleData?.articles || []).slice();
+  let rawArticles = (articleData?.articles || []).slice();
+  // Apply category filter if present
+  if (filters.category) {
+    const catFilter = filters.category.toString();
+    rawArticles = rawArticles.filter(a => {
+      if (!a) return false;
+      // Check common possible category fields
+      if (Array.isArray(a.categories) && a.categories.some(c => (c.path||c.label||c).toString() === catFilter)) return true;
+      if (a.path && a.path.toString() === catFilter) return true;
+      if (a.category && a.category.toString() === catFilter) return true;
+      // Fallback: substring match against label
+      if (a.label && a.label.toString().toLowerCase().includes(catFilter.toLowerCase())) return true;
+      return false;
+    });
+  }
   if (_artSort.key) {
     rawArticles.sort((a, b) => {
       let av = a[_artSort.key], bv = b[_artSort.key];
@@ -1937,6 +1953,9 @@ function renderCategories() {
 
   const chartType = compare ? 'bar' : 'doughnut';
 
+  // Normalize labels: remove stray "/ " fragments for display
+  const labels = cats.map(c => (c.label || 'Home').replace('/ ', ' '));
+
   const datasets = compare
     ? [
         { label: 'Current period', data: cats.map(c => c.count),
@@ -1954,7 +1973,7 @@ function renderCategories() {
 
   charts.cat = new Chart(document.getElementById('catChart'), {
     type: chartType,
-    data: { labels: cats.map(c => c.label || 'Home'), datasets },
+    data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
@@ -1968,6 +1987,19 @@ function renderCategories() {
         x: { ticks: { font: { size: 10 } }, grid: { display: false } },
         y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
       }} : {}),
+      // Add click handler so selecting a slice filters articles by category
+      onClick: (evt, elems) => {
+        if (!elems || elems.length === 0) return;
+        const idx = elems[0].index;
+        const cat = cats[idx];
+        if (!cat) return;
+        const catKey = cat.path || cat.label;
+        setFilter('category', catKey);
+        // Ensure article list is visible and refreshed
+        renderArticleTable();
+        const artEl = document.getElementById('articleTable');
+        if (artEl) artEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
     },
   });
 }
