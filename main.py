@@ -205,12 +205,38 @@ UPLOAD_PASSWORD = os.environ.get("CSAT_UPLOAD_PASSWORD", "hearcom2024")
 # Path where csat_index.json is saved for serving
 CSAT_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "csat_index.json")
 
+# CS team allow-list — the raw Domo dataset contains teams/departments we don't
+# want (German teams, sales, etc.), so we keep ONLY these. To add a new CS team
+# later, append it here OR set the CSAT_TEAMS env var (comma-separated) in Render.
+# Matching is case-insensitive and trims surrounding whitespace.
+_DEFAULT_CSAT_TEAMS = "Team Amplifiers,Team Hear4Life,Voice AI,Team Sound Check"
+CSAT_TEAMS_ALLOW = [
+    t.strip() for t in os.getenv("CSAT_TEAMS", _DEFAULT_CSAT_TEAMS).split(",") if t.strip()
+]
+_CSAT_TEAMS_ALLOW_LC = {t.lower() for t in CSAT_TEAMS_ALLOW}
+
+
+def _filter_allowed_teams(rows: list) -> list:
+    """Keep only rows whose CONSULTANT_TEAM is in the allow-list (case-insensitive)."""
+    if not _CSAT_TEAMS_ALLOW_LC:
+        return rows
+    kept = [r for r in rows if (r.get("team") or "").strip().lower() in _CSAT_TEAMS_ALLOW_LC]
+    dropped = len(rows) - len(kept)
+    if dropped:
+        print(f"[csat] team filter: kept {len(kept)} rows, dropped {dropped} "
+              f"(allow-list: {CSAT_TEAMS_ALLOW})", flush=True)
+    return kept
+
 
 def _build_csat_index(rows: list) -> dict:
     """Build the pre-aggregated day/week index from raw survey rows.
-    Used by both startup CSV loading and the upload endpoint.
+    Used by every data path — Domo pull, startup CSV, and manual upload.
     """
     global _csat_rows, _csat_index
+
+    # Drop teams/departments outside the CS allow-list before anything else,
+    # so no data source (Domo, CSV, upload) can leak unwanted teams in.
+    rows = _filter_allowed_teams(rows)
 
     rows.sort(key=lambda r: r["date"])
     _csat_rows = rows
@@ -354,17 +380,30 @@ def _domo_fetch_csv() -> str | None:
     try:
         with httpx.Client(timeout=60.0) as client:
             # 1) OAuth client-credentials grant → bearer token (Basic auth: id:secret).
-            tok = client.get(
-                f"{DOMO_API_BASE}/oauth/token",
-                params={"grant_type": "client_credentials", "scope": "data"},
-                auth=(DOMO_CLIENT_ID, DOMO_CLIENT_SECRET),
-            )
-            if tok.status_code != 200:
-                print(f"[domo] auth failed: HTTP {tok.status_code} {tok.text[:200]}", flush=True)
-                return None
-            token = tok.json().get("access_token")
+            #    A 400 invalid_request usually means the requested scope doesn't match
+            #    what the client was granted. So try a few strategies in order:
+            #    (a) no scope → Domo returns the client's own granted scopes,
+            #    (b) scope=data, (c) scope="data user". First 200 wins.
+            token = None
+            last_err = ""
+            for scope in (None, "data", "data user"):
+                params = {"grant_type": "client_credentials"}
+                if scope:
+                    params["scope"] = scope
+                tok = client.get(
+                    f"{DOMO_API_BASE}/oauth/token",
+                    params=params,
+                    auth=(DOMO_CLIENT_ID, DOMO_CLIENT_SECRET),
+                )
+                if tok.status_code == 200:
+                    token = tok.json().get("access_token")
+                    granted = tok.json().get("scope", "?")
+                    print(f"[domo] auth ok (scope requested={scope or 'none'}, granted={granted})", flush=True)
+                    break
+                last_err = f"HTTP {tok.status_code} {tok.text[:150]}"
+                print(f"[domo] auth attempt scope={scope or 'none'} failed: {last_err}", flush=True)
             if not token:
-                print("[domo] auth ok but no access_token in response", flush=True)
+                print(f"[domo] auth failed on all scope attempts — last: {last_err}", flush=True)
                 return None
 
             # 2) Export dataset as CSV (includeHeader so DictReader gets column names).
@@ -1416,6 +1455,7 @@ async def debug_csat():
             "dataset_id_set": bool(DOMO_DATASET_ID),
             "source": "domo" if _domo_configured() else "bundled_csv",
         },
+        "team_allow_list": CSAT_TEAMS_ALLOW,
     }
 
 @app.get("/health")
