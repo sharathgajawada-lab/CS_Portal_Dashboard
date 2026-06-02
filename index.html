@@ -2393,6 +2393,10 @@ function renderInsights(intel) {
     while (d <= end) { spine.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
     return spine;
   }
+  function makeSeriesSpine(fromIso, toIso, gb) {
+    const spine = makeInsightSpine(fromIso, toIso).map(date => ({ date, count: 0 }));
+    return aggregateSeries(spine, gb);
+  }
   const allDates = makeInsightSpine(state.from, state.to);
 
   // Raw daily maps (used for tooltip detail in consumption chart)
@@ -2411,10 +2415,10 @@ function renderInsights(intel) {
     const { prevFrom: avPrevFrom, prevTo: avPrevTo } = _getPrevPeriod(artVidFrom, artVidTo);
 
     // Aggregate each series to the chosen grouping
+    const aggDates  = makeSeriesSpine(artVidFrom, artVidTo, avGb).map(p => p.date);
     const aggArt = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
     const aggVid = aggregateSeries(vidSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
     const aggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
-    const aggDates  = aggArt.map(p => p.date);
     const aggArtMap = Object.fromEntries(aggArt.map(p=>[p.date,p.count]));
     const aggVidMap = Object.fromEntries(aggVid.map(p=>[p.date,p.count]));
     const aggLogMap = Object.fromEntries(aggLog.map(p=>[p.date,p.count]));
@@ -2425,13 +2429,20 @@ function renderInsights(intel) {
       { type:'bar', label:'Logins',         data:aggDates.map(d=>aggLogMap[d]||0), backgroundColor:'rgba(14,110,69,.40)',   borderRadius:2, borderSkipped:false },
     ];
     if (artVidCompare) {
-      const pArtAgg = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0})), avGb);
-      const pVidAgg = aggregateSeries((rawData['video.watched']?.series ||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0})), avGb);
-      const pLogAgg = aggregateSeries((rawData['auth.login']?.series    ||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0})), avGb);
+      const prevArtSeries = (rawData['article.viewed']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0}));
+      const prevVidSeries = (rawData['video.watched']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0}));
+      const prevLogSeries = (rawData['auth.login']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0}));
+      const pArtAgg = aggregateSeries(prevArtSeries, avGb);
+      const pVidAgg = aggregateSeries(prevVidSeries, avGb);
+      const pLogAgg = aggregateSeries(prevLogSeries, avGb);
+      const pArtMap = Object.fromEntries(pArtAgg.map(p=>[p.date,p.count]));
+      const pVidMap = Object.fromEntries(pVidAgg.map(p=>[p.date,p.count]));
+      const pLogMap = Object.fromEntries(pLogAgg.map(p=>[p.date,p.count]));
+      const prevSpine = makeSeriesSpine(avPrevFrom, avPrevTo, avGb);
       artVidDatasets.push(
-        { type:'line', label:'Articles (prev)', data:aggDates.map((_,i)=>pArtAgg[i]?.count??null), borderColor:'#c47a0a', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
-        { type:'line', label:'Videos (prev)',   data:aggDates.map((_,i)=>pVidAgg[i]?.count??null), borderColor:'#c03030', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
-        { type:'line', label:'Logins (prev)',   data:aggDates.map((_,i)=>pLogAgg[i]?.count??null), borderColor:'#0e6e45', borderDash:[3,3], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
+        { type:'line', label:'Articles (prev)', data: prevSpine.map(p=>pArtMap[p.date] ?? null), borderColor:'#c47a0a', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
+        { type:'line', label:'Videos (prev)',   data: prevSpine.map(p=>pVidMap[p.date] ?? null), borderColor:'#c03030', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
+        { type:'line', label:'Logins (prev)',   data: prevSpine.map(p=>pLogMap[p.date] ?? null), borderColor:'#0e6e45', borderDash:[3,3], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
       );
     }
     if (charts.artVidChart) charts.artVidChart.destroy();
@@ -2458,9 +2469,9 @@ function renderInsights(intel) {
     const cGb = getChartGroupBy('consumptionChart');
     const { prevFrom: cPrevFrom, prevTo: cPrevTo } = _getPrevPeriod(cFrom, cTo);
 
+    const cAggDates = makeSeriesSpine(cFrom, cTo, cGb).map(p=>p.date);
     const cAggArt = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), cGb);
     const cAggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), cGb);
-    const cAggDates = cAggArt.map(p=>p.date);
     const cArtMap   = Object.fromEntries(cAggArt.map(p=>[p.date,p.count]));
     const cLogMap   = Object.fromEntries(cAggLog.map(p=>[p.date,p.count]));
 
@@ -2479,9 +2490,12 @@ function renderInsights(intel) {
     if (consumCompare) {
       const pCArtAgg = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>({date:p.date,count:p.count||0})), cGb);
       const pCLogAgg = aggregateSeries((rawData['auth.login']?.series    ||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>({date:p.date,count:p.count||0})), cGb);
+      const pCArtMap = Object.fromEntries(pCArtAgg.map(p=>[p.date,p.count]));
+      const pCLogMap = Object.fromEntries(pCLogAgg.map(p=>[p.date,p.count]));
+      const cPrevSpine = makeSeriesSpine(cPrevFrom, cPrevTo, cGb);
       consumDatasets.push({
         type:'line', label:`Prev (${fmtDate(cPrevFrom)}–${fmtDate(cPrevTo)})`,
-        data: cAggDates.map((_,i) => { const l=pCLogAgg[i]?.count||0, a=pCArtAgg[i]?.count||0; return l>0?Math.round(a/l*100)/100:null; }),
+        data: cPrevSpine.map(p => { const l=pCLogMap[p.date]||0, a=pCArtMap[p.date]||0; return l>0?Math.round(a/l*100)/100:null; }),
         borderColor:'rgba(107,114,128,.7)', borderDash:[5,4], pointRadius:2, tension:.3, borderWidth:1.5, fill:false, backgroundColor:'transparent',
       });
     }
@@ -2515,16 +2529,11 @@ function renderInsights(intel) {
     const cvGb = getChartGroupBy('conversionChart');
     const { prevFrom: cvPrevFrom, prevTo: cvPrevTo } = _getPrevPeriod(cvFrom, cvTo);
 
+    const cvDates = makeSeriesSpine(cvFrom, cvTo, cvGb).map(p=>p.date);
     const cvAggArt = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), cvGb);
     const cvAggCat = aggregateSeries((rawData['category.viewed']?.series||[]).filter(p=>p.date>=state.from&&p.date<=state.to).map(p=>({date:p.date,count:p.count||0})), cvGb);
     const cvAggVid = aggregateSeries((rawData['video.watched']?.series||[]).filter(p=>p.date>=state.from&&p.date<=state.to).map(p=>({date:p.date,count:p.count||0})), cvGb);
     const cvAggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), cvGb);
-    const cvDates   = Array.from(new Set([
-      ...cvAggArt.map(p=>p.date),
-      ...cvAggCat.map(p=>p.date),
-      ...cvAggVid.map(p=>p.date),
-      ...cvAggLog.map(p=>p.date),
-    ])).sort();
     const cvArtMap  = Object.fromEntries(cvAggArt.map(p=>[p.date,p.count]));
     const cvCatMap  = Object.fromEntries(cvAggCat.map(p=>[p.date,p.count]));
     const cvVidMap  = Object.fromEntries(cvAggVid.map(p=>[p.date,p.count]));
@@ -2555,11 +2564,12 @@ function renderInsights(intel) {
       const pCvCatMap = Object.fromEntries(pCvCat.map(p=>[p.date,p.count]));
       const pCvVidMap = Object.fromEntries(pCvVid.map(p=>[p.date,p.count]));
       const pCvLogMap = Object.fromEntries(pCvLog.map(p=>[p.date,p.count]));
+      const cvPrevSpine = makeSeriesSpine(cvPrevFrom, cvPrevTo, cvGb);
       conversionDatasets.push({
         type:'line', label:`Prev (${fmtDate(cvPrevFrom)}–${fmtDate(cvPrevTo)})`,
-        data: cvDates.map(d => {
-          const views = (pCvArtMap[d]||0) + (pCvCatMap[d]||0) + (pCvVidMap[d]||0);
-          const logins = pCvLogMap[d]||0;
+        data: cvPrevSpine.map(p => {
+          const views = (pCvArtMap[p.date]||0) + (pCvCatMap[p.date]||0) + (pCvVidMap[p.date]||0);
+          const logins = pCvLogMap[p.date]||0;
           return views > 0 ? Math.round((logins / views) * 10000) / 10000 : null;
         }),
         borderColor:'rgba(107,114,128,.7)', borderDash:[5,4], pointRadius:2, tension:.3, borderWidth:1.5, fill:false, backgroundColor:'transparent',
