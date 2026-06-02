@@ -777,13 +777,13 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="section-title">Conversion rate</div>
         <div id="conversionChart_controls_placeholder"></div>
       </div>
-      <div class="section-sub">Conversion rate = logins ÷ total page views</div>
+      <div class="section-sub">Conversion rate = logins ÷ total CS views</div>
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
         <div>
           <div class="card-title">&#x1F4C8; Conversion rate</div>
-          <div class="card-sub">Logins divided by total page views over time</div>
+          <div class="card-sub">Logins divided by total CS views over time</div>
         </div>
         <button class="chart-expand-btn" onclick="expandChart(charts.conversionChart,'Conversion rate')">⤢ Expand</button>
       </div>
@@ -2511,18 +2511,31 @@ function renderInsights(intel) {
     const cvGb = getChartGroupBy('conversionChart');
     const { prevFrom: cvPrevFrom, prevTo: cvPrevTo } = _getPrevPeriod(cvFrom, cvTo);
 
-    const cvAggPv = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), cvGb);
+    const cvAggArt = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), cvGb);
+    const cvAggCat = aggregateSeries((rawData['category.viewed']?.series||[]).filter(p=>p.date>=state.from&&p.date<=state.to).map(p=>({date:p.date,count:p.count||0})), cvGb);
+    const cvAggVid = aggregateSeries((rawData['video.watched']?.series||[]).filter(p=>p.date>=state.from&&p.date<=state.to).map(p=>({date:p.date,count:p.count||0})), cvGb);
     const cvAggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), cvGb);
-    const cvDates   = cvAggPv.map(p=>p.date);
-    const cvPvMap   = Object.fromEntries(cvAggPv.map(p=>[p.date,p.count]));
+    const cvDates   = Array.from(new Set([
+      ...cvAggArt.map(p=>p.date),
+      ...cvAggCat.map(p=>p.date),
+      ...cvAggVid.map(p=>p.date),
+      ...cvAggLog.map(p=>p.date),
+    ])).sort();
+    const cvArtMap  = Object.fromEntries(cvAggArt.map(p=>[p.date,p.count]));
+    const cvCatMap  = Object.fromEntries(cvAggCat.map(p=>[p.date,p.count]));
+    const cvVidMap  = Object.fromEntries(cvAggVid.map(p=>[p.date,p.count]));
     const cvLogMap  = Object.fromEntries(cvAggLog.map(p=>[p.date,p.count]));
+    const cvViewMap = Object.fromEntries(cvDates.map(d => [
+      d,
+      (cvArtMap[d]||0) + (cvCatMap[d]||0) + (cvVidMap[d]||0)
+    ]));
     const conversionData = cvDates.map(d => {
-      const p = cvPvMap[d]||0;
-      const l = cvLogMap[d]||0;
-      return p > 0 ? Math.round((l / p) * 10000) / 10000 : null;
+      const views = cvViewMap[d] || 0;
+      const logins = cvLogMap[d] || 0;
+      return views > 0 ? Math.round((logins / views) * 10000) / 10000 : null;
     });
     const conversionDatasets = [{
-      label:'Logins ÷ page views',
+      label:'Logins ÷ CS page views',
       data: conversionData,
       backgroundColor: conversionData.map(v =>
         v===null ? 'transparent' : v >= 0.05 ? 'rgba(16,185,129,.85)' : v >= 0.02 ? 'rgba(245,158,11,.8)' : 'rgba(248,113,113,.7)'
@@ -2530,14 +2543,20 @@ function renderInsights(intel) {
       borderRadius:3, borderSkipped:false,
     }];
     if (convCompare) {
-      const pCvPv = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
-      const pCvLog = aggregateSeries((rawData['auth.login']?.series    ||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
+      const pCvArt = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
+      const pCvCat = aggregateSeries((rawData['category.viewed']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
+      const pCvVid = aggregateSeries((rawData['video.watched']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
+      const pCvLog = aggregateSeries((rawData['auth.login']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
+      const pCvArtMap = Object.fromEntries(pCvArt.map(p=>[p.date,p.count]));
+      const pCvCatMap = Object.fromEntries(pCvCat.map(p=>[p.date,p.count]));
+      const pCvVidMap = Object.fromEntries(pCvVid.map(p=>[p.date,p.count]));
+      const pCvLogMap = Object.fromEntries(pCvLog.map(p=>[p.date,p.count]));
       conversionDatasets.push({
         type:'line', label:`Prev (${fmtDate(cvPrevFrom)}–${fmtDate(cvPrevTo)})`,
-        data: cvDates.map((_,i) => {
-          const p = pCvPv[i]?.count||0;
-          const l = pCvLog[i]?.count||0;
-          return p > 0 ? Math.round((l / p) * 10000) / 10000 : null;
+        data: cvDates.map(d => {
+          const views = (pCvArtMap[d]||0) + (pCvCatMap[d]||0) + (pCvVidMap[d]||0);
+          const logins = pCvLogMap[d]||0;
+          return views > 0 ? Math.round((logins / views) * 10000) / 10000 : null;
         }),
         borderColor:'rgba(107,114,128,.7)', borderDash:[5,4], pointRadius:2, tension:.3, borderWidth:1.5, fill:false, backgroundColor:'transparent',
       });
@@ -2554,11 +2573,11 @@ function renderInsights(intel) {
           tooltip:{
             backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1, titleColor:'#111827', bodyColor:'#374151',
             callbacks:{
-              label: ctx => ctx.raw!==null ? `${Math.round(ctx.raw*10000)/100}% conversion` : 'No page views',
+              label: ctx => ctx.raw!==null ? `${Math.round(ctx.raw*10000)/100}% conversion` : 'No CS page views',
               afterLabel: ctx => {
                 if (ctx.datasetIndex !== 0) return '';
                 const d = cvDates[ctx.dataIndex];
-                return `${cvLogMap[d]||0} logins · ${cvPvMap[d]||0} page views`;
+                return `${cvLogMap[d]||0} logins · ${cvViewMap[d]||0} CS views`;
               },
             },
           },
