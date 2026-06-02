@@ -918,6 +918,7 @@ const EVENTS = [
   {key:'article.viewed',         label:'Articles viewed',color:'#c47a0a'},
   {key:'search.performed',       label:'Searches',       color:'#5b3fbf'},
   {key:'video.watched',          label:'Videos watched', color:'#c03030'},
+  {key:'total.views',            label:'Total views',    color:'#0b74b7'},
   {key:'category.viewed',        label:'Category views', color:'#1a4fdb'},
   {key:'article.feedback',       label:'Feedback',       color:'#0f6e56'},
   {key:'order_supplies.visited', label:'Supplies visits',color:'#b45309'},
@@ -1043,6 +1044,15 @@ function updateFilterBar() {
 
 // ── Get filtered series ──────────────────────────────────────────────────────
 function getSeries(key) {
+  // Support synthetic combined series keys like 'total.views'
+  if (key === 'total.views') {
+    const parts = ['article.viewed', 'video.watched', 'category.viewed'];
+    const all = parts.flatMap(k => rawData[k]?.series || []);
+    let s = all.filter(p => p.date >= state.from && p.date <= state.to);
+    if (filters.dow !== null)
+      s = s.filter(p => new Date(p.date).getDay() === filters.dow);
+    return s;
+  }
   const all = rawData[key]?.series || [];
   let s = all.filter(p => p.date >= state.from && p.date <= state.to);
   if (filters.dow !== null)
@@ -1249,9 +1259,10 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
     const ev = EVENTS.find(e => e.key === key);
 
     // Current period — aggregate then align to the full spine (zeros for missing days)
-    const curAgg = aggregateSeries(
-      (rawData[key]?.series||[]).filter(p => p.date >= curFrom && p.date <= curTo), gb
-    );
+    const curRaw = key === 'total.views'
+      ? ['article.viewed','video.watched','category.viewed'].flatMap(k => (rawData[k]?.series||[]).filter(p => p.date >= curFrom && p.date <= curTo))
+      : (rawData[key]?.series||[]).filter(p => p.date >= curFrom && p.date <= curTo);
+    const curAgg = aggregateSeries(curRaw, gb);
     // Build map from spine bucket date → position index
     const spineIndexMap = Object.fromEntries(spineAgg.map((p, i) => [p.date, i]));
     const curData = new Array(nBuckets).fill(0);
@@ -1262,9 +1273,10 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
 
     // Prev period — build full spine then align by position (day 1 of prev = position 0)
     const prevSpine = makeDateSpine(prevFrom, prevTo, gb);
-    const prevAgg = aggregateSeries(
-      (rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo), gb
-    );
+    const prevRaw = key === 'total.views'
+      ? ['article.viewed','video.watched','category.viewed'].flatMap(k => (rawData[k]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo))
+      : (rawData[key]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo);
+    const prevAgg = aggregateSeries(prevRaw, gb);
     const prevDateMap = Object.fromEntries(prevAgg.map(p => [p.date, p.count||0]));
     const prevData = prevSpine.map(p => prevDateMap[p.date] ?? 0).slice(0, nBuckets);
     // Pad to nBuckets if prev period is shorter (shouldn't happen, but safety net)
