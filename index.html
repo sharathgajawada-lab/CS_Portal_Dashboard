@@ -902,6 +902,14 @@ thead th:hover .sort-arrow { color:var(--text2) }
 // ── Constants ────────────────────────────────────────────────────────────────
 const DATA_START = '2023-06-22';
 let _isAllTime = false;
+function getEarliestDataStart() {
+  let earliest = DATA_START;
+  for (const key of Object.keys(rawData)) {
+    const series = rawData[key]?.series || [];
+    if (series.length && series[0].date < earliest) earliest = series[0].date;
+  }
+  return earliest;
+}
 // Graph-by state per chart section: 'day' | 'week' | 'month'
 const _graphBy = { trend: 'day', csat: 'day' };  // true when 'All time' is selected — suppresses WoW comparisons
 // Update this to the real CS portal article base URL once confirmed
@@ -970,11 +978,7 @@ function setQuick(n, btn) {
   else if (n === 'start'){
     // Use the earliest date actually in the CMS data, not a hardcoded constant
     // rawData is populated after /api/metrics/batch loads — fall back to DATA_START if not yet loaded
-    let earliest = DATA_START;
-    for (const key of Object.keys(rawData)) {
-      const series = rawData[key]?.series || [];
-      if (series.length && series[0].date < earliest) earliest = series[0].date;
-    }
+    let earliest = getEarliestDataStart();
     from = earliest;
     _isAllTime = true;
   }
@@ -1491,7 +1495,7 @@ function getChartRange(id) {
   const today = todayISO();
   const type  = ctrl.rangeType || 'selection';
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return { from: DATA_START, to: today };
+  if (type === 'alltime')   return { from: getEarliestDataStart(), to: today };
   if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
   if (type === 'current')   return getCurrentPeriod(ctrl.curUnit || 'month');
   if (type === 'previous')  return getPreviousPeriod(ctrl.prevUnit || 'month');
