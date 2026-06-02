@@ -731,7 +731,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
   <div class="section" id="consumptionSection" style="display:none">
     <div class="section-header">
       <div class="section-title">Content consumption</div>
-      <div class="section-sub">Articles · videos · logins over time</div>
+      <div class="section-sub">Videos watched per login over time</div>
     </div>
     <div class="two-col">
       <div class="card" id="artVidChartWrap">
@@ -1654,6 +1654,7 @@ function fmtBucketDate(iso, groupBy) {
 
 
 function renderTrend() {
+  const selectedEvent = filters.event || 'auth.login';
   const activeEvent = filters.event;
   let datasets = [];
   let labels    = [];
@@ -1664,7 +1665,7 @@ function renderTrend() {
   const { from: tFrom, to: tTo } = getTrendDateRange();
 
   if (isCompare) {
-    _renderTrendCompare(activeEvent, tFrom, tTo, gb);
+    _renderTrendCompare(selectedEvent, tFrom, tTo, gb);
     return;
   }
 
@@ -1683,36 +1684,17 @@ function renderTrend() {
     return aggregateSeries(raw, gb);
   };
 
-  if (activeEvent) {
-    const spine = makeSpine(tFrom, tTo, gb);
-    const s     = filteredSeries(activeEvent);
-    const ev    = EVENTS.find(e => e.key === activeEvent);
-    const sMap  = Object.fromEntries(s.map(p => [p.date, p.count||0]));
-    labels   = spine.map(p => fmtBucketDate(p.date, gb));
-    datasets = [{
-      label: ev.label, data: spine.map(p => sMap[p.date] || 0),
-      borderColor: ev.color, backgroundColor: ev.color + '18',
-      fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2.5,
-    }];
-    document.getElementById('trendSub').textContent = `${ev.label} · ${fmtDate(tFrom)} – ${fmtDate(tTo)} · by ${gb}`;
-  } else {
-    const mainKeys = ['auth.login', 'article.viewed', 'search.performed', 'video.watched'];
-    const spine = makeSpine(tFrom, tTo, gb);
-    labels = spine.map(p => fmtBucketDate(p.date, gb));
-    datasets = mainKeys.map(key => {
-      const ev  = EVENTS.find(e => e.key === key);
-      const s   = filteredSeries(key);
-      const map = Object.fromEntries(s.map(p => [p.date, p.count||0]));
-      return {
-        label: ev.label,
-        data:  spine.map(p => map[p.date] || 0),
-        borderColor: ev.color, backgroundColor: 'transparent',
-        fill: false, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
-        borderDash: key === 'search.performed' ? [4,3] : key === 'video.watched' ? [2,2] : [],
-      };
-    });
-    document.getElementById('trendSub').textContent = `${fmtDate(tFrom)} – ${fmtDate(tTo)} · by ${gb}`;
-  }
+  const spine = makeSpine(tFrom, tTo, gb);
+  const s     = filteredSeries(selectedEvent);
+  const ev    = EVENTS.find(e => e.key === selectedEvent);
+  const sMap  = Object.fromEntries(s.map(p => [p.date, p.count||0]));
+  labels   = spine.map(p => fmtBucketDate(p.date, gb));
+  datasets = [{
+    label: ev.label, data: spine.map(p => sMap[p.date] || 0),
+    borderColor: ev.color, backgroundColor: ev.color + '18',
+    fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2.5,
+  }];
+  document.getElementById('trendSub').textContent = `${ev.label} · ${fmtDate(tFrom)} – ${fmtDate(tTo)} · by ${gb}`;
 
   if (charts.trend) charts.trend.destroy();
   charts.trend = new Chart(document.getElementById('trendChart'), {
@@ -1722,7 +1704,7 @@ function renderTrend() {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { display: !activeEvent, labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } },
+        legend: { display: false, labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280' } },
         tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
       },
       scales: {
@@ -1731,25 +1713,12 @@ function renderTrend() {
       },
       onClick: (evt, els) => {
         if (!els.length) return;
-        if (activeEvent) {
-          // Single event view: click date → drill to that day
-          const idx = els[0].index;
-          const s = getSeries(activeEvent);
-          if (s[idx]) drillDate(s[idx].date);
-        } else {
-          // Multi-event view: click point → check if it's a date label click
-          const idx = els[0].index;
-          const refSeries = getSeries('auth.login');
-          if (refSeries[idx]) drillDate(refSeries[idx].date);
-        }
+        const idx = els[0].index;
+        if (!spine[idx]?.date) return;
+        drillDate(spine[idx].date);
       },
     },
   });
-}
-
-// ── Article table ─────────────────────────────────────────────────────────────
-function renderTableIfArticleData() {
-  if (articleData) renderArticleTable();
 }
 
 // ── Article table sort ────────────────────────────────────────────────────────
@@ -2416,34 +2385,45 @@ function renderInsights(intel) {
 
     // Aggregate each series to the chosen grouping
     const aggDates  = makeSeriesSpine(artVidFrom, artVidTo, avGb).map(p => p.date);
-    const aggArt = aggregateSeries(artSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
     const aggVid = aggregateSeries(vidSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
     const aggLog = aggregateSeries(logSeries.map(p=>({date:p.date,count:p.count||0})), avGb);
-    const aggArtMap = Object.fromEntries(aggArt.map(p=>[p.date,p.count]));
     const aggVidMap = Object.fromEntries(aggVid.map(p=>[p.date,p.count]));
     const aggLogMap = Object.fromEntries(aggLog.map(p=>[p.date,p.count]));
 
-    const artVidDatasets = [
-      { type:'bar', label:'Articles read',  data:aggDates.map(d=>aggArtMap[d]||0), backgroundColor:'rgba(196,122,10,.55)', borderRadius:2, borderSkipped:false },
-      { type:'bar', label:'Videos watched', data:aggDates.map(d=>aggVidMap[d]||0), backgroundColor:'rgba(192,48,48,.50)',   borderRadius:2, borderSkipped:false },
-      { type:'bar', label:'Logins',         data:aggDates.map(d=>aggLogMap[d]||0), backgroundColor:'rgba(14,110,69,.40)',   borderRadius:2, borderSkipped:false },
-    ];
+    const artVidDatasets = [{
+      type:'bar', label:'Videos watched per login',
+      data: aggDates.map(d => {
+        const v = aggVidMap[d] || 0;
+        const l = aggLogMap[d] || 0;
+        return l > 0 ? Math.round(v/l*100)/100 : null;
+      }),
+      backgroundColor: aggDates.map(d => {
+        const v = aggVidMap[d] || 0;
+        const l = aggLogMap[d] || 0;
+        const ratio = l > 0 ? Math.round(v/l*100)/100 : null;
+        return ratio === null ? 'transparent' : ratio >= 3 ? 'rgba(192,48,48,.7)' : ratio >= 1.5 ? 'rgba(245,158,11,.7)' : 'rgba(248,113,113,.6)';
+      }),
+      borderRadius:2, borderSkipped:false,
+    }];
+
+    let avPrevSpine = [];
     if (artVidCompare) {
-      const prevArtSeries = (rawData['article.viewed']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0}));
       const prevVidSeries = (rawData['video.watched']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0}));
       const prevLogSeries = (rawData['auth.login']?.series||[]).filter(p=>p.date>=avPrevFrom&&p.date<=avPrevTo).map(p=>({date:p.date,count:p.count||0}));
-      const pArtAgg = aggregateSeries(prevArtSeries, avGb);
       const pVidAgg = aggregateSeries(prevVidSeries, avGb);
       const pLogAgg = aggregateSeries(prevLogSeries, avGb);
-      const pArtMap = Object.fromEntries(pArtAgg.map(p=>[p.date,p.count]));
       const pVidMap = Object.fromEntries(pVidAgg.map(p=>[p.date,p.count]));
       const pLogMap = Object.fromEntries(pLogAgg.map(p=>[p.date,p.count]));
-      const prevSpine = makeSeriesSpine(avPrevFrom, avPrevTo, avGb);
-      artVidDatasets.push(
-        { type:'line', label:'Articles (prev)', data: prevSpine.map(p=>pArtMap[p.date] ?? null), borderColor:'#c47a0a', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
-        { type:'line', label:'Videos (prev)',   data: prevSpine.map(p=>pVidMap[p.date] ?? null), borderColor:'#c03030', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2 },
-        { type:'line', label:'Logins (prev)',   data: prevSpine.map(p=>pLogMap[p.date] ?? null), borderColor:'#0e6e45', borderDash:[3,3], fill:false, pointRadius:1, tension:.3, borderWidth:1.5 },
-      );
+      avPrevSpine = makeSeriesSpine(avPrevFrom, avPrevTo, avGb);
+      artVidDatasets.push({
+        type:'line', label:`Prev (${fmtDate(avPrevFrom)}–${fmtDate(avPrevTo)})`,
+        data: avPrevSpine.map(p => {
+          const v = pVidMap[p.date] || 0;
+          const l = pLogMap[p.date] || 0;
+          return l > 0 ? Math.round(v/l*100)/100 : null;
+        }),
+        borderColor:'#c03030', borderDash:[5,4], fill:false, pointRadius:2, tension:.3, borderWidth:2,
+      });
     }
     if (charts.artVidChart) charts.artVidChart.destroy();
     charts.artVidChart = new Chart(document.getElementById('artVidChart'), {
@@ -2454,11 +2434,22 @@ function renderInsights(intel) {
         interaction:{ mode:'index', intersect:false },
         plugins:{
           legend:{ labels:{ boxWidth:10, font:{size:11}, color:'#6b7280' } },
-          tooltip:{ backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1, titleColor:'#111827', bodyColor:'#374151' },
+          tooltip:{
+            backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1,
+            titleColor:'#111827', bodyColor:'#374151',
+            callbacks:{
+              title: ctx => {
+                const i = ctx[0]?.dataIndex;
+                const current = aggDates[i] ? fmtBucketDate(aggDates[i], avGb) : '—';
+                const prev = artVidCompare && avPrevSpine[i] ? fmtBucketDate(avPrevSpine[i].date, avGb) : null;
+                return prev ? `${current} · prev: ${prev}` : current;
+              },
+            },
+          },
         },
         scales:{
           x:{ ticks:{ maxRotation:45, autoSkip:true, maxTicksLimit:12, font:{size:10} }, grid:gridOpts },
-          y:{ ticks:{ font:{size:10} }, grid:gridOpts, beginAtZero:true },
+          y:{ ticks:{ font:{size:10} }, grid:gridOpts, beginAtZero:true, title:{ display:true, text:'Videos / login', font:{size:10}, color:'#c03030' } },
         },
       },
     });
@@ -2487,12 +2478,13 @@ function renderInsights(intel) {
       ),
       borderRadius:3, borderSkipped:false,
     }];
+    let cPrevSpine = [];
     if (consumCompare) {
       const pCArtAgg = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>({date:p.date,count:p.count||0})), cGb);
       const pCLogAgg = aggregateSeries((rawData['auth.login']?.series    ||[]).filter(p=>p.date>=cPrevFrom&&p.date<=cPrevTo).map(p=>({date:p.date,count:p.count||0})), cGb);
       const pCArtMap = Object.fromEntries(pCArtAgg.map(p=>[p.date,p.count]));
       const pCLogMap = Object.fromEntries(pCLogAgg.map(p=>[p.date,p.count]));
-      const cPrevSpine = makeSeriesSpine(cPrevFrom, cPrevTo, cGb);
+      cPrevSpine = makeSeriesSpine(cPrevFrom, cPrevTo, cGb);
       consumDatasets.push({
         type:'line', label:`Prev (${fmtDate(cPrevFrom)}–${fmtDate(cPrevTo)})`,
         data: cPrevSpine.map(p => { const l=pCLogMap[p.date]||0, a=pCArtMap[p.date]||0; return l>0?Math.round(a/l*100)/100:null; }),
@@ -2511,6 +2503,12 @@ function renderInsights(intel) {
           tooltip:{
             backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1, titleColor:'#111827', bodyColor:'#374151',
             callbacks:{
+              title: ctx => {
+                const i = ctx[0]?.dataIndex;
+                const current = cAggDates[i] ? fmtBucketDate(cAggDates[i], cGb) : '—';
+                const prev = consumCompare && cPrevSpine[i] ? fmtBucketDate(cPrevSpine[i].date, cGb) : null;
+                return prev ? `${current} · prev: ${prev}` : current;
+              },
               label: ctx => ctx.raw!==null ? `${ctx.raw} articles/login` : 'No logins',
               afterLabel: ctx => { if(ctx.datasetIndex!==0) return ''; const d=cAggDates[ctx.dataIndex]; return `${cArtMap[d]||0} arts · ${cLogMap[d]||0} logins`; },
             },
@@ -2555,6 +2553,7 @@ function renderInsights(intel) {
       ),
       borderRadius:3, borderSkipped:false,
     }];
+    let cvPrevSpine = [];
     if (convCompare) {
       const pCvArt = aggregateSeries((rawData['article.viewed']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
       const pCvCat = aggregateSeries((rawData['category.viewed']?.series||[]).filter(p=>p.date>=cvPrevFrom&&p.date<=cvPrevTo).map(p=>({date:p.date,count:p.count||0})), cvGb);
@@ -2564,7 +2563,7 @@ function renderInsights(intel) {
       const pCvCatMap = Object.fromEntries(pCvCat.map(p=>[p.date,p.count]));
       const pCvVidMap = Object.fromEntries(pCvVid.map(p=>[p.date,p.count]));
       const pCvLogMap = Object.fromEntries(pCvLog.map(p=>[p.date,p.count]));
-      const cvPrevSpine = makeSeriesSpine(cvPrevFrom, cvPrevTo, cvGb);
+      cvPrevSpine = makeSeriesSpine(cvPrevFrom, cvPrevTo, cvGb);
       conversionDatasets.push({
         type:'line', label:`Prev (${fmtDate(cvPrevFrom)}–${fmtDate(cvPrevTo)})`,
         data: cvPrevSpine.map(p => {
@@ -2587,6 +2586,12 @@ function renderInsights(intel) {
           tooltip:{
             backgroundColor:'#ffffff', borderColor:'#dde1ec', borderWidth:1, titleColor:'#111827', bodyColor:'#374151',
             callbacks:{
+              title: ctx => {
+                const i = ctx[0]?.dataIndex;
+                const current = cvDates[i] ? fmtBucketDate(cvDates[i], cvGb) : '—';
+                const prev = convCompare && cvPrevSpine[i] ? fmtBucketDate(cvPrevSpine[i].date, cvGb) : null;
+                return prev ? `${current} · prev: ${prev}` : current;
+              },
               label: ctx => ctx.raw!==null ? `${Math.round(ctx.raw*10000)/100}% conversion` : 'No CS page views',
               afterLabel: ctx => {
                 if (ctx.datasetIndex !== 0) return '';
