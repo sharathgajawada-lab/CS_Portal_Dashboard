@@ -1185,7 +1185,17 @@ function renderAlerts() {
 // ── KPIs ─────────────────────────────────────────────────────────────────────
 function renderKPIs() {
   const activeEvent = filters.event;
-  document.getElementById('kpiRow').innerHTML = EVENTS.map(ev => {
+  // Compute a total 'views' KPI as the sum of article, video and category views
+  const totalViews = (getTotal('article.viewed') || 0) + (getTotal('video.watched') || 0) + (getTotal('category.viewed') || 0);
+  const avgViews = Math.round((totalViews / (state.days || 1)) * 100) / 100;
+  const totalViewsHtml = `<div class="kpi" style="--kpi-accent:#2563eb" onclick="setFilter('event',null)">
+      <div class="kpi-label">Total views</div>
+      <div class="kpi-value">${fmt(totalViews)}</div>
+      <div class="kpi-sub">~${fmt(avgViews)}/day</div>
+      <div class="kpi-wow flat">—</div>
+    </div>`;
+
+  const rest = EVENTS.map(ev => {
     const total = getTotal(ev.key);
     const avg   = getAvgPerDay(ev.key);
     const wow   = getWoW(ev.key);
@@ -1201,6 +1211,8 @@ function renderKPIs() {
       <div class="kpi-wow ${wowClass}">${wowLabel}</div>
     </div>`;
   }).join('');
+
+  document.getElementById('kpiRow').innerHTML = totalViewsHtml + rest;
 }
 
 // ── Trend chart ──────────────────────────────────────────────────────────────
