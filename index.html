@@ -605,56 +605,25 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
   </div>
 
-  <!-- Article performance — centrepiece -->
-  <div class="section">
+  <div class="section" id="conversionSection" style="display:none">
     <div class="section-header">
-      <div style="display:flex;align-items:center;gap:8px">
-        <div class="section-title">Article performance</div>
-        <span class="section-status loading" id="articleStatus"><span class="spinner"></span> Loading…</span>
+      <div class="chart-controls">
+        <div class="section-title">Conversion rate</div>
+        <div id="conversionChart_controls_placeholder"></div>
       </div>
-      <div class="section-sub" id="articleSub">Views · time spent · feedback sentiment</div>
-      <button class="export-btn" onclick="exportArticleCSV()" style="margin-left:auto">⬇ Export table</button>
+      <div class="section-sub">Conversion rate = logins ÷ total CS views</div>
     </div>
-    <div class="card" style="padding:0">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="padding-left:20px;cursor:pointer;user-select:none" onclick="sortArticleTable('label')">Article <span id="artArrowLabel" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('views')">Views <span id="artArrowViews" style="color:var(--blue)">↓</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('avg_seconds')">Avg time <span id="artArrowAvg_seconds" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('helpful')">Helpful <span id="artArrowHelpful" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('not_helpful')">Not helpful <span id="artArrowNot_helpful" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('helpful_pct')">Feedback % <span id="artArrowHelpful_pct" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('share_pct')">Share <span id="artArrowShare_pct" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('bounce_rate')">Bounce <span id="artArrowBounce_rate" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('revisits')">Revisits <span id="artArrowRevisits" style="color:var(--text3)">↕</span></th>
-              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('health_score')">Health <span id="artArrowHealth_score" style="color:var(--text3)">↕</span></th>
-            </tr>
-          </thead>
-          <tbody id="articleTable"></tbody>
-        </table>
-      </div>
-      <!-- Show more/less row -->
-      <div id="articleExpandRow" style="display:none;padding:10px 20px 12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px">
-        <button id="articleExpandBtn" onclick="toggleArticleExpand()"
-          style="font-size:12px;color:var(--blue);background:none;border:1px solid var(--blue);border-radius:6px;padding:5px 14px;cursor:pointer;font-weight:500;transition:background .15s"
-          onmouseover="this.style.background='rgba(37,99,235,.06)'" onmouseout="this.style.background='none'">
-          ▼ Show all articles
-        </button>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:11px;color:var(--text3)">Show top</span>
-          <select id="artTopNSelect" onchange="renderArticleTable()"
-            style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none">
-            <option value="5" selected>5</option>
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="all">All</option>
-          </select>
-          <span style="font-size:11px;color:var(--text3)" id="articleCountLabel"></span>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="card-title">📈 Conversion rate</div>
+          <div class="card-sub">Logins divided by total CS views over time</div>
         </div>
+        <button class="chart-expand-btn" onclick="expandChart(charts.conversionChart,'Conversion rate')">⤢ Expand</button>
       </div>
-      <div class="note" id="articleNote" style="margin:12px 20px 16px">ℹ️ Loading article data…</div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="conversionChart"></canvas>
+      </div>
     </div>
   </div>
 
@@ -737,13 +706,13 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <div class="card" id="artVidChartWrap">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
           <div>
-            <div class="card-title">&#x1F4DA; Articles read vs Videos watched vs Logins</div>
-            <div class="card-sub">Daily content consumption across media types</div>
+            <div class="card-title">&#x1F4DA; Videos watched per login</div>
+            <div class="card-sub">Session-level video consumption over time</div>
           </div>
           <div id="artVidChart_controls_placeholder"></div>
         </div>
         <div class="chart-wrap" style="height:200px;margin-top:6px">
-          <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Articles vs Videos vs Logins')">&#x2922; Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Videos watched per login')">&#x2922; Expand</button>
           <canvas id="artVidChart"></canvas>
         </div>
       </div>
@@ -771,25 +740,54 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
   </div>
 
-  <div class="section" id="conversionSection" style="display:none">
+  <div class="section">
     <div class="section-header">
-      <div class="chart-controls">
-        <div class="section-title">Conversion rate</div>
-        <div id="conversionChart_controls_placeholder"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="section-title">Article performance</div>
+        <span class="section-status loading" id="articleStatus"><span class="spinner"></span> Loading…</span>
       </div>
-      <div class="section-sub">Conversion rate = logins ÷ total CS views</div>
+      <div class="section-sub" id="articleSub">Views · time spent · feedback sentiment</div>
+      <button class="export-btn" onclick="exportArticleCSV()" style="margin-left:auto">⬇ Export table</button>
     </div>
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-        <div>
-          <div class="card-title">&#x1F4C8; Conversion rate</div>
-          <div class="card-sub">Logins divided by total CS views over time</div>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="padding-left:20px;cursor:pointer;user-select:none" onclick="sortArticleTable('label')">Article <span id="artArrowLabel" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('views')">Views <span id="artArrowViews" style="color:var(--blue)">↓</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('avg_seconds')">Avg time <span id="artArrowAvg_seconds" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('helpful')">Helpful <span id="artArrowHelpful" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('not_helpful')">Not helpful <span id="artArrowNot_helpful" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('helpful_pct')">Feedback % <span id="artArrowHelpful_pct" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('share_pct')">Share <span id="artArrowShare_pct" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('bounce_rate')">Bounce <span id="artArrowBounce_rate" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('revisits')">Revisits <span id="artArrowRevisits" style="color:var(--text3)">↕</span></th>
+              <th class="r" style="cursor:pointer;user-select:none" onclick="sortArticleTable('health_score')">Health <span id="artArrowHealth_score" style="color:var(--text3)">↕</span></th>
+            </tr>
+          </thead>
+          <tbody id="articleTable"></tbody>
+        </table>
+      </div>
+      <div id="articleExpandRow" style="display:none;padding:10px 20px 12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <button id="articleExpandBtn" onclick="toggleArticleExpand()"
+          style="font-size:12px;color:var(--blue);background:none;border:1px solid var(--blue);border-radius:6px;padding:5px 14px;cursor:pointer;font-weight:500;transition:background .15s"
+          onmouseover="this.style.background='rgba(37,99,235,.06)'" onmouseout="this.style.background='none'">
+          ▼ Show all articles
+        </button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--text3)">Show top</span>
+          <select id="artTopNSelect" onchange="renderArticleTable()"
+            style="border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--text2);padding:3px 6px;border-radius:6px;cursor:pointer;outline:none">
+            <option value="5" selected>5</option>
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="all">All</option>
+          </select>
+          <span style="font-size:11px;color:var(--text3)" id="articleCountLabel"></span>
         </div>
-        <button class="chart-expand-btn" onclick="expandChart(charts.conversionChart,'Conversion rate')">⤢ Expand</button>
       </div>
-      <div class="chart-wrap" style="height:200px">
-        <canvas id="conversionChart"></canvas>
-      </div>
+      <div class="note" id="articleNote" style="margin:12px 20px 16px">ℹ️ Loading article data…</div>
     </div>
   </div>
 
