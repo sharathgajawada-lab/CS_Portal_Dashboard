@@ -952,7 +952,7 @@ function daysAgoISO(n) {
   return d.toISOString().slice(0,10);
 }
 function fmtDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', {month:'short',day:'numeric'});
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
 }
 function fmtDur(s) {
   if (!s && s !== 0) return '—';
@@ -1717,10 +1717,10 @@ function fmtBucketDate(iso, groupBy) {
   if (groupBy === 'year')    return d.getFullYear().toString();
   if (groupBy === 'quarter') {
     const q = Math.floor(d.getMonth() / 3) + 1;
-    return `Q${q} '${String(d.getFullYear()).slice(2)}`;
+    return `Q${q} ${d.getFullYear()}`;
   }
-  if (groupBy === 'month')   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-  if (groupBy === 'week')    return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (groupBy === 'month')   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  if (groupBy === 'week')    return 'W ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   return fmtDate(iso);
 }
 
