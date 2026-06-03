@@ -1191,6 +1191,7 @@ function _csatScopeDays(rawDays) {
     out[d] = {
       t: src.t || 0, sr: src.sr || 0, s: src.s || 0, l: src.l || 0,
       d: Object.assign({}, src.d || {}),
+      ft: src.ft || 0, fr: src.fr || 0,   // carry true-FCR counters into scoped view
       tm, cn,
     };
   }
