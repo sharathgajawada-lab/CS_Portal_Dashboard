@@ -2164,6 +2164,8 @@ function renderTrueFCR() {
     },
   });
 }
+// hear.com Unified Comm Journal — base URL for per-call deep links.
+const UCJ_BASE = 'https://comm-journal.audibene.net/table';
 function ucjCallUrl(callId) {
   // Filter the journal to a single call via its global search box.
   const params = new URLSearchParams({
