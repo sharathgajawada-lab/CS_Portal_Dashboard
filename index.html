@@ -1220,7 +1220,7 @@ function renderKPIs() {
       <div class="kpi-wow ${wowClass}">${wowLabel}</div>
     </div>`;
 
-  const rest = EVENTS.map(ev => {
+  const rest = EVENTS.filter(ev => ev.key !== 'total.views').map(ev => {
     const total = getTotal(ev.key);
     const avg   = getAvgPerDay(ev.key);
     const wow   = getWoW(ev.key);
