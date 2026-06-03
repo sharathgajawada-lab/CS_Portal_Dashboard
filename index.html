@@ -1066,7 +1066,14 @@ function getAvgPerDay(key) {
 }
 function getWoW(key) {
   if (_isAllTime) return null;  // no meaningful comparison for All time
-  const all = rawData[key]?.series || [];
+  let all = rawData[key]?.series || [];
+  
+  // Handle synthetic 'total.views' key by combining multiple event series
+  if (key === 'total.views') {
+    const parts = ['article.viewed', 'video.watched', 'category.viewed'];
+    all = parts.flatMap(k => rawData[k]?.series || []);
+  }
+  
   const endDate    = new Date(state.to);
   const startDate  = new Date(state.from);
   const pEndDate   = new Date(startDate); pEndDate.setDate(pEndDate.getDate() - 1);
@@ -1200,11 +1207,15 @@ function renderKPIs() {
   // Compute a total 'views' KPI as the sum of article, video and category views
   const totalViews = (getTotal('article.viewed') || 0) + (getTotal('video.watched') || 0) + (getTotal('category.viewed') || 0);
   const avgViews = Math.round((totalViews / (state.days || 1)) * 100) / 100;
+  const wow = getWoW('total.views');
+  const wowClass = wow === null ? 'flat' : wow > 5 ? 'up' : wow < -5 ? 'down' : 'flat';
+  const periodLabel = state.days === 1 ? 'vs prev day' : state.days === 7 ? 'vs prev week' : state.days >= 28 && state.days <= 31 ? 'vs prev month' : state.days >= 360 ? 'vs prev year' : `vs prev ${state.days}d`;
+  const wowLabel = wow === null ? '—' : (wow > 0 ? '↑ ' : '↓ ') + Math.abs(wow) + '% ' + periodLabel;
   const totalViewsHtml = `<div class="kpi" style="--kpi-accent:#2563eb" onclick="setFilter('event',null)">
       <div class="kpi-label">Total views</div>
       <div class="kpi-value">${fmt(totalViews)}</div>
       <div class="kpi-sub">~${fmt(avgViews)}/day</div>
-      <div class="kpi-wow flat">—</div>
+      <div class="kpi-wow ${wowClass}">${wowLabel}</div>
     </div>`;
 
   const rest = EVENTS.map(ev => {
@@ -1298,6 +1309,39 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
       pointRadius: 2, tension: .3, borderWidth: 2,
       spanGaps: false,  // show gaps honestly rather than interpolating
     });
+    // If rendering total.views, also overlay an engagement metric (Logins)
+    if (key === 'total.views') {
+      // Build logins series for current and prev periods
+      const logKey = 'auth.login';
+      const curRawL = (rawData[logKey]?.series||[]).filter(p => p.date >= curFrom && p.date <= curTo);
+      const curAggL = aggregateSeries(curRawL, gb);
+      const curDataL = new Array(nBuckets).fill(0);
+      curAggL.forEach(p => { const idx = spineIndexMap[p.date]; if (idx !== undefined) curDataL[idx] = p.count || 0; });
+
+      const prevRawL = (rawData[logKey]?.series||[]).filter(p => p.date >= prevFrom && p.date <= prevTo);
+      const prevAggL = aggregateSeries(prevRawL, gb);
+      const prevDateMapL = Object.fromEntries(prevAggL.map(p => [p.date, p.count||0]));
+      const prevDataL = prevSpine.map(p => prevDateMapL[p.date] ?? 0).slice(0, nBuckets);
+      while (prevDataL.length < nBuckets) prevDataL.push(null);
+
+      const loginColor = (EVENTS.find(e=>e.key===logKey)||{}).color || '#0e6e45';
+      datasets.push({
+        type: 'line',
+        label: 'Logins (engagement)',
+        data: curDataL,
+        borderColor: loginColor, backgroundColor: 'transparent',
+        pointRadius: 2, tension: .3, borderWidth: 2,
+        yAxisID: 'y1'
+      });
+      datasets.push({
+        type: 'line',
+        label: `Logins (prev ${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
+        data: prevDataL,
+        borderColor: loginColor, backgroundColor: 'transparent',
+        borderDash: [6,4], pointRadius: 0, tension: .3, borderWidth: 1,
+        yAxisID: 'y1'
+      });
+    }
   });
 
   document.getElementById('trendSub').textContent =
@@ -1329,6 +1373,7 @@ function _renderTrendCompare(activeEvent, curFrom, curTo, gb) {
       scales: {
         x: { ticks: { font: { size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 16 }, grid: gridOpts },
         y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+        y1: { position: 'right', grid: { display: false }, ticks: { font: { size: 10 } }, beginAtZero: true },
       },
     },
   });
