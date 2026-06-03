@@ -956,9 +956,10 @@ function fmtDate(iso) {
 }
 function fmtDur(s) {
   if (!s && s !== 0) return '—';
-  if (s < 60)    return `${s}s`;
-  if (s < 3600)  return `${Math.floor(s/60)}m ${s%60}s`;
-  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
+  const secs = Number(s);
+  if (secs < 60)    return `${secs.toFixed(2)}s`;
+  if (secs < 3600)  return `${Math.floor(secs/60)}m ${Number((secs % 60).toFixed(2)).toFixed(2)}s`;
+  return `${Math.floor(secs/3600)}h ${Math.floor((secs % 3600) / 60)}m ${Number((secs % 60).toFixed(2)).toFixed(2)}s`;
 }
 function fmt(n) {
   if (n == null) return '—';
