@@ -2012,8 +2012,12 @@ function renderCategories() {
 
   const chartType = compare ? 'bar' : 'doughnut';
 
-  // Normalize labels: remove stray "/ " fragments for display
-  const labels = cats.map(c => (c.label || 'Home').replace('/ ', ' '));
+  // Normalize labels: map root path to Home and remove stray slash fragments for display
+  const labels = cats.map(c => {
+    const raw = String(c.label || 'Home').trim();
+    if (!raw || raw === '/') return 'Home';
+    return raw.replace(/\//g, ' ').replace(/\s+/g, ' ').trim();
+  });
 
   const datasets = compare
     ? [
