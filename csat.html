@@ -1361,21 +1361,32 @@ function _renderGlobalCalls() {
   if (!body) return;
   const q = (document.getElementById('csatGlobalCallSearch')?.value || '').toLowerCase();
   const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
-  const rows = _globalCallsCache.filter(c =>
-    !q || (c.call_id||'').toLowerCase().includes(q) || String(c.rating).includes(q) || (c.date||'').includes(q));
-  body.innerHTML = rows.map(c => {
-    const rc = barColors[c.rating] || 'var(--text2)';
-    const url = ucjCallUrl(c.call_id);
-    return `<tr>
-      <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">
-        <a href="${url}" target="_blank" rel="noopener"
-           style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${c.call_id||'—'}</a>
-      </td>
-      <td style="font-size:12px;color:var(--text3)">${c.date||'—'}</td>
-      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating}★</span></td>
-      <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+  try {
+    const rows = (_globalCallsCache || []).filter(c => {
+      if (!c) return false;
+      if (!q) return true;
+      const cid = String(c.call_id || '').toLowerCase();
+      return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q);
+    });
+    body.innerHTML = rows.map(c => {
+      const rc = barColors[c.rating] || 'var(--text2)';
+      const callId = String(c.call_id || '');
+      let url = '#';
+      try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
+      const idCell = callId
+        ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${callId}</a>`
+        : '<span style="color:var(--text3)">—</span>';
+      return `<tr>
+        <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
+        <td style="font-size:12px;color:var(--text3)">${c.date || '—'}</td>
+        <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating ?? '—'}★</span></td>
+        <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+  } catch (err) {
+    console.error('[csat] _renderGlobalCalls error:', err);
+    body.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
+  }
 }
 
 function _csatComputeAndRender(from, to) {
