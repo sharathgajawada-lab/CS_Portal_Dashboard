@@ -1211,7 +1211,9 @@ function renderKPIs() {
   const wowClass = wow === null ? 'flat' : wow > 5 ? 'up' : wow < -5 ? 'down' : 'flat';
   const periodLabel = state.days === 1 ? 'vs prev day' : state.days === 7 ? 'vs prev week' : state.days >= 28 && state.days <= 31 ? 'vs prev month' : state.days >= 360 ? 'vs prev year' : `vs prev ${state.days}d`;
   const wowLabel = wow === null ? '—' : (wow > 0 ? '↑ ' : '↓ ') + Math.abs(wow) + '% ' + periodLabel;
-  const totalViewsHtml = `<div class="kpi" style="--kpi-accent:#2563eb" onclick="setFilter('event',null)">
+  const isActiveTotal = activeEvent === 'total.views';
+  const isFadedTotal  = activeEvent !== null && !isActiveTotal;
+  const totalViewsHtml = `<div class="kpi${isActiveTotal? ' active' : ''}${isFadedTotal? ' faded' : ''}" style="--kpi-accent:#2563eb" onclick="setFilter('event','total.views')">
       <div class="kpi-label">Total views</div>
       <div class="kpi-value">${fmt(totalViews)}</div>
       <div class="kpi-sub">~${fmt(avgViews)}/day</div>
