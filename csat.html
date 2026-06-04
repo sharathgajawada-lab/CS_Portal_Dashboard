@@ -594,7 +594,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
                 <option value="previous">Previous</option>
               </select>
               <div id="csatLastControls" style="display:none;align-items:center;border-left:1px solid var(--border)">
-                <input type="number" id="csatLastN" value="30" min="1" max="9999"
+                <input type="number" id="csatLastN" value="7" min="1" max="9999"
                   onchange="onCsatRangeTypeChange()"
                   style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
                 <select id="csatLastUnit" onchange="onCsatRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 4px;cursor:pointer;outline:none">
@@ -840,9 +840,9 @@ const DATA_START = '2023-06-22';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
-  from: daysAgoISO(30),
+  from: daysAgoISO(7),
   to:   todayISO(),
-  days: 30,
+  days: 7,
 };
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -919,7 +919,7 @@ const gridOpts = {
 const _chartCtrl = {};
 
 function makeChartControls(id, opts = {}) {
-  const n    = opts.defaultN    || 30;
+  const n    = opts.defaultN    || 7;
   const unit = opts.defaultUnit || 'days';
   const gb   = opts.defaultGb   || 'day';
   _chartCtrl[id] = { rangeType: 'selection', n, unit, gb, compare: false };
@@ -1117,7 +1117,7 @@ function getCsatTrendDateRange() {
   if (type === 'selection') return { from: state.from, to: state.to };
   if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
   if (type === 'last') {
-    const n    = parseInt(document.getElementById('csatLastN')?.value || '30');
+    const n    = parseInt(document.getElementById('csatLastN')?.value || '7');
     const unit = document.getElementById('csatLastUnit')?.value || 'days';
     return { from: subtractUnit(today, n, unit), to: today };
   }
@@ -2685,10 +2685,10 @@ async function init() {
 
   // Inject chart controls into placeholders
   [
-    { id: 'csatDist',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
-    { id: 'csTeamTrend', opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
-    { id: 'fcrChart',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
-    { id: 'trueFcrChart',opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'csatDist',    opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'csTeamTrend', opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'fcrChart',    opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'trueFcrChart',opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
   ].forEach(({ id, opts }) => {
     const pid = id + '_controls_placeholder';
     const el  = document.getElementById(pid);
