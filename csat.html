@@ -447,8 +447,8 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
       <button class="qbtn" onclick="setQuick('yesterday',this)">Yesterday</button>
-      <button class="qbtn" onclick="setQuick(7,this)">7d</button>
-      <button class="qbtn active" onclick="setQuick(30,this)">30d</button>
+      <button class="qbtn active" onclick="setQuick(7,this)">7d</button>
+      <button class="qbtn" onclick="setQuick(30,this)">30d</button>
       <button class="qbtn" onclick="setQuick('ytd',this)">YTD</button>
       <button class="qbtn" onclick="setQuick('start',this)">All time</button>
       <span class="date-sep">|</span>
@@ -650,19 +650,36 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
     </div>
 
-    <!-- Row 3: FCR trend full width -->
+    <!-- Row 3: Solve-rate trend full width -->
     <div style="margin-bottom:16px">
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
           <div>
-            <div class="card-title">&#x1F4DE; First-call resolution trend</div>
-            <div class="card-sub" id="fcrTrendSub">% of calls resolved on first contact &middot; by date</div>
+            <div class="card-title">&#x1F4DE; Solve rate trend</div>
+            <div class="card-sub" id="fcrTrendSub">% of calls marked solved &middot; by date</div>
           </div>
           <div id="fcrChart_controls_placeholder"></div>
         </div>
         <div class="chart-wrap" style="height:190px" id="fcrChartWrap">
-          <button class="chart-expand-btn" onclick="expandChart(charts.fcrChart,'First-call resolution trend')">&#x2922; Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.fcrChart,'Solve rate trend')">&#x2922; Expand</button>
           <canvas id="fcrChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3b: True FCR trend (opportunity-based) full width -->
+    <div style="margin-bottom:16px">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+          <div>
+            <div class="card-title">&#x2705; True first-call resolution</div>
+            <div class="card-sub" id="trueFcrSub">% of opportunities solved on the first call with no follow-up &middot; by date</div>
+          </div>
+          <div id="trueFcrChart_controls_placeholder"></div>
+        </div>
+        <div class="chart-wrap" style="height:190px" id="trueFcrChartWrap">
+          <button class="chart-expand-btn" onclick="expandChart(charts.trueFcrChart,'True first-call resolution')">&#x2922; Expand</button>
+          <canvas id="trueFcrChart"></canvas>
         </div>
       </div>
     </div>
@@ -972,6 +989,9 @@ function _chartCtrlChange(id) {
   else if (id === 'fcrChart') {
     if (_csatRaw) renderFCR();
   }
+  else if (id === 'trueFcrChart') {
+    if (_csatRaw) renderTrueFCR();
+  }
 }
 
 function getChartRange(id) {
@@ -1076,6 +1096,7 @@ function setCsatGraphBySelect(gb) {
   _csatGraphBy = gb;
   if (csatData) renderCSAT(csatData);
   if (_csatRaw) renderFCR();
+  if (_csatRaw) renderTrueFCR();
 }
 
 function onCsatRangeTypeChange() {
@@ -1170,6 +1191,7 @@ function _csatScopeDays(rawDays) {
     out[d] = {
       t: src.t || 0, sr: src.sr || 0, s: src.s || 0, l: src.l || 0,
       d: Object.assign({}, src.d || {}),
+      ft: src.ft || 0, fr: src.fr || 0,   // carry true-FCR counters into scoped view
       tm, cn,
     };
   }
@@ -1339,26 +1361,37 @@ function _renderGlobalCalls() {
   if (!body) return;
   const q = (document.getElementById('csatGlobalCallSearch')?.value || '').toLowerCase();
   const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
-  const rows = _globalCallsCache.filter(c =>
-    !q || (c.call_id||'').toLowerCase().includes(q) || String(c.rating).includes(q) || (c.date||'').includes(q));
-  body.innerHTML = rows.map(c => {
-    const rc = barColors[c.rating] || 'var(--text2)';
-    const url = ucjCallUrl(c.call_id);
-    return `<tr>
-      <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">
-        <a href="${url}" target="_blank" rel="noopener"
-           style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${c.call_id||'—'}</a>
-      </td>
-      <td style="font-size:12px;color:var(--text3)">${c.date||'—'}</td>
-      <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating}★</span></td>
-      <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+  try {
+    const rows = (_globalCallsCache || []).filter(c => {
+      if (!c) return false;
+      if (!q) return true;
+      const cid = String(c.call_id || '').toLowerCase();
+      return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q);
+    });
+    body.innerHTML = rows.map(c => {
+      const rc = barColors[c.rating] || 'var(--text2)';
+      const callId = String(c.call_id || '');
+      let url = '#';
+      try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
+      const idCell = callId
+        ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${callId}</a>`
+        : '<span style="color:var(--text3)">—</span>';
+      return `<tr>
+        <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
+        <td style="font-size:12px;color:var(--text3)">${c.date || '—'}</td>
+        <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating ?? '—'}★</span></td>
+        <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+  } catch (err) {
+    console.error('[csat] _renderGlobalCalls error:', err);
+    body.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
+  }
 }
 
 function _csatComputeAndRender(from, to) {
   // Sync any chart-level control set to 'selection' so it re-renders with the new global dates.
-  ['csatDist', 'csTeamTrend', 'fcrChart'].forEach(id => {
+  ['csatDist', 'csTeamTrend', 'fcrChart', 'trueFcrChart'].forEach(id => {
     if (_chartCtrl[id] && _chartCtrl[id].rangeType === 'selection') {
       // rangeType=selection → getChartRange(id) returns { from: state.from, to: state.to }
     }
@@ -1866,6 +1899,7 @@ function renderCSAT(d) {
     `${allCons.length} consultants · all with surveys · sorted by avg rating`;
   renderConsultantTable();
   renderFCR();
+  renderTrueFCR();
 
   // Keep the persistent top scope bar (status, clear button, calls table) in sync.
   _syncGlobalScopeBar();
@@ -1999,7 +2033,138 @@ function renderFCR() {
   });
 }
 
-// hear.com Unified Comm Journal — base for per-call deep links.
+// ── True first-call resolution (opportunity-based) ───────────────────────────
+// Uses dm.ft (opportunities evaluated = first call of each opportunity) and
+// dm.fr (those whose first call was solved AND had no follow-up call ever).
+// Falls back to an informative empty state if the data has no OPPORTUNITY_ID yet.
+function renderTrueFCR() {
+  if (!_csatRaw?.days) return;
+  const wrapEl = document.getElementById('trueFcrChartWrap');
+  if (!wrapEl) return;
+  const { from, to } = getChartRange('trueFcrChart');
+  const gb = getChartGroupBy('trueFcrChart');
+  const compare = isChartCompare('trueFcrChart');
+
+  function buildTrueFcrSeries(fromDate, toDate) {
+    const spine = [];
+    const d = new Date(fromDate + 'T00:00:00');
+    const end = new Date(toDate + 'T00:00:00');
+    while (d <= end) {
+      const iso = d.toISOString().slice(0,10);
+      const dm  = (_csatScopedDays || _csatRaw.days)[iso];
+      const ft = dm?.ft || 0, fr = dm?.fr || 0;
+      spine.push({
+        date: iso, week: iso,
+        fcr: ft > 0 ? Math.round(fr / ft * 1000) / 10 : null,
+        _t: ft, _s: fr, total: ft, solved: fr,
+      });
+      d.setDate(d.getDate()+1);
+    }
+    return spine;
+  }
+
+  const curRaw = buildTrueFcrSeries(from, to);
+  const totalOpps = curRaw.reduce((s,p) => s + (p._t||0), 0);
+
+  // No opportunity data at all → tell the user why (OPPORTUNITY_ID not in dataset yet).
+  if (totalOpps === 0) {
+    if (charts.trueFcrChart) { charts.trueFcrChart.destroy(); charts.trueFcrChart = null; }
+    wrapEl.innerHTML =
+      '<div class="empty" style="padding:32px;text-align:center"><span>✅</span>' +
+      'No opportunity data yet — add the <b>OPPORTUNITY_ID</b> column to the Domo dataset to enable true FCR.</div>';
+    const sub = document.getElementById('trueFcrSub');
+    if (sub) sub.textContent = '% of opportunities solved on the first call with no follow-up · awaiting OPPORTUNITY_ID';
+    return;
+  }
+
+  const curAgg = aggregateSeries(curRaw, gb).map(b => ({
+    date: b.week || b.date,
+    fcr: b._t > 0 ? Math.round(b._s / b._t * 1000) / 10 : null,
+    total: b._t, solved: b._s,
+  }));
+
+  document.getElementById('trueFcrSub').textContent =
+    `Avg true FCR: ${curAgg.length ? Math.round(curAgg.filter(p=>p.fcr!==null).reduce((s,p)=>s+p.fcr,0)/Math.max(1,curAgg.filter(p=>p.fcr!==null).length)*10)/10 : '—'}% · ${fmtDate(from)} – ${fmtDate(to)} · by ${gb}`;
+
+  const labels = curAgg.map(p => fmtBucketDate(p.date, gb));
+  const datasets = [{
+    type: 'bar',
+    label: 'True FCR %',
+    data: curAgg.map(p => p.fcr),
+    backgroundColor: curAgg.map(p =>
+      p.fcr === null ? 'transparent' :
+      p.fcr >= 80 ? 'rgba(5,150,105,.7)' :
+      p.fcr >= 65 ? 'rgba(196,122,10,.7)' : 'rgba(220,38,38,.65)'
+    ),
+    borderRadius: 3, borderSkipped: false,
+  }];
+  let prevAgg = [];
+
+  if (compare) {
+    const curDays = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+    const prevTo = subtractUnit(from, 1, 'days');
+    const prevFrom = subtractUnit(prevTo, curDays - 1, 'days');
+    const prevRaw = buildTrueFcrSeries(prevFrom, prevTo);
+    prevAgg = aggregateSeries(prevRaw, gb).map(b => ({
+      date: b.week || b.date,
+      fcr: b._t > 0 ? Math.round(b._s / b._t * 1000) / 10 : null,
+    }));
+    if (prevAgg.length) {
+      datasets.push({
+        type: 'line',
+        label: `True FCR % (prev ${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
+        data: labels.map((_, i) => prevAgg[i]?.fcr ?? null),
+        borderColor: 'rgba(107,114,128,.9)', borderDash: [5,4],
+        backgroundColor: 'transparent', pointRadius: 2, tension: .3, borderWidth: 2, fill: false,
+      });
+    }
+  }
+
+  if (charts.trueFcrChart) charts.trueFcrChart.destroy();
+  if (!document.getElementById('trueFcrChart')) {
+    wrapEl.innerHTML = '<canvas id="trueFcrChart"></canvas>';
+  }
+  charts.trueFcrChart = new Chart(document.getElementById('trueFcrChart'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: compare, labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1,
+          titleColor: '#111827', bodyColor: '#374151',
+          callbacks: {
+            title: ctx => {
+              const i = ctx[0]?.dataIndex;
+              const curLabel = labels[i] || `Day ${i+1}`;
+              const prevLabel = compare && prevAgg[i] ? fmtBucketDate(prevAgg[i].week||prevAgg[i].date, gb) : '—';
+              return `${curLabel}  ·  prev: ${prevLabel}`;
+            },
+            label: ctx => ctx.raw !== null ? `${ctx.raw}% true FCR` : 'No data',
+            afterLabel: ctx => {
+              if (ctx.datasetIndex !== 0) return '';
+              const p = curAgg[ctx.dataIndex];
+              return p ? `${p.solved ?? '?'} resolved / ${p.total ?? '?'} opportunities` : '';
+            },
+          },
+        },
+        annotation: undefined,
+      },
+      scales: {
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14, font: { size: 10 } }, grid: gridOpts },
+        y: {
+          min: 0, max: 100,
+          ticks: { font: { size: 10 }, callback: v => v + '%' },
+          grid: gridOpts,
+          title: { display: true, text: 'True first-call resolution %', font: { size: 10 }, color: '#6b7280' },
+        },
+      },
+    },
+  });
+}
+// hear.com Unified Comm Journal — base URL for per-call deep links.
 const UCJ_BASE = 'https://comm-journal.audibene.net/table';
 function ucjCallUrl(callId) {
   // Filter the journal to a single call via its global search box.
@@ -2269,7 +2434,6 @@ function renderCSTeams(teamsData, teamDailyData) {
 
   // Aggregate each team's daily data into the chosen bucket size
   function aggregateTeamData(teamKey, dataMap, metric, dates = rawDates) {
-    // Use the full spine — include days with zero data so chart never truncates
     const raw = dates.map(d => {
       const dd = (dataMap[teamKey]||{})[d];
       return { date: d, _t: dd?.t||0, _sr: dd?.sr||0, _s: dd?.s||0 };
@@ -2523,6 +2687,7 @@ async function init() {
     { id: 'csatDist',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
     { id: 'csTeamTrend', opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
     { id: 'fcrChart',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'trueFcrChart',opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
   ].forEach(({ id, opts }) => {
     const pid = id + '_controls_placeholder';
     const el  = document.getElementById(pid);
