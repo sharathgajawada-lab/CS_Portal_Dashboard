@@ -866,7 +866,7 @@ function setStatus(id, st, text) {
 }
 
 function getCsatAllTimeRange() {
-  return { from: DATA_START, to: _csatRaw?.date_max || todayISO() };
+  return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || todayISO() };
 }
 
 // ── Date controls ─────────────────────────────────────────────────────────────
@@ -878,7 +878,7 @@ function setQuick(n, btn) {
   if (n === 'today')      { from = today; }
   else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
   else if (n === 'ytd')   { from = new Date().getFullYear() + '-01-01'; }
-  else if (n === 'start') { ({ from, to } = getCsatAllTimeRange()); }  // CSAT all-time starts at the known historical baseline
+  else if (n === 'start') { ({ from, to } = getCsatAllTimeRange()); }
   else                    { from = daysAgoISO(n); }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
@@ -1547,18 +1547,15 @@ function _csatComputeAndRender(from, to) {
     pct: total > 0 ? Math.round((dist[i]||0)/total*1000)/10 : 0
   }));
 
-  const weeklyTrend = dKeys.map(date => {
-    const v = weekMap[date] || { t: 0, sr: 0, s: 0 };
-    return {
-      week: date,
-      avg_rating: v.t > 0 ? Math.round(v.sr/v.t*100)/100 : null,
-      solved_pct: v.t > 0 ? Math.round(v.s/v.t*1000)/10 : null,
+  const weeklyTrend = Object.entries(weekMap)
+    .map(([date,v]) => ({ week:date,
+      avg_rating: Math.round(v.sr/v.t*100)/100,
+      solved_pct: Math.round(v.s/v.t*1000)/10,
       total: v.t,
       _t: v.t,
       _sr: v.sr,
-      _s: v.s
-    };
-  });
+      _s: v.s }))
+    .sort((a,b) => a.week < b.week ? -1 : 1);
 
   const teamList = Object.entries(teams)
     .filter(([,v]) => v.t >= 1)  // show all teams with at least 1 survey
@@ -1612,23 +1609,18 @@ function _renderCsatCompare(curFrom, curTo, gb) {
   const prevTo   = subtractUnit(curFrom, 1, 'days');
   const prevFrom = subtractUnit(prevTo, curDays - 1, 'days');
 
-  // Build daily series using a dense spine — every day in range, null for days with no surveys
+  // Build daily series from actual survey days in range.
   function buildSeries(fromDate, toDate) {
-    const spine = [];
-    const d = new Date(fromDate + 'T00:00:00');
-    const end = new Date(toDate + 'T00:00:00');
-    while (d <= end) {
-      const iso = d.toISOString().slice(0,10);
-      const dm  = days[iso];
-      spine.push({
-        week: iso, date: iso,
+    return Object.entries(days)
+      .filter(([iso]) => iso >= fromDate && iso <= toDate)
+      .sort(([a], [b]) => a < b ? -1 : 1)
+      .map(([iso, dm]) => ({
+        week: iso,
+        date: iso,
         avg_rating: dm && dm.t > 0 ? Math.round(dm.sr/dm.t*100)/100 : null,
         solve_pct:  dm && dm.t > 0 ? Math.round(dm.s/dm.t*1000)/10  : null,
         _t: dm?.t || 0, _sr: dm?.sr || 0, _s: dm?.s || 0,
-      });
-      d.setDate(d.getDate()+1);
-    }
-    return spine;
+      }));
   }
 
   const curSeries  = aggregateSeries(buildSeries(curFrom, curTo), gb);
@@ -1980,23 +1972,17 @@ function renderFCR() {
 
   // Build daily FCR series from raw index
   function buildFCRSeries(fromDate, toDate) {
-    // Generate dense spine — include every day even if no surveys that day
-    const spine = [];
-    const d = new Date(fromDate + 'T00:00:00');
-    const end = new Date(toDate + 'T00:00:00');
-    while (d <= end) {
-      const iso = d.toISOString().slice(0,10);
-      const dm  = (_csatScopedDays || _csatRaw.days)[iso];
-      spine.push({
-        date: iso, week: iso,
+    return Object.entries(_csatScopedDays || _csatRaw.days)
+      .filter(([iso]) => iso >= fromDate && iso <= toDate)
+      .sort(([a], [b]) => a < b ? -1 : 1)
+      .map(([iso, dm]) => ({
+        date: iso,
+        week: iso,
         fcr:   dm && dm.t > 0 ? Math.round(dm.s / dm.t * 1000) / 10 : null,
         total: dm?.t || 0, solved: dm?.s || 0,
         _t: dm?.t || 0, _s: dm?.s || 0,
         avg_rating: 0, solve_pct: dm && dm.t > 0 ? Math.round(dm.s/dm.t*1000)/10 : 0,
-      });
-      d.setDate(d.getDate()+1);
-    }
-    return spine;
+      }));
   }
 
   const curRaw = buildFCRSeries(from, to);
@@ -2039,7 +2025,7 @@ function renderFCR() {
       return { prevFrom: pf, prevTo: pt };
     })();
     const prevRaw = buildFCRSeries(prevFrom, prevTo);
-    const prevAgg = aggregateSeries(prevRaw, gb).map(b => ({
+    prevAgg = aggregateSeries(prevRaw, gb).map(b => ({
       date: b.week || b.date,
       fcr: b._t > 0 ? Math.round(b._s / b._t * 1000) / 10 : null,
     }));
@@ -2112,21 +2098,17 @@ function renderTrueFCR() {
   const compare = isChartCompare('trueFcrChart');
 
   function buildTrueFcrSeries(fromDate, toDate) {
-    const spine = [];
-    const d = new Date(fromDate + 'T00:00:00');
-    const end = new Date(toDate + 'T00:00:00');
-    while (d <= end) {
-      const iso = d.toISOString().slice(0,10);
-      const dm  = (_csatScopedDays || _csatRaw.days)[iso];
+    return Object.entries(_csatScopedDays || _csatRaw.days)
+      .filter(([iso]) => iso >= fromDate && iso <= toDate)
+      .sort(([a], [b]) => a < b ? -1 : 1)
+      .map(([iso, dm]) => {
       const ft = dm?.ft || 0, fr = dm?.fr || 0;
-      spine.push({
+      return {
         date: iso, week: iso,
         fcr: ft > 0 ? Math.round(fr / ft * 1000) / 10 : null,
         _t: ft, _s: fr, total: ft, solved: fr,
-      });
-      d.setDate(d.getDate()+1);
-    }
-    return spine;
+      };
+    });
   }
 
   const curRaw = buildTrueFcrSeries(from, to);
@@ -2488,19 +2470,19 @@ function renderCSTeams(teamsData, teamDailyData) {
   // activeTeams = all CS_TEAMS entries that have daily data in this period
   const activeTeams = CS_TEAMS.filter(ct => teamDailyData[ct.key] && Object.keys(teamDailyData[ct.key]).length > 0);
 
-  // Generate a dense date spine from the chart's date range
+  // Use actual survey dates in the chart's date range so the x-axis does not
+  // display empty slots for days with no CSAT rows.
   const { from: tdFrom, to: tdTo } = getChartRange('csTeamTrend');
-  const rawDates = (() => {
-    const r = []; const d = new Date(tdFrom+'T00:00:00'); const e = new Date(tdTo+'T00:00:00');
-    while (d <= e) { r.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
-    return r;
-  })();
+  const rawDates = [...new Set(
+    Object.values(teamDailyData || {}).flatMap(dayMap =>
+      Object.keys(dayMap || {}).filter(d => d >= tdFrom && d <= tdTo)
+    )
+  )].sort();
 
   const teamGb = getChartGroupBy('csTeamTrend');
 
   // Aggregate each team's daily data into the chosen bucket size
   function aggregateTeamData(teamKey, dataMap, metric, dates = rawDates) {
-    // Use the full spine — include days with zero data so chart never truncates
     const raw = dates.map(d => {
       const dd = (dataMap[teamKey]||{})[d];
       return { date: d, _t: dd?.t||0, _sr: dd?.sr||0, _s: dd?.s||0 };
@@ -2781,7 +2763,7 @@ async function init() {
   await loadCSAT();
   _populateGlobalConsultantBar();   // fill the top consultant dropdown once data is loaded
   document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
-  document.getElementById('footerTs').textContent = 'Data from ' + DATA_START;
+  document.getElementById('footerTs').textContent = 'Data from ' + (_csatRaw?.date_min || DATA_START);
   document.getElementById('footerRange').textContent = fmtDate(state.from) + ' – ' + fmtDate(state.to);
 }
 

@@ -214,7 +214,7 @@ CSAT_TEAMS_ALLOW = [
     t.strip() for t in os.getenv("CSAT_TEAMS", _DEFAULT_CSAT_TEAMS).split(",") if t.strip()
 ]
 _CSAT_TEAMS_ALLOW_LC = {t.lower() for t in CSAT_TEAMS_ALLOW}
-CSAT_FILTER_TEAMS = os.getenv("CSAT_FILTER_TEAMS", "false").strip().lower() in {"1", "true", "yes", "on"}
+CSAT_FILTER_TEAMS = os.getenv("CSAT_FILTER_TEAMS", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _filter_allowed_teams(rows: list) -> list:
