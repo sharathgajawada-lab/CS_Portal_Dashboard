@@ -866,13 +866,10 @@ function setStatus(id, st, text) {
 }
 
 // ── Date controls ─────────────────────────────────────────────────────────────
-// "All time" start for CSAT: the EARLIER of DATA_START (2023-06-22) and the actual
-// data min, so the range always reaches back to 2023 even when the live Domo data
-// currently starts later. Mirrors the Portal Activity page's behavior.
+// "All time" start for CSAT: simply the earliest date present in the data.
+// Falls back to DATA_START only if data hasn't loaded yet.
 function csatAllTimeStart() {
-  const dmin = _csatRaw?.date_min;
-  if (dmin && dmin < DATA_START) return dmin;
-  return DATA_START;
+  return _csatRaw?.date_min || DATA_START;
 }
 function setQuick(n, btn) {
   document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));

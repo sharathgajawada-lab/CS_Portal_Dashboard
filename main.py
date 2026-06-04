@@ -1505,6 +1505,41 @@ async def debug_csat():
         "team_allow_list": CSAT_TEAMS_ALLOW,
     }
 
+@app.get("/debug/csat/dates")
+async def debug_csat_dates():
+    """Per-month row counts — reveals gaps (e.g. a missing March–April) and whether
+    a gap is in the raw data vs introduced downstream."""
+    from collections import Counter
+    by_month = Counter()
+    by_day = Counter()
+    for r in _csat_rows:
+        d = (r.get("date") or "")[:10]
+        if len(d) >= 7:
+            by_month[d[:7]] += 1
+        if d:
+            by_day[d] += 1
+    months = dict(sorted(by_month.items()))
+    days_sorted = sorted(by_day.keys())
+    # find gaps of >1 day between consecutive populated days
+    gaps = []
+    import datetime as _dt
+    for a, b in zip(days_sorted, days_sorted[1:]):
+        try:
+            da = _dt.date.fromisoformat(a); db = _dt.date.fromisoformat(b)
+            delta = (db - da).days
+            if delta > 1:
+                gaps.append({"after": a, "before": b, "missing_days": delta - 1})
+        except Exception:
+            continue
+    return {
+        "total_rows": len(_csat_rows),
+        "date_min": days_sorted[0] if days_sorted else None,
+        "date_max": days_sorted[-1] if days_sorted else None,
+        "rows_per_month": months,
+        "gaps_over_1_day": gaps[:50],
+        "distinct_days": len(days_sorted),
+    }
+
 @app.get("/health")
 @app.head("/health")  # UptimeRobot sends HEAD requests — must support both
 async def health():
