@@ -1141,6 +1141,56 @@ function getCsatTrendDateRange() {
 }
 function csatUrl() { return CSAT_DATA_URL + '?v=' + Date.now(); }  // cache-bust on every load
 
+function _normalizeCsatDateKey(value) {
+  const s = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (!m) return s;
+  const y = m[3].length === 2 ? '20' + m[3] : m[3];
+  return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+}
+
+function _mergeCsatDist(target, src) {
+  for (const [rating, count] of Object.entries(src || {})) {
+    target[rating] = (target[rating] || 0) + (count || 0);
+  }
+}
+
+function _mergeCsatGroupMap(target, src) {
+  for (const [key, val] of Object.entries(src || {})) {
+    if (!target[key]) {
+      target[key] = JSON.parse(JSON.stringify(val));
+      continue;
+    }
+    const out = target[key];
+    ['t', 'sr', 's', 'l', 'ft', 'fr'].forEach(k => { out[k] = (out[k] || 0) + (val[k] || 0); });
+    _mergeCsatDist(out.d || (out.d = {}), val.d || {});
+    if (Array.isArray(val.c)) out.c = (out.c || []).concat(val.c);
+  }
+}
+
+function _mergeCsatDay(target, src) {
+  ['t', 'sr', 's', 'l', 'ft', 'fr'].forEach(k => { target[k] = (target[k] || 0) + (src[k] || 0); });
+  _mergeCsatDist(target.d || (target.d = {}), src.d || {});
+  _mergeCsatGroupMap(target.tm || (target.tm = {}), src.tm || {});
+  _mergeCsatGroupMap(target.cn || (target.cn = {}), src.cn || {});
+}
+
+function _normalizeCsatRawDates(raw) {
+  if (!raw?.days) return raw;
+  const days = {};
+  for (const [key, dm] of Object.entries(raw.days)) {
+    const iso = _normalizeCsatDateKey(key);
+    if (!days[iso]) days[iso] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"ft":0,"fr":0};
+    _mergeCsatDay(days[iso], dm || {});
+  }
+  raw.days = days;
+  const keys = Object.keys(days).sort();
+  raw.date_min = keys[0] || raw.date_min || '';
+  raw.date_max = keys[keys.length - 1] || raw.date_max || '';
+  return raw;
+}
+
 let _csatRaw  = null;
 let csatData  = null;
 
@@ -1153,7 +1203,7 @@ async function loadCSAT(forceRefresh = false) {
   try {
     const r = await fetch(csatUrl());
     if (!r.ok) { setStatus('csatStatus', 'error', 'Survey data unavailable (' + r.status + ')'); return; }
-    _csatRaw = await r.json();
+    _csatRaw = _normalizeCsatRawDates(await r.json());
     if (!_csatRaw.available) {
       setStatus('csatStatus', 'error', _csatRaw.note || 'No data');
       document.getElementById('csatSection').style.opacity = '0.5';
