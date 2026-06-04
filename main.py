@@ -747,27 +747,26 @@ async def full_refresh():
         batch  = {}
         intel  = {}
 
-        # ── Calls 1-9: time-series for KPIs ──────────────────────────────────
-        for ev in EVENTS:
-            series = await _timeseries(ev["project"], ev["key"])
-            batch[ev["key"]] = {"series": series}
+        # ── Calls 1-9: time-series for KPIs (parallelized) ───────────────────
+        timeseries_results = await asyncio.gather(*[
+            _timeseries(ev["project"], ev["key"]) for ev in EVENTS
+        ])
+        for i, ev in enumerate(EVENTS):
+            batch[ev["key"]] = {"series": timeseries_results[i]}
 
         cache_set("batch:all", batch)
         print(f"[refresh] batch done — {sum(len(v['series']) for v in batch.values())} points", flush=True)
 
-        # ── Call 10: top articles ─────────────────────────────────────────────
-        art_rows = await _topn("cs-portal-content-events", "article.viewed", "itemId", 10)
-
-        # ── Call 11: top feedback ─────────────────────────────────────────────
-        fb_rows = await _topn("cs-portal-feedback-events", "article.feedback", "itemId", 10)
-
-        # ── Call 12: top categories ───────────────────────────────────────────
-        cat_rows = await _topn("cs-portal-content-events", "category.viewed", "itemId", 10)
-
-        # ── Calls 13-15: get all available user IDs from 3 sources ─────────────
-        video_user_rows  = await _topn("cs-portal-content-events", "video.watched",    "userId", 10)
-        search_user_rows = await _topn("cs-portal-content-events", "search.performed", "userId", 10)
-        art_user_rows    = await _topn("cs-portal-content-events", "article.viewed",   "userId", 10)
+        # ── Calls 10-15: all top-n queries in parallel (was sequential with 1s gaps) ──
+        # This optimization parallelizes 6 API calls instead of waiting for them sequentially
+        (art_rows, fb_rows, cat_rows, video_user_rows, search_user_rows, art_user_rows) = await asyncio.gather(
+            _topn("cs-portal-content-events", "article.viewed", "itemId", 10),
+            _topn("cs-portal-feedback-events", "article.feedback", "itemId", 10),
+            _topn("cs-portal-content-events", "category.viewed", "itemId", 10),
+            _topn("cs-portal-content-events", "video.watched",    "userId", 10),
+            _topn("cs-portal-content-events", "search.performed", "userId", 10),
+            _topn("cs-portal-content-events", "article.viewed",   "userId", 10),
+        )
 
         # Collect all unique non-anonymous user IDs
         seen = set()
@@ -788,19 +787,23 @@ async def full_refresh():
 
         print(f"[refresh] fetching timelines for {len(users_to_fetch)} users (of {len(all_known_users)} known)", flush=True)
 
-        # ── Content timelines ────────────────────────────────────────────────
+        # ── Content timelines (parallelized) ──────────────────────────────────
+        content_timelines = await asyncio.gather(*[
+            _timeline("cs-portal-content-events", uid, limit=500) for uid in users_to_fetch
+        ])
         all_events = []
         fb_events  = []
-        for uid in users_to_fetch:
-            tl = await _timeline("cs-portal-content-events", uid, limit=500)
+        for uid, tl in zip(users_to_fetch, content_timelines):
             all_events.extend(tl)
             print(f"[refresh] timeline {uid[:16]}: {len(tl)} events", flush=True)
             if _sb_enabled:
                 await _sb_store_events(uid, "cs-portal-content-events", tl)
 
-        # Feedback timelines for first 2 users
-        for uid in users_to_fetch[:2]:
-            tl = await _timeline("cs-portal-feedback-events", uid, limit=200)
+        # Feedback timelines for first 2 users (parallelized)
+        fb_timelines = await asyncio.gather(*[
+            _timeline("cs-portal-feedback-events", uid, limit=200) for uid in users_to_fetch[:2]
+        ])
+        for uid, tl in zip(users_to_fetch[:2], fb_timelines):
             fb_events.extend(tl)
             if _sb_enabled:
                 await _sb_store_events(uid, "cs-portal-feedback-events", tl)
