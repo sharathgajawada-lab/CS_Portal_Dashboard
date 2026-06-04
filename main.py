@@ -241,28 +241,6 @@ def _build_csat_index(rows: list) -> dict:
     rows.sort(key=lambda r: r["date"])
     _csat_rows = rows
 
-    # ── True FCR pre-pass ────────────────────────────────────────────────────
-    # "First-call resolved" = the FIRST call on an opportunity was SOLVED and the
-    # opportunity has NO later call ever (any follow-up call = not resolved).
-    # We tag each row: fcr_eval=True only for the FIRST call of each opportunity
-    # (that first call is the unit we score), and fcr_ok=True if resolved.
-    # Rows with no opp_id are not eligible (fcr_eval stays False) so true FCR
-    # simply has no data until OPPORTUNITY_ID is present in the dataset.
-    _opp_calls = {}
-    for _r in rows:
-        oid = (_r.get("opp_id") or "").strip()
-        _r["_fcr_eval"] = False
-        _r["_fcr_ok"] = False
-        if oid:
-            _opp_calls.setdefault(oid, []).append(_r)
-    for oid, calls in _opp_calls.items():
-        # earliest call by full datetime (fallback to date) is the "first contact"
-        calls.sort(key=lambda x: (x.get("datetime") or x.get("date") or ""))
-        first = calls[0]
-        first["_fcr_eval"] = True
-        # resolved only if the first call was solved AND it's the only call ever
-        first["_fcr_ok"] = bool(first.get("solved")) and len(calls) == 1
-
     BAD_NAMES = {"none", "null", "", "n/a"}
     day_map   = {}
     week_cons = {}
@@ -280,43 +258,33 @@ def _build_csat_index(rows: list) -> dict:
         bad_name = (not name or name.strip().lower() in BAD_NAMES)
 
         if d not in day_map:
-            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"ft":0,"fr":0}
+            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{}}
         dm = day_map[d]
         dm["t"]  += 1
         dm["sr"] += r["rating"]
         dm["s"]  += int(r["solved"])
         dm["l"]  += int(r["rating"] <= 2)
         dm["d"][r["rating"]] = dm["d"].get(r["rating"], 0) + 1
-        # True FCR counters (only the first call of each opportunity is evaluated)
-        if r.get("_fcr_eval"):
-            dm["ft"] += 1
-            dm["fr"] += int(r.get("_fcr_ok", False))
 
         if not bad_team:
             t = team.strip()
             if t not in dm["tm"]:
-                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"ft":0,"fr":0}
+                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
             dm["tm"][t]["t"]  += 1
             dm["tm"][t]["sr"] += r["rating"]
             dm["tm"][t]["s"]  += int(r["solved"])
             dm["tm"][t]["l"]  += int(r["rating"] <= 2)
             dm["tm"][t]["d"][r["rating"]] = dm["tm"][t]["d"].get(r["rating"], 0) + 1
-            if r.get("_fcr_eval"):
-                dm["tm"][t]["ft"] += 1
-                dm["tm"][t]["fr"] += int(r.get("_fcr_ok", False))
 
         if not bad_name:
             # Per-day consultant data — ensures team totals == sum of consultant totals
             if cid not in dm["cn"]:
-                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"c":[],"ft":0,"fr":0}
+                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"c":[]}
             dm["cn"][cid]["t"]  += 1
             dm["cn"][cid]["sr"] += r["rating"]
             dm["cn"][cid]["s"]  += int(r["solved"])
             dm["cn"][cid]["l"]  += int(r["rating"] <= 2)
             dm["cn"][cid]["d"][r["rating"]] = dm["cn"][cid]["d"].get(r["rating"], 0) + 1
-            if r.get("_fcr_eval"):
-                dm["cn"][cid]["ft"] += 1
-                dm["cn"][cid]["fr"] += int(r.get("_fcr_ok", False))
             # Per-call record for individual-call tables (Call ID → UCJ link).
             # Compact keys: i=call_id, r=rating, s=solved(0/1). Date comes from the day key.
             call_id = r.get("call_id") or ""
@@ -369,20 +337,14 @@ def _parse_csv_text(text: str) -> list:
         try:
             raw_date = row.get("DATE") or row.get("DATETIME") or ""
             date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
-            # opportunity id (for true FCR) — tolerate a few likely column names.
-            opp = (row.get("OPPORTUNITY_ID") or row.get("OPPORTUNITYID")
-                   or row.get("OpportunityId") or row.get("opportunityId")
-                   or row.get("OPPORTUNITY") or "")
             rows.append({
                 "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
                 "cid":    row["CONSULTANT_ID"],
                 "name":   row["CONSULTANT_NAME"],
                 "team":   row["CONSULTANT_TEAM"].strip(),
                 "date":   date_str,
-                "datetime": str(raw_date).strip(),  # full timestamp for FCR ordering
                 "solved": str(row["SOLVED"]).strip().lower() == "true",
                 "call_id": (row.get("CALL_ID") or "").strip(),
-                "opp_id": str(opp).strip(),
             })
         except (ValueError, KeyError):
             continue
@@ -544,26 +506,18 @@ def _parse_excel_bytes(data: bytes) -> list:
             dt_val  = row[col["DATETIME"]]
             solved  = str(row[col["SOLVED"]] or "").strip().lower() == "true"
             call_id = str(row[col["CALL_ID"]] or "").strip() if "CALL_ID" in col else ""
-            opp_id  = ""
-            for _k in ("OPPORTUNITY_ID", "OPPORTUNITYID", "OPPORTUNITY"):
-                if _k in col:
-                    opp_id = str(row[col[_k]] or "").strip()
-                    break
             if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
                 date_str = dt_val.strftime("%Y-%m-%d")
-                dt_full  = dt_val.isoformat()
             elif isinstance(dt_val, (int, float)):
-                _d = (_dt_mod.date(1899, 12, 30) + _dt_mod.timedelta(days=float(dt_val)))
-                date_str = _d.strftime("%Y-%m-%d")
-                dt_full  = _d.isoformat()
+                date_str = (_dt_mod.date(1899, 12, 30) +
+                            _dt_mod.timedelta(days=float(dt_val))).strftime("%Y-%m-%d")
             else:
                 date_str = str(dt_val)[:10]
-                dt_full  = str(dt_val).strip()
             if not (1 <= rating <= 5) or not cid or not date_str:
                 continue
             rows.append({"rating":rating,"cid":cid,"name":name,
-                         "team":team,"date":date_str,"datetime":dt_full,"solved":solved,
-                         "call_id":call_id,"opp_id":opp_id})
+                         "team":team,"date":date_str,"solved":solved,
+                         "call_id":call_id})
         except (TypeError, ValueError):
             continue
     return rows
