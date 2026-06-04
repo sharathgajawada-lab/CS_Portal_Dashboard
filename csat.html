@@ -840,9 +840,9 @@ const DATA_START = '2023-06-22';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
-  from: daysAgoISO(30),
+  from: daysAgoISO(7),
   to:   todayISO(),
-  days: 30,
+  days: 7,
 };
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -866,6 +866,14 @@ function setStatus(id, st, text) {
 }
 
 // ── Date controls ─────────────────────────────────────────────────────────────
+// "All time" start for CSAT: the EARLIER of DATA_START (2023-06-22) and the actual
+// data min, so the range always reaches back to 2023 even when the live Domo data
+// currently starts later. Mirrors the Portal Activity page's behavior.
+function csatAllTimeStart() {
+  const dmin = _csatRaw?.date_min;
+  if (dmin && dmin < DATA_START) return dmin;
+  return DATA_START;
+}
 function setQuick(n, btn) {
   document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -874,7 +882,7 @@ function setQuick(n, btn) {
   if (n === 'today')      { from = today; }
   else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
   else if (n === 'ytd')   { from = new Date().getFullYear() + '-01-01'; }
-  else if (n === 'start') { from = (_csatRaw?.date_min) || DATA_START; to = _csatRaw?.date_max || today; }  // use actual data range
+  else if (n === 'start') { from = csatAllTimeStart(); to = _csatRaw?.date_max || today; }  // all time → back to 2023
   else                    { from = daysAgoISO(n); }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
@@ -1000,7 +1008,7 @@ function getChartRange(id) {
   const today = todayISO();
   const type  = ctrl.rangeType || 'selection';
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
+  if (type === 'alltime')   return { from: csatAllTimeStart(), to: _csatRaw?.date_max || today };
   if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
   if (type === 'current')   return getCurrentPeriod(ctrl.curUnit || 'month');
   if (type === 'previous')  return getPreviousPeriod(ctrl.prevUnit || 'month');
@@ -1115,7 +1123,7 @@ function getCsatTrendDateRange() {
   const type  = document.getElementById('csatRangeType')?.value || 'selection';
   const today = todayISO();
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
+  if (type === 'alltime')   return { from: csatAllTimeStart(), to: _csatRaw?.date_max || today };
   if (type === 'last') {
     const n    = parseInt(document.getElementById('csatLastN')?.value || '30');
     const unit = document.getElementById('csatLastUnit')?.value || 'days';
