@@ -214,7 +214,6 @@ CSAT_TEAMS_ALLOW = [
     t.strip() for t in os.getenv("CSAT_TEAMS", _DEFAULT_CSAT_TEAMS).split(",") if t.strip()
 ]
 _CSAT_TEAMS_ALLOW_LC = {t.lower() for t in CSAT_TEAMS_ALLOW}
-CSAT_FILTER_TEAMS = os.getenv("CSAT_FILTER_TEAMS", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _filter_allowed_teams(rows: list) -> list:
@@ -229,44 +228,15 @@ def _filter_allowed_teams(rows: list) -> list:
     return kept
 
 
-def _parse_date_iso(value) -> str:
-    """Normalize CSV/Domo/upload dates into YYYY-MM-DD."""
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d")
-
-    raw = str(value).strip()
-    if not raw:
-        return ""
-
-    # Fast path for ISO-ish values like 2023-06-22 or 2023-06-22T12:34:56Z.
-    first = raw.replace("Z", "").split()[0].split("T")[0].strip()
-    if len(first) >= 10 and first[4:5] == "-" and first[7:8] == "-":
-        try:
-            return datetime.fromisoformat(first[:10]).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-
-    # Domo/CSV exports can use US-style dates for older rows.
-    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y/%m/%d", "%d/%m/%Y", "%d/%m/%y"):
-        try:
-            return datetime.strptime(first, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return ""
-
-
 def _build_csat_index(rows: list) -> dict:
     """Build the pre-aggregated day/week index from raw survey rows.
     Used by every data path — Domo pull, startup CSV, and manual upload.
     """
     global _csat_rows, _csat_index
 
-    # Keep all rows by default so historical CSAT is not hidden by renamed or
-    # legacy team values. Enable CSAT_FILTER_TEAMS=true to restore strict filtering.
-    if CSAT_FILTER_TEAMS:
-        rows = _filter_allowed_teams(rows)
+    # Drop teams/departments outside the CS allow-list before anything else,
+    # so no data source (Domo, CSV, upload) can leak unwanted teams in.
+    rows = _filter_allowed_teams(rows)
 
     rows.sort(key=lambda r: r["date"])
     _csat_rows = rows
@@ -398,9 +368,7 @@ def _parse_csv_text(text: str) -> list:
     for row in csv.DictReader(io.StringIO(text)):
         try:
             raw_date = row.get("DATE") or row.get("DATETIME") or ""
-            date_str = _parse_date_iso(raw_date)
-            if not date_str:
-                continue
+            date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
             # opportunity id (for true FCR) — tolerate a few likely column names.
             opp = (row.get("OPPORTUNITY_ID") or row.get("OPPORTUNITYID")
                    or row.get("OpportunityId") or row.get("opportunityId")
@@ -589,7 +557,7 @@ def _parse_excel_bytes(data: bytes) -> list:
                 date_str = _d.strftime("%Y-%m-%d")
                 dt_full  = _d.isoformat()
             else:
-                date_str = _parse_date_iso(dt_val)
+                date_str = str(dt_val)[:10]
                 dt_full  = str(dt_val).strip()
             if not (1 <= rating <= 5) or not cid or not date_str:
                 continue
@@ -1431,7 +1399,22 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
         print(f"[upload] received {fname} ({len(data)//1024} KB)", flush=True)
 
         if fname.lower().endswith(".csv"):
-            rows = _parse_csv_text(data.decode("utf-8"))
+            # Parse CSV directly
+            rows = []
+            for row in csv.DictReader(io.StringIO(data.decode("utf-8"))):
+                try:
+                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
+                    rows.append({
+                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
+                        "cid":    row["CONSULTANT_ID"].strip(),
+                        "name":   row["CONSULTANT_NAME"].strip(),
+                        "team":   row["CONSULTANT_TEAM"].strip(),
+                        "date":   raw_date[:10].strip(),
+                        "solved": row["SOLVED"].strip().lower() == "true",
+                        "call_id": (row.get("CALL_ID") or "").strip(),
+                    })
+                except (KeyError, ValueError):
+                    continue
         else:
             rows = _parse_excel_bytes(data)
 
@@ -1519,7 +1502,6 @@ async def debug_csat():
             "source": "domo" if _domo_configured() else "bundled_csv",
         },
         "team_allow_list": CSAT_TEAMS_ALLOW,
-        "team_filter_enabled": CSAT_FILTER_TEAMS,
     }
 
 @app.get("/health")

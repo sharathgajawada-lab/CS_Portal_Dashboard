@@ -447,8 +447,8 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
       <button class="qbtn" onclick="setQuick('yesterday',this)">Yesterday</button>
-      <button class="qbtn active" onclick="setQuick(7,this)">7d</button>
-      <button class="qbtn" onclick="setQuick(30,this)">30d</button>
+      <button class="qbtn" onclick="setQuick(7,this)">7d</button>
+      <button class="qbtn active" onclick="setQuick(30,this)">30d</button>
       <button class="qbtn" onclick="setQuick('ytd',this)">YTD</button>
       <button class="qbtn" onclick="setQuick('start',this)">All time</button>
       <span class="date-sep">|</span>
@@ -594,7 +594,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
                 <option value="previous">Previous</option>
               </select>
               <div id="csatLastControls" style="display:none;align-items:center;border-left:1px solid var(--border)">
-                <input type="number" id="csatLastN" value="7" min="1" max="9999"
+                <input type="number" id="csatLastN" value="30" min="1" max="9999"
                   onchange="onCsatRangeTypeChange()"
                   style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
                 <select id="csatLastUnit" onchange="onCsatRangeTypeChange()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 4px;cursor:pointer;outline:none">
@@ -840,9 +840,9 @@ const DATA_START = '2023-06-22';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
-  from: daysAgoISO(7),
+  from: daysAgoISO(30),
   to:   todayISO(),
-  days: 7,
+  days: 30,
 };
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -865,10 +865,6 @@ function setStatus(id, st, text) {
   el.innerHTML = (st === 'loading' ? '<span class="spinner"></span> ' : '') + text;
 }
 
-function getCsatAllTimeRange() {
-  return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || todayISO() };
-}
-
 // ── Date controls ─────────────────────────────────────────────────────────────
 function setQuick(n, btn) {
   document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
@@ -878,13 +874,12 @@ function setQuick(n, btn) {
   if (n === 'today')      { from = today; }
   else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
   else if (n === 'ytd')   { from = new Date().getFullYear() + '-01-01'; }
-  else if (n === 'start') { ({ from, to } = getCsatAllTimeRange()); }
+  else if (n === 'start') { from = (_csatRaw?.date_min) || DATA_START; to = _csatRaw?.date_max || today; }  // use actual data range
   else                    { from = daysAgoISO(n); }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
   document.getElementById('d0').value = from;
   document.getElementById('d1').value = to;
-  renderHeader();
   _csatComputeAndRender(state.from, state.to);
 }
 function applyCustom() {
@@ -894,7 +889,6 @@ function applyCustom() {
   document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
-  renderHeader();
   _csatComputeAndRender(state.from, state.to);
 }
 function renderHeader() {
@@ -925,7 +919,7 @@ const gridOpts = {
 const _chartCtrl = {};
 
 function makeChartControls(id, opts = {}) {
-  const n    = opts.defaultN    || 7;
+  const n    = opts.defaultN    || 30;
   const unit = opts.defaultUnit || 'days';
   const gb   = opts.defaultGb   || 'day';
   _chartCtrl[id] = { rangeType: 'selection', n, unit, gb, compare: false };
@@ -1006,7 +1000,7 @@ function getChartRange(id) {
   const today = todayISO();
   const type  = ctrl.rangeType || 'selection';
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return getCsatAllTimeRange();
+  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
   if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
   if (type === 'current')   return getCurrentPeriod(ctrl.curUnit || 'month');
   if (type === 'previous')  return getPreviousPeriod(ctrl.prevUnit || 'month');
@@ -1069,17 +1063,15 @@ function aggregateSeries(series, groupBy) {
     } else {
       key = (p.week||p.date).slice(0,7) + '-01';
     }
-    if (!buckets[key]) buckets[key] = { week: key, avg_rating: null, solve_pct: null, _t: 0, _sr: 0, _s: 0 };
-    const total = p._t ?? p.total ?? (p.avg_rating != null ? 1 : 0);
-    const solvedPct = p.solve_pct ?? p.solved_pct;
-    buckets[key]._t  += total;
-    buckets[key]._sr += p._sr ?? (p.avg_rating != null ? p.avg_rating * total : 0);
-    buckets[key]._s  += p._s ?? (solvedPct != null ? (solvedPct / 100) * total : 0);
+    if (!buckets[key]) buckets[key] = { week: key, avg_rating: 0, solve_pct: 0, _t: 0, _sr: 0, _s: 0 };
+    buckets[key]._t  += (p._t  || 1);
+    buckets[key]._sr += (p._sr || p.avg_rating || 0);
+    buckets[key]._s  += (p._s  || 0);
   });
   return Object.values(buckets).sort((a,b) => a.week < b.week ? -1 : 1).map(b => ({
     ...b,
-    avg_rating: b._t > 0 ? Math.round(b._sr/b._t*100)/100 : null,
-    solve_pct:  b._t > 0 ? Math.round(b._s/b._t*1000)/10  : null,
+    avg_rating: b._t > 0 ? Math.round(b._sr/b._t*100)/100 : b.avg_rating,
+    solve_pct:  b._t > 0 ? Math.round(b._s/b._t*1000)/10  : b.solve_pct,
   }));
 }
 
@@ -1123,9 +1115,9 @@ function getCsatTrendDateRange() {
   const type  = document.getElementById('csatRangeType')?.value || 'selection';
   const today = todayISO();
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return getCsatAllTimeRange();
+  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
   if (type === 'last') {
-    const n    = parseInt(document.getElementById('csatLastN')?.value || '7');
+    const n    = parseInt(document.getElementById('csatLastN')?.value || '30');
     const unit = document.getElementById('csatLastUnit')?.value || 'days';
     return { from: subtractUnit(today, n, unit), to: today };
   }
@@ -1141,56 +1133,6 @@ function getCsatTrendDateRange() {
 }
 function csatUrl() { return CSAT_DATA_URL + '?v=' + Date.now(); }  // cache-bust on every load
 
-function _normalizeCsatDateKey(value) {
-  const s = String(value || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-  if (!m) return s;
-  const y = m[3].length === 2 ? '20' + m[3] : m[3];
-  return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
-}
-
-function _mergeCsatDist(target, src) {
-  for (const [rating, count] of Object.entries(src || {})) {
-    target[rating] = (target[rating] || 0) + (count || 0);
-  }
-}
-
-function _mergeCsatGroupMap(target, src) {
-  for (const [key, val] of Object.entries(src || {})) {
-    if (!target[key]) {
-      target[key] = JSON.parse(JSON.stringify(val));
-      continue;
-    }
-    const out = target[key];
-    ['t', 'sr', 's', 'l', 'ft', 'fr'].forEach(k => { out[k] = (out[k] || 0) + (val[k] || 0); });
-    _mergeCsatDist(out.d || (out.d = {}), val.d || {});
-    if (Array.isArray(val.c)) out.c = (out.c || []).concat(val.c);
-  }
-}
-
-function _mergeCsatDay(target, src) {
-  ['t', 'sr', 's', 'l', 'ft', 'fr'].forEach(k => { target[k] = (target[k] || 0) + (src[k] || 0); });
-  _mergeCsatDist(target.d || (target.d = {}), src.d || {});
-  _mergeCsatGroupMap(target.tm || (target.tm = {}), src.tm || {});
-  _mergeCsatGroupMap(target.cn || (target.cn = {}), src.cn || {});
-}
-
-function _normalizeCsatRawDates(raw) {
-  if (!raw?.days) return raw;
-  const days = {};
-  for (const [key, dm] of Object.entries(raw.days)) {
-    const iso = _normalizeCsatDateKey(key);
-    if (!days[iso]) days[iso] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"ft":0,"fr":0};
-    _mergeCsatDay(days[iso], dm || {});
-  }
-  raw.days = days;
-  const keys = Object.keys(days).sort();
-  raw.date_min = keys[0] || raw.date_min || '';
-  raw.date_max = keys[keys.length - 1] || raw.date_max || '';
-  return raw;
-}
-
 let _csatRaw  = null;
 let csatData  = null;
 
@@ -1203,7 +1145,7 @@ async function loadCSAT(forceRefresh = false) {
   try {
     const r = await fetch(csatUrl());
     if (!r.ok) { setStatus('csatStatus', 'error', 'Survey data unavailable (' + r.status + ')'); return; }
-    _csatRaw = _normalizeCsatRawDates(await r.json());
+    _csatRaw = await r.json();
     if (!_csatRaw.available) {
       setStatus('csatStatus', 'error', _csatRaw.note || 'No data');
       document.getElementById('csatSection').style.opacity = '0.5';
@@ -1551,10 +1493,7 @@ function _csatComputeAndRender(from, to) {
     .map(([date,v]) => ({ week:date,
       avg_rating: Math.round(v.sr/v.t*100)/100,
       solved_pct: Math.round(v.s/v.t*1000)/10,
-      total: v.t,
-      _t: v.t,
-      _sr: v.sr,
-      _s: v.s }))
+      total: v.t }))
     .sort((a,b) => a.week < b.week ? -1 : 1);
 
   const teamList = Object.entries(teams)
@@ -1609,18 +1548,23 @@ function _renderCsatCompare(curFrom, curTo, gb) {
   const prevTo   = subtractUnit(curFrom, 1, 'days');
   const prevFrom = subtractUnit(prevTo, curDays - 1, 'days');
 
-  // Build daily series from actual survey days in range.
+  // Build daily series using a dense spine — every day in range, null for days with no surveys
   function buildSeries(fromDate, toDate) {
-    return Object.entries(days)
-      .filter(([iso]) => iso >= fromDate && iso <= toDate)
-      .sort(([a], [b]) => a < b ? -1 : 1)
-      .map(([iso, dm]) => ({
-        week: iso,
-        date: iso,
+    const spine = [];
+    const d = new Date(fromDate + 'T00:00:00');
+    const end = new Date(toDate + 'T00:00:00');
+    while (d <= end) {
+      const iso = d.toISOString().slice(0,10);
+      const dm  = days[iso];
+      spine.push({
+        week: iso, date: iso,
         avg_rating: dm && dm.t > 0 ? Math.round(dm.sr/dm.t*100)/100 : null,
         solve_pct:  dm && dm.t > 0 ? Math.round(dm.s/dm.t*1000)/10  : null,
         _t: dm?.t || 0, _sr: dm?.sr || 0, _s: dm?.s || 0,
-      }));
+      });
+      d.setDate(d.getDate()+1);
+    }
+    return spine;
   }
 
   const curSeries  = aggregateSeries(buildSeries(curFrom, curTo), gb);
@@ -1650,14 +1594,14 @@ function _renderCsatCompare(curFrom, curTo, gb) {
         { type: 'line', label: 'Avg Rating (prev)', yAxisID: 'yR',
           data: prevSeries.map(p => p.avg_rating),
           borderColor: '#3b82f6', borderDash: [5,4], backgroundColor: 'transparent',
-          pointRadius: 2, tension: .3, borderWidth: 2, fill: false, spanGaps: true },
+          pointRadius: 2, tension: .3, borderWidth: 2, fill: false },
         { type: 'bar', label: 'Solved % (current)', yAxisID: 'yS',
           data: curSeries.map(p => p.solve_pct),
           backgroundColor: 'rgba(16,185,129,.45)', borderRadius: 3, borderSkipped: false },
         { type: 'line', label: 'Solved % (prev)', yAxisID: 'yS',
           data: prevSeries.map(p => p.solve_pct),
           borderColor: '#10b981', borderDash: [5,4], backgroundColor: 'transparent',
-          pointRadius: 2, tension: .3, borderWidth: 2, fill: false, spanGaps: true },
+          pointRadius: 2, tension: .3, borderWidth: 2, fill: false },
       ],
     },
     options: {
@@ -1741,7 +1685,6 @@ function renderCSAT(d) {
             data: trendAgg.map(t => t.avg_rating),
             borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.06)',
             fill: true, pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2,
-            spanGaps: true,
             yAxisID: 'y',
           },
           {
@@ -1749,7 +1692,6 @@ function renderCSAT(d) {
             data: trendAgg.map(t => t.solve_pct ?? t.solved_pct),
             borderColor: '#059669', backgroundColor: 'transparent',
             pointRadius: gb === 'day' ? 2 : 3, tension: .3, borderWidth: 2, borderDash: [4,3],
-            spanGaps: true,
             yAxisID: 'y2',
           },
         ],
@@ -1972,17 +1914,23 @@ function renderFCR() {
 
   // Build daily FCR series from raw index
   function buildFCRSeries(fromDate, toDate) {
-    return Object.entries(_csatScopedDays || _csatRaw.days)
-      .filter(([iso]) => iso >= fromDate && iso <= toDate)
-      .sort(([a], [b]) => a < b ? -1 : 1)
-      .map(([iso, dm]) => ({
-        date: iso,
-        week: iso,
+    // Generate dense spine — include every day even if no surveys that day
+    const spine = [];
+    const d = new Date(fromDate + 'T00:00:00');
+    const end = new Date(toDate + 'T00:00:00');
+    while (d <= end) {
+      const iso = d.toISOString().slice(0,10);
+      const dm  = (_csatScopedDays || _csatRaw.days)[iso];
+      spine.push({
+        date: iso, week: iso,
         fcr:   dm && dm.t > 0 ? Math.round(dm.s / dm.t * 1000) / 10 : null,
         total: dm?.t || 0, solved: dm?.s || 0,
         _t: dm?.t || 0, _s: dm?.s || 0,
         avg_rating: 0, solve_pct: dm && dm.t > 0 ? Math.round(dm.s/dm.t*1000)/10 : 0,
-      }));
+      });
+      d.setDate(d.getDate()+1);
+    }
+    return spine;
   }
 
   const curRaw = buildFCRSeries(from, to);
@@ -2025,7 +1973,7 @@ function renderFCR() {
       return { prevFrom: pf, prevTo: pt };
     })();
     const prevRaw = buildFCRSeries(prevFrom, prevTo);
-    prevAgg = aggregateSeries(prevRaw, gb).map(b => ({
+    const prevAgg = aggregateSeries(prevRaw, gb).map(b => ({
       date: b.week || b.date,
       fcr: b._t > 0 ? Math.round(b._s / b._t * 1000) / 10 : null,
     }));
@@ -2098,17 +2046,21 @@ function renderTrueFCR() {
   const compare = isChartCompare('trueFcrChart');
 
   function buildTrueFcrSeries(fromDate, toDate) {
-    return Object.entries(_csatScopedDays || _csatRaw.days)
-      .filter(([iso]) => iso >= fromDate && iso <= toDate)
-      .sort(([a], [b]) => a < b ? -1 : 1)
-      .map(([iso, dm]) => {
+    const spine = [];
+    const d = new Date(fromDate + 'T00:00:00');
+    const end = new Date(toDate + 'T00:00:00');
+    while (d <= end) {
+      const iso = d.toISOString().slice(0,10);
+      const dm  = (_csatScopedDays || _csatRaw.days)[iso];
       const ft = dm?.ft || 0, fr = dm?.fr || 0;
-      return {
+      spine.push({
         date: iso, week: iso,
         fcr: ft > 0 ? Math.round(fr / ft * 1000) / 10 : null,
         _t: ft, _s: fr, total: ft, solved: fr,
-      };
-    });
+      });
+      d.setDate(d.getDate()+1);
+    }
+    return spine;
   }
 
   const curRaw = buildTrueFcrSeries(from, to);
@@ -2470,19 +2422,19 @@ function renderCSTeams(teamsData, teamDailyData) {
   // activeTeams = all CS_TEAMS entries that have daily data in this period
   const activeTeams = CS_TEAMS.filter(ct => teamDailyData[ct.key] && Object.keys(teamDailyData[ct.key]).length > 0);
 
-  // Use actual survey dates in the chart's date range so the x-axis does not
-  // display empty slots for days with no CSAT rows.
+  // Generate a dense date spine from the chart's date range
   const { from: tdFrom, to: tdTo } = getChartRange('csTeamTrend');
-  const rawDates = [...new Set(
-    Object.values(teamDailyData || {}).flatMap(dayMap =>
-      Object.keys(dayMap || {}).filter(d => d >= tdFrom && d <= tdTo)
-    )
-  )].sort();
+  const rawDates = (() => {
+    const r = []; const d = new Date(tdFrom+'T00:00:00'); const e = new Date(tdTo+'T00:00:00');
+    while (d <= e) { r.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+    return r;
+  })();
 
   const teamGb = getChartGroupBy('csTeamTrend');
 
   // Aggregate each team's daily data into the chosen bucket size
   function aggregateTeamData(teamKey, dataMap, metric, dates = rawDates) {
+    // Use the full spine — include days with zero data so chart never truncates
     const raw = dates.map(d => {
       const dd = (dataMap[teamKey]||{})[d];
       return { date: d, _t: dd?.t||0, _sr: dd?.sr||0, _s: dd?.s||0 };
@@ -2733,10 +2685,10 @@ async function init() {
 
   // Inject chart controls into placeholders
   [
-    { id: 'csatDist',    opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
-    { id: 'csTeamTrend', opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
-    { id: 'fcrChart',    opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
-    { id: 'trueFcrChart',opts: { defaultN: 7, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'csatDist',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'csTeamTrend', opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'fcrChart',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'trueFcrChart',opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
   ].forEach(({ id, opts }) => {
     const pid = id + '_controls_placeholder';
     const el  = document.getElementById(pid);

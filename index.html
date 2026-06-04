@@ -495,8 +495,8 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
       <button class="qbtn" onclick="setQuick('yesterday',this)">Yesterday</button>
-      <button class="qbtn active" onclick="setQuick(7,this)">7d</button>
-      <button class="qbtn" onclick="setQuick(30,this)">30d</button>
+      <button class="qbtn" onclick="setQuick(7,this)">7d</button>
+      <button class="qbtn active" onclick="setQuick(30,this)">30d</button>
       <button class="qbtn" onclick="setQuick('ytd',this)">YTD</button>
       <button class="qbtn" onclick="setQuick('start',this)">All time</button>
       <span class="date-sep">|</span>
@@ -548,7 +548,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
             <option value="previous">Previous</option>
           </select>
           <div id="trendLastControls" style="display:none;align-items:center;border-left:1px solid var(--border)">
-            <input type="number" id="trendLastN" value="7" min="1" max="9999"
+            <input type="number" id="trendLastN" value="30" min="1" max="9999"
               onchange="renderTrend()"
               style="width:44px;border:none;background:transparent;font-size:11px;color:var(--text1);padding:4px 4px;text-align:center;outline:none">
             <select id="trendLastUnit" onchange="renderTrend()" style="border:none;background:transparent;font-size:11px;color:var(--text2);padding:4px 4px;cursor:pointer;outline:none">
@@ -900,19 +900,13 @@ thead th:hover .sort-arrow { color:var(--text2) }
 // ── Constants ────────────────────────────────────────────────────────────────
 const DATA_START = '2023-06-22';
 let _isAllTime = false;
-function getDataDateBounds() {
-  let earliest = null, latest = null;
+function getEarliestDataStart() {
+  let earliest = DATA_START;
   for (const key of Object.keys(rawData)) {
     const series = rawData[key]?.series || [];
-    for (const point of series) {
-      if (point?.date && (!earliest || point.date < earliest)) earliest = point.date;
-      if (point?.date && (!latest || point.date > latest)) latest = point.date;
-    }
+    if (series.length && series[0].date < earliest) earliest = series[0].date;
   }
-  return { from: earliest || DATA_START, to: latest || todayISO() };
-}
-function getEarliestDataStart() {
-  return getDataDateBounds().from;
+  return earliest;
 }
 // Graph-by state per chart section: 'day' | 'week' | 'month'
 const _graphBy = { trend: 'day', csat: 'day' };  // true when 'All time' is selected — suppresses WoW comparisons
@@ -933,9 +927,9 @@ const EVENTS = [
 
 // ── State ────────────────────────────────────────────────────────────────────
 let state = {
-  from: daysAgoISO(7),
+  from: daysAgoISO(30),
   to:   todayISO(),
-  days: 7,
+  days: 30,
 };
 let rawData     = {};   // {eventKey: {series:[{date,count}]}}
 let articleData = null;
@@ -978,18 +972,17 @@ function setQuick(n, btn) {
   btn.classList.add('active');
   const today = todayISO();
   let from, to = today;
-  _isAllTime = n === 'start';
   if (n === 'today')     { from = today; }
   else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
   else if (n === 'ytd')  { from = new Date().getFullYear() + '-01-01'; }
   else if (n === 'start'){
-    // Use the date range actually in the CMS data, not a hardcoded constant
+    // Use the earliest date actually in the CMS data, not a hardcoded constant
     // rawData is populated after /api/metrics/batch loads — fall back to DATA_START if not yet loaded
-    const bounds = getDataDateBounds();
-    from = bounds.from;
-    to = bounds.to;
+    let earliest = getEarliestDataStart();
+    from = earliest;
+    _isAllTime = true;
   }
-  else                   { from = daysAgoISO(n); }
+  else                   { from = daysAgoISO(n); _isAllTime = false; }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
   document.getElementById('d0').value = from;
@@ -1400,7 +1393,7 @@ const _chartCtrl = {};  // { chartId: { from, to, gb, compare } }
 
 function makeChartControls(id, opts = {}) {
   // opts: { defaultN, defaultUnit, defaultGb, noGraphBy }
-  const n    = opts.defaultN    || 7;
+  const n    = opts.defaultN    || 30;
   const unit = opts.defaultUnit || 'days';
   const gb   = opts.defaultGb   || 'day';
   _chartCtrl[id] = { rangeType: 'selection', n, unit, gb, compare: false };
@@ -1574,7 +1567,7 @@ function getChartRange(id) {
   const today = todayISO();
   const type  = ctrl.rangeType || 'selection';
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return getDataDateBounds();
+  if (type === 'alltime')   return { from: getEarliestDataStart(), to: today };
   if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
   if (type === 'current')   return getCurrentPeriod(ctrl.curUnit || 'month');
   if (type === 'previous')  return getPreviousPeriod(ctrl.prevUnit || 'month');
@@ -1605,10 +1598,10 @@ function getTrendDateRange() {
   const today = todayISO();
 
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return getDataDateBounds();
+  if (type === 'alltime')   return { from: DATA_START, to: today };
 
   if (type === 'last') {
-    const n    = parseInt(document.getElementById('trendLastN')?.value || '7');
+    const n    = parseInt(document.getElementById('trendLastN')?.value || '30');
     const unit = document.getElementById('trendLastUnit')?.value || 'days';
     const from = subtractUnit(today, n, unit);
     return { from, to: today };
@@ -2841,7 +2834,7 @@ async function init() {
         const id = pid.replace('_controls_placeholder','');
         const noGb = id === 'catChart' || id === 'hourChart'; // categorical, not time-series
         el.outerHTML = makeChartControls(id, {
-          defaultN: 7, defaultUnit: 'days', defaultGb: 'day', noGraphBy: noGb,
+          defaultN: 30, defaultUnit: 'days', defaultGb: 'day', noGraphBy: noGb,
         });
       }
     });
@@ -2861,7 +2854,12 @@ async function init() {
       renderAll();
       document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
       // Show actual earliest date from data, not hardcoded constant
-      document.getElementById('footerTs').textContent = 'Data from ' + getEarliestDataStart();
+      let earliest = DATA_START;
+      for (const key of Object.keys(rawData)) {
+        const series = rawData[key]?.series || [];
+        if (series.length && series[0].date < earliest) earliest = series[0].date;
+      }
+      document.getElementById('footerTs').textContent = 'Data from ' + earliest;
     }).catch(err => {
       console.warn('Batch load failed:', err);
       document.getElementById('lastUpdated').textContent = 'Failed to load — refresh to retry';
