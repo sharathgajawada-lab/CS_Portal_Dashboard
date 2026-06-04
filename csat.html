@@ -865,6 +865,10 @@ function setStatus(id, st, text) {
   el.innerHTML = (st === 'loading' ? '<span class="spinner"></span> ' : '') + text;
 }
 
+function getCsatAllTimeRange() {
+  return { from: DATA_START, to: _csatRaw?.date_max || todayISO() };
+}
+
 // ── Date controls ─────────────────────────────────────────────────────────────
 function setQuick(n, btn) {
   document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
@@ -874,12 +878,13 @@ function setQuick(n, btn) {
   if (n === 'today')      { from = today; }
   else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
   else if (n === 'ytd')   { from = new Date().getFullYear() + '-01-01'; }
-  else if (n === 'start') { from = (_csatRaw?.date_min) || DATA_START; to = _csatRaw?.date_max || today; }  // use actual data range
+  else if (n === 'start') { ({ from, to } = getCsatAllTimeRange()); }  // CSAT all-time starts at the known historical baseline
   else                    { from = daysAgoISO(n); }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
   document.getElementById('d0').value = from;
   document.getElementById('d1').value = to;
+  renderHeader();
   _csatComputeAndRender(state.from, state.to);
 }
 function applyCustom() {
@@ -889,6 +894,7 @@ function applyCustom() {
   document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
+  renderHeader();
   _csatComputeAndRender(state.from, state.to);
 }
 function renderHeader() {
@@ -1000,7 +1006,7 @@ function getChartRange(id) {
   const today = todayISO();
   const type  = ctrl.rangeType || 'selection';
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
+  if (type === 'alltime')   return getCsatAllTimeRange();
   if (type === 'last')      return { from: subtractUnit(today, ctrl.n, ctrl.unit), to: today };
   if (type === 'current')   return getCurrentPeriod(ctrl.curUnit || 'month');
   if (type === 'previous')  return getPreviousPeriod(ctrl.prevUnit || 'month');
@@ -1063,15 +1069,17 @@ function aggregateSeries(series, groupBy) {
     } else {
       key = (p.week||p.date).slice(0,7) + '-01';
     }
-    if (!buckets[key]) buckets[key] = { week: key, avg_rating: 0, solve_pct: 0, _t: 0, _sr: 0, _s: 0 };
-    buckets[key]._t  += (p._t  || 1);
-    buckets[key]._sr += (p._sr || p.avg_rating || 0);
-    buckets[key]._s  += (p._s  || 0);
+    if (!buckets[key]) buckets[key] = { week: key, avg_rating: null, solve_pct: null, _t: 0, _sr: 0, _s: 0 };
+    const total = p._t ?? p.total ?? (p.avg_rating != null ? 1 : 0);
+    const solvedPct = p.solve_pct ?? p.solved_pct;
+    buckets[key]._t  += total;
+    buckets[key]._sr += p._sr ?? (p.avg_rating != null ? p.avg_rating * total : 0);
+    buckets[key]._s  += p._s ?? (solvedPct != null ? (solvedPct / 100) * total : 0);
   });
   return Object.values(buckets).sort((a,b) => a.week < b.week ? -1 : 1).map(b => ({
     ...b,
-    avg_rating: b._t > 0 ? Math.round(b._sr/b._t*100)/100 : b.avg_rating,
-    solve_pct:  b._t > 0 ? Math.round(b._s/b._t*1000)/10  : b.solve_pct,
+    avg_rating: b._t > 0 ? Math.round(b._sr/b._t*100)/100 : null,
+    solve_pct:  b._t > 0 ? Math.round(b._s/b._t*1000)/10  : null,
   }));
 }
 
@@ -1115,7 +1123,7 @@ function getCsatTrendDateRange() {
   const type  = document.getElementById('csatRangeType')?.value || 'selection';
   const today = todayISO();
   if (type === 'selection') return { from: state.from, to: state.to };
-  if (type === 'alltime')   return { from: _csatRaw?.date_min || DATA_START, to: _csatRaw?.date_max || today };
+  if (type === 'alltime')   return getCsatAllTimeRange();
   if (type === 'last') {
     const n    = parseInt(document.getElementById('csatLastN')?.value || '7');
     const unit = document.getElementById('csatLastUnit')?.value || 'days';
@@ -1489,12 +1497,18 @@ function _csatComputeAndRender(from, to) {
     pct: total > 0 ? Math.round((dist[i]||0)/total*1000)/10 : 0
   }));
 
-  const weeklyTrend = Object.entries(weekMap)
-    .map(([date,v]) => ({ week:date,
-      avg_rating: Math.round(v.sr/v.t*100)/100,
-      solved_pct: Math.round(v.s/v.t*1000)/10,
-      total: v.t }))
-    .sort((a,b) => a.week < b.week ? -1 : 1);
+  const weeklyTrend = dKeys.map(date => {
+    const v = weekMap[date] || { t: 0, sr: 0, s: 0 };
+    return {
+      week: date,
+      avg_rating: v.t > 0 ? Math.round(v.sr/v.t*100)/100 : null,
+      solved_pct: v.t > 0 ? Math.round(v.s/v.t*1000)/10 : null,
+      total: v.t,
+      _t: v.t,
+      _sr: v.sr,
+      _s: v.s
+    };
+  });
 
   const teamList = Object.entries(teams)
     .filter(([,v]) => v.t >= 1)  // show all teams with at least 1 survey
@@ -2715,7 +2729,7 @@ async function init() {
   await loadCSAT();
   _populateGlobalConsultantBar();   // fill the top consultant dropdown once data is loaded
   document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
-  document.getElementById('footerTs').textContent = 'Data from ' + (_csatRaw?.date_min || DATA_START);
+  document.getElementById('footerTs').textContent = 'Data from ' + DATA_START;
   document.getElementById('footerRange').textContent = fmtDate(state.from) + ' – ' + fmtDate(state.to);
 }
 
