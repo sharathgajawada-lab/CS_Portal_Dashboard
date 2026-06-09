@@ -497,24 +497,68 @@ def _norm_join_key(value: str) -> str:
     return "".join(ch for ch in s.upper() if ch.isalnum())
 
 
+def _parse_date_yyyy_mm_dd(raw_value: str) -> str:
+    """Parse date-ish strings and return YYYY-MM-DD, or empty on failure."""
+    s = str(raw_value or "").strip()
+    if not s:
+        return ""
+    # Common forms from Domo/Salesforce exports.
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%m/%d/%Y",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %I:%M:%S %p",
+    ):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    # Fallback: try first 10 chars if already ISO-like.
+    head = s[:10]
+    try:
+        return datetime.strptime(head, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
+
+
 def _parse_reasons_csv_text(text: str) -> dict:
-    """Parse reasons CSV and return normalized maps keyed by call and opportunity IDs."""
+    """Parse reasons CSV and return normalized maps keyed by call and opportunity IDs.
+
+    Applied filters for call-details dataset:
+    - LASTMODIFIEDDATE after 2025-07-14
+    - CALL_SID not null
+    - ISO_COUNTRY == USA
+    """
     call_to_reasons = defaultdict(Counter)
     opp_to_reasons = defaultdict(Counter)
     rows_seen = 0
+    rows_kept = 0
     rows_with_call = 0
     rows_with_opp = 0
     rows_with_reason = 0
     sample_calls = []
     sample_opps = []
+    sample_kept = []
+    cutoff = "2025-07-15"  # strictly after 07/14/2025
 
     for row in csv.DictReader(io.StringIO(text)):
         rows_seen += 1
         if rows_seen == 1:
             print(f"[reasons] CSV columns: {list(row.keys())}", flush=True)
 
+        last_modified_raw = (
+            row.get("LASTMODIFIEDDATE")
+            or row.get("LAST_MODIFIED_DATE")
+            or row.get("LAST_MODIFIED")
+            or ""
+        )
+        iso_country = str(row.get("ISO_COUNTRY") or "").strip().upper()
         call_id_raw = (
             row.get("CALL_SID__C")
+            or row.get("CALL_SID__")
             or row.get("CALL_ID")
             or row.get("CALLSID")
             or row.get("CALL_SID")
@@ -529,7 +573,8 @@ def _parse_reasons_csv_text(text: str) -> dict:
             or ""
         )
         reason = str(
-            row.get("CALL_REASON")
+            row.get("REASON_FOR_CALL__C")
+            or row.get("CALL_REASON")
             or row.get("CALLREASON")
             or row.get("REASON")
             or row.get("CONTACT_REASON")
@@ -539,11 +584,28 @@ def _parse_reasons_csv_text(text: str) -> dict:
 
         call_key = _norm_join_key(call_id_raw)
         opp_key = _norm_join_key(opp_id_raw)
+        last_modified = _parse_date_yyyy_mm_dd(last_modified_raw)
 
-        if call_key:
-            rows_with_call += 1
-            if len(sample_calls) < 3:
-                sample_calls.append(str(call_id_raw).strip())
+        # Required filters for call-details dataset minimization.
+        if iso_country != "USA":
+            continue
+        if not call_key:
+            continue
+        if not last_modified or last_modified < cutoff:
+            continue
+
+        rows_kept += 1
+        if len(sample_kept) < 3:
+            sample_kept.append({
+                "LASTMODIFIEDDATE": str(last_modified_raw),
+                "CALL_SID": str(call_id_raw),
+                "ISO_COUNTRY": iso_country,
+                "REASON_FOR_CALL": reason,
+            })
+
+        rows_with_call += 1
+        if len(sample_calls) < 3:
+            sample_calls.append(str(call_id_raw).strip())
         if opp_key:
             rows_with_opp += 1
             if len(sample_opps) < 3:
@@ -551,7 +613,7 @@ def _parse_reasons_csv_text(text: str) -> dict:
         if reason:
             rows_with_reason += 1
 
-        if reason and call_key:
+        if reason:
             call_to_reasons[call_key][reason] += 1
         if reason and opp_key:
             opp_to_reasons[opp_key][reason] += 1
@@ -560,8 +622,9 @@ def _parse_reasons_csv_text(text: str) -> dict:
     reason_by_opp = {k: c.most_common(1)[0][0] for k, c in opp_to_reasons.items() if c}
 
     print(
-        f"[reasons] parsed {rows_seen} rows: {rows_with_call} with call sid, "
-        f"{rows_with_opp} with opp_id, {rows_with_reason} with reason, "
+        f"[reasons] parsed {rows_seen} rows, kept {rows_kept} after filters "
+        f"(date>2025-07-14, call sid not null, ISO_COUNTRY=USA): "
+        f"{rows_with_call} with call sid, {rows_with_opp} with opp_id, {rows_with_reason} with reason, "
         f"maps(call={len(reason_by_call)}, opp={len(reason_by_opp)})",
         flush=True,
     )
@@ -569,6 +632,8 @@ def _parse_reasons_csv_text(text: str) -> dict:
         print(f"[reasons] sample CALL_SID/CALL_ID values: {sample_calls}", flush=True)
     if sample_opps:
         print(f"[reasons] sample OPPORTUNITY_ID values: {sample_opps}", flush=True)
+    if sample_kept:
+        print(f"[reasons] sample kept rows: {sample_kept}", flush=True)
     return {"by_call": reason_by_call, "by_opp": reason_by_opp}
 
 
