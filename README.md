@@ -29,6 +29,7 @@ export CMS_API_KEY=your-cms-api-key
 export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co   # optional
 export SUPABASE_KEY=your-service-role-jwt              # optional
 export CSAT_UPLOAD_PASSWORD=hearcom2024                # optional
+export DOMO_REASONS_DATASET_ID=b96f9a8a-8082-48f1-8f02-107197f177f4   # optional
 
 uvicorn main:app --reload
 # Open http://localhost:8000
@@ -43,6 +44,7 @@ uvicorn main:app --reload
    - `SUPABASE_URL` — Supabase project URL (optional, enables full session analytics)
    - `SUPABASE_KEY` — Supabase service_role JWT (optional)
    - `CSAT_UPLOAD_PASSWORD` — password for CSAT upload endpoint (default: `hearcom2024`)
+  - `DOMO_REASONS_DATASET_ID` — optional Domo dataset with `OPPORTUNITY_ID` + reason columns to link reasons into CSAT calls
 4. Deploy
 
 UptimeRobot pings `/health` every 5 minutes to keep the free-tier instance warm.
@@ -108,11 +110,11 @@ The `/csat` page has three synchronized subpages, switched via the Overview / By
 
 - **Overview** — unscoped: all teams and consultants.
 - **By Team** — a team selector at the top. Picking a team re-scopes the *entire page* (KPIs, rating distribution, CSAT trend, FCR trend, leaderboards) to that team, and shows a per-team breakdown with its consultants. The CS Teams comparison cards always stay unscoped so they keep comparing all teams.
-- **By Member** — team filter + search + a consultant selector. Picking a consultant re-scopes the whole page to that member and renders an **individual-calls table**: each row shows the **Call ID** (a clickable deep link into the Unified Comm Journal, filtered to that call via `globalFilter`), the date, the star rating, and solved/unsolved.
+- **By Member** — team filter + search + a consultant selector. Picking a consultant re-scopes the whole page to that member and renders an **individual-calls table**: each row shows the **Call ID** (a clickable deep link into the Unified Comm Journal, filtered to that call via `globalFilter`), `OPPORTUNITY_ID`, linked call reason (when configured), the date, the star rating, and solved/unsolved.
 
 ### Required CSV column
 
-`call_quality.csv` now includes a `CALL_ID` column. It is captured by the startup CSV loader, the `.xlsx` parser, and the upload endpoint, and stored per-call under `days[date].cn[cid].c` as `{i: call_id, r: rating, s: solved}`. Rows without a `CALL_ID` are still counted in the aggregates but produce no per-call row.
+`call_quality.csv` now includes a `CALL_ID` column. It is captured by the startup CSV loader, the `.xlsx` parser, and the upload endpoint, and stored per-call under `days[date].cn[cid].c` as `{i: call_id, r: rating, s: solved, o: opp_id, rs: reason}`. Rows without a `CALL_ID` are still counted in the aggregates but produce no per-call row.
 
 | Column | Type | Example |
 |--------|------|---------|

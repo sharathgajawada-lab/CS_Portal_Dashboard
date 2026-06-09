@@ -515,6 +515,8 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <table>
           <thead><tr>
             <th style="padding-left:16px">Call ID</th>
+            <th>Opportunity ID</th>
+            <th>Reason</th>
             <th>Date</th>
             <th class="r">Rating</th>
             <th class="r">Solved</th>
@@ -1371,11 +1373,16 @@ function _renderGlobalCalls() {
       if (!c) return false;
       if (!q) return true;
       const cid = String(c.call_id || '').toLowerCase();
-      return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q);
+      const oid = String(c.opp_id || '').toLowerCase();
+      const reason = String(c.reason || '').toLowerCase();
+      return cid.includes(q) || oid.includes(q) || reason.includes(q)
+        || String(c.rating).includes(q) || String(c.date || '').includes(q);
     });
     body.innerHTML = rows.map(c => {
       const rc = barColors[c.rating] || 'var(--text2)';
       const callId = String(c.call_id || '');
+      const oppId = String(c.opp_id || '');
+      const reason = String(c.reason || '');
       let url = '#';
       try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
       const idCell = callId
@@ -1383,14 +1390,16 @@ function _renderGlobalCalls() {
         : '<span style="color:var(--text3)">—</span>';
       return `<tr>
         <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2)">${oppId || '—'}</td>
+        <td style="font-size:12px;color:var(--text2)">${reason || '—'}</td>
         <td style="font-size:12px;color:var(--text3)">${c.date || '—'}</td>
         <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating ?? '—'}★</span></td>
         <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
       </tr>`;
-    }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+    }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
   } catch (err) {
     console.error('[csat] _renderGlobalCalls error:', err);
-    body.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
   }
 }
 
@@ -1476,7 +1485,14 @@ function _csatComputeAndRender(from, to) {
       // Per-call records: tag each with the day key so the table can show a date.
       if (Array.isArray(cv.c)) {
         for (const call of cv.c) {
-          cons[cid].calls.push({ call_id: call.i, rating: call.r, solved: !!call.s, date: d });
+          cons[cid].calls.push({
+            call_id: call.i,
+            opp_id: call.o || '',
+            reason: call.rs || '',
+            rating: call.r,
+            solved: !!call.s,
+            date: d,
+          });
         }
       }
     }
