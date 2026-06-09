@@ -29,7 +29,8 @@ export CMS_API_KEY=your-cms-api-key
 export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co   # optional
 export SUPABASE_KEY=your-service-role-jwt              # optional
 export CSAT_UPLOAD_PASSWORD=hearcom2024                # optional
-export DOMO_REASONS_DATASET_ID=b96f9a8a-8082-48f1-8f02-107197f177f4   # optional
+# Optional (unset by default): enable reasons linkage by OPPORTUNITY_ID
+export DOMO_REASONS_DATASET_ID=b96f9a8a-8082-48f1-8f02-107197f177f4
 
 uvicorn main:app --reload
 # Open http://localhost:8000

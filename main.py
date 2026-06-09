@@ -23,7 +23,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
-import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
+import httpx, os, asyncio, time, json, hashlib, csv, secrets, io, gc
 
 # ── Supabase client (lazy init) ───────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -417,7 +417,8 @@ def _parse_csv_text(text: str) -> list:
 DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
 DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
 DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "")
-DOMO_REASONS_DATASET_ID = os.getenv("DOMO_REASONS_DATASET_ID", "b96f9a8a-8082-48f1-8f02-107197f177f4")
+# Optional: set this only when you want reasons linkage enabled.
+DOMO_REASONS_DATASET_ID = os.getenv("DOMO_REASONS_DATASET_ID", "").strip()
 DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
 
 
@@ -539,18 +540,26 @@ def _refresh_csat_from_domo() -> bool:
     if csv_text is None:
         return False
     rows = _parse_csv_text(csv_text)
+    # Drop the large raw CSV string as early as possible to reduce peak memory.
+    csv_text = None
+    gc.collect()
     if not rows:
         print("[domo] parsed 0 rows — keeping previous index", flush=True)
         return False
 
     if DOMO_REASONS_DATASET_ID:
-        reasons_csv = _domo_fetch_csv(DOMO_REASONS_DATASET_ID)
-        if reasons_csv:
-            reason_by_opp = _parse_reasons_csv_text(reasons_csv)
-            _attach_reasons_by_opp(rows, reason_by_opp)
-            print(f"[domo] reasons map loaded: {len(reason_by_opp)} opportunity IDs", flush=True)
-        else:
-            print("[domo] reasons dataset unavailable — continuing with CSAT-only rows", flush=True)
+        try:
+            reasons_csv = _domo_fetch_csv(DOMO_REASONS_DATASET_ID)
+            if reasons_csv:
+                reason_by_opp = _parse_reasons_csv_text(reasons_csv)
+                reasons_csv = None
+                gc.collect()
+                _attach_reasons_by_opp(rows, reason_by_opp)
+                print(f"[domo] reasons map loaded: {len(reason_by_opp)} opportunity IDs", flush=True)
+            else:
+                print("[domo] reasons dataset unavailable — continuing with CSAT-only rows", flush=True)
+        except MemoryError:
+            print("[domo] reasons skipped due to memory pressure — continuing with CSAT-only rows", flush=True)
 
     _build_csat_index(rows)
     _save_csat_json()

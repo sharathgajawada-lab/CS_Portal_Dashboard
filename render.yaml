@@ -15,4 +15,4 @@ services:
       - key: CSAT_UPLOAD_PASSWORD
         sync: false   # password for POST /upload/csat (default: hearcom2024)
       - key: DOMO_REASONS_DATASET_ID
-        sync: false   # optional Domo dataset id with OPPORTUNITY_ID + CALL_REASON
+        sync: false   # optional; set explicitly to enable reasons merge by OPPORTUNITY_ID
