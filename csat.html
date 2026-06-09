@@ -2754,6 +2754,7 @@ async function refreshFromDomo() {
       return;
     } else {
       if (btn) btn.textContent = '✕ Pull failed';
+      if (j && j.note) console.warn('Domo refresh note:', j.note);
       console.warn('Domo refresh failed:', j);
     }
   } catch (e) {

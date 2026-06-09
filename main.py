@@ -401,6 +401,12 @@ DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
 DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
 DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "e1dc0e03-bb12-48fc-9908-937b7a5b91d2")
 DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
+_domo_last_error   = ""
+
+
+def _set_domo_error(message: str) -> None:
+    global _domo_last_error
+    _domo_last_error = message
 
 
 def _domo_configured() -> bool:
@@ -415,7 +421,9 @@ def _domo_fetch_csv() -> str | None:
     via asyncio.to_thread so it never blocks the event loop.
     """
     if not _domo_configured():
+        _set_domo_error("DOMO is not configured. Set DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID.")
         return None
+    _set_domo_error("")
     try:
         with httpx.Client(timeout=60.0) as client:
             # 1) OAuth client-credentials grant → bearer token (Basic auth: id:secret).
@@ -442,6 +450,7 @@ def _domo_fetch_csv() -> str | None:
                 last_err = f"HTTP {tok.status_code} {tok.text[:150]}"
                 print(f"[domo] auth attempt scope={scope or 'none'} failed: {last_err}", flush=True)
             if not token:
+                _set_domo_error(f"Domo auth failed on all scope attempts: {last_err}")
                 print(f"[domo] auth failed on all scope attempts — last: {last_err}", flush=True)
                 return None
 
@@ -452,15 +461,18 @@ def _domo_fetch_csv() -> str | None:
                 headers={"Authorization": f"Bearer {token}", "Accept": "text/csv"},
             )
             if exp.status_code != 200:
+                _set_domo_error(f"Domo export failed: HTTP {exp.status_code} {exp.text[:200]}")
                 print(f"[domo] export failed: HTTP {exp.status_code} {exp.text[:200]}", flush=True)
                 return None
             csv_text = exp.text
             if not csv_text or "CONSULTANT_ID" not in csv_text:
+                _set_domo_error("Domo export returned empty or unexpected data (missing CONSULTANT_ID column).")
                 print("[domo] export returned unexpected/empty data — keeping previous", flush=True)
                 return None
             print(f"[domo] exported dataset {DOMO_DATASET_ID[:8]}… ({len(csv_text)//1024} KB)", flush=True)
             return csv_text
     except Exception as e:
+        _set_domo_error(f"Domo pull error: {e}")
         print(f"[domo] pull error: {e}", flush=True)
         return None
 
@@ -472,6 +484,7 @@ def _refresh_csat_from_domo() -> bool:
         return False
     rows = _parse_csv_text(csv_text)
     if not rows:
+        _set_domo_error("Domo CSV parsed to 0 rows.")
         print("[domo] parsed 0 rows — keeping previous index", flush=True)
         return False
     _build_csat_index(rows)
@@ -1596,7 +1609,7 @@ async def api_refresh_csat():
                 "data_max": idx.get("date_max"),
                 "rows": idx.get("total_rows")}
     return JSONResponse(
-        {"status": "domo pull failed", "note": "Check server logs for the [domo] error line."},
+        {"status": "domo pull failed", "note": _domo_last_error or "Check server logs for the [domo] error line."},
         status_code=502,
     )
 
