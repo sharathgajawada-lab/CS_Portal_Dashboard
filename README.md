@@ -29,9 +29,6 @@ export CMS_API_KEY=your-cms-api-key
 export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co   # optional
 export SUPABASE_KEY=your-service-role-jwt              # optional
 export CSAT_UPLOAD_PASSWORD=hearcom2024                # optional
-export DOMO_CLIENT_ID=your-domo-client-id              # optional
-export DOMO_CLIENT_SECRET=your-domo-client-secret      # optional
-export DOMO_DATASET_ID=e1dc0e03-bb12-48fc-9908-937b7a5b91d2
 
 uvicorn main:app --reload
 # Open http://localhost:8000
@@ -46,9 +43,6 @@ uvicorn main:app --reload
    - `SUPABASE_URL` — Supabase project URL (optional, enables full session analytics)
    - `SUPABASE_KEY` — Supabase service_role JWT (optional)
    - `CSAT_UPLOAD_PASSWORD` — password for CSAT upload endpoint (default: `hearcom2024`)
-    - `DOMO_CLIENT_ID` — Domo OAuth client id (optional, enables auto CSAT pull)
-    - `DOMO_CLIENT_SECRET` — Domo OAuth client secret (optional)
-    - `DOMO_DATASET_ID` — Domo dataset id (`e1dc0e03-bb12-48fc-9908-937b7a5b91d2`)
 4. Deploy
 
 UptimeRobot pings `/health` every 5 minutes to keep the free-tier instance warm.
@@ -71,7 +65,7 @@ Browser
 
 **Cache:** 2h fresh / 24h stale. Persisted to `/tmp` so it survives Render restarts.  
 **Refresh:** Background loop every 2 hours — 15 fixed CMS calls + up to 12 timeline calls.  
-**CSAT data:** Loaded from Domo when configured (`DOMO_CLIENT_ID`, `DOMO_CLIENT_SECRET`, `DOMO_DATASET_ID`), otherwise from `call_quality.csv`; re-uploadable via dashboard UI.
+**CSAT data:** Loaded from `call_quality.csv` at startup; re-uploadable via dashboard UI.
 
 ---
 
