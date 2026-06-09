@@ -109,9 +109,9 @@ class TestBuildCsatIndex:
         idx = _build_csat_index(_sample_rows())
         cn = idx["days"]["2026-05-01"]["cn"]
         assert "c" in cn["c1"]
-        assert cn["c1"]["c"] == [{"i": "CA001", "r": 5, "s": 1, "o": "", "rs": ""}]
+        assert cn["c1"]["c"] == [{"i": "CA001", "r": 5, "s": 1}]
         # Bob unsolved → s=0
-        assert cn["c2"]["c"] == [{"i": "CA002", "r": 3, "s": 0, "o": "", "rs": ""}]
+        assert cn["c2"]["c"] == [{"i": "CA002", "r": 3, "s": 0}]
 
     def test_call_records_skip_blank_call_id(self):
         """Rows without a call_id must not produce a per-call record (no crash, no empty entry)."""

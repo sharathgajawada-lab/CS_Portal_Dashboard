@@ -29,9 +29,9 @@ export CMS_API_KEY=your-cms-api-key
 export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co   # optional
 export SUPABASE_KEY=your-service-role-jwt              # optional
 export CSAT_UPLOAD_PASSWORD=hearcom2024                # optional
-# Domo datasets (pre-configured for Audibene; override if using different org)
-export DOMO_DATASET_ID=bc75b418-1308-468d-8856-07488a4b57d8          # CSAT: CALL_ID, ratings, etc.
-export DOMO_REASONS_DATASET_ID=b96f9a8a-8082-48f1-8f02-107197f177f4  # Call details: CALL_SID__C, reasons
+export DOMO_CLIENT_ID=your-domo-client-id              # optional
+export DOMO_CLIENT_SECRET=your-domo-client-secret      # optional
+export DOMO_DATASET_ID=e1dc0e03-bb12-48fc-9908-937b7a5b91d2
 
 uvicorn main:app --reload
 # Open http://localhost:8000
@@ -46,8 +46,9 @@ uvicorn main:app --reload
    - `SUPABASE_URL` — Supabase project URL (optional, enables full session analytics)
    - `SUPABASE_KEY` — Supabase service_role JWT (optional)
    - `CSAT_UPLOAD_PASSWORD` — password for CSAT upload endpoint (default: `hearcom2024`)
-   - `DOMO_DATASET_ID` — Domo dataset for CSAT data: CALL_ID, ratings, consultant info (pre-set: audibene)
-   - `DOMO_REASONS_DATASET_ID` — Domo dataset for call details: CALL_SID__C, call reasons (pre-set: audibene)
+    - `DOMO_CLIENT_ID` — Domo OAuth client id (optional, enables auto CSAT pull)
+    - `DOMO_CLIENT_SECRET` — Domo OAuth client secret (optional)
+    - `DOMO_DATASET_ID` — Domo dataset id (`e1dc0e03-bb12-48fc-9908-937b7a5b91d2`)
 4. Deploy
 
 UptimeRobot pings `/health` every 5 minutes to keep the free-tier instance warm.
@@ -70,7 +71,7 @@ Browser
 
 **Cache:** 2h fresh / 24h stale. Persisted to `/tmp` so it survives Render restarts.  
 **Refresh:** Background loop every 2 hours — 15 fixed CMS calls + up to 12 timeline calls.  
-**CSAT data:** Loaded from `call_quality.csv` at startup; re-uploadable via dashboard UI.
+**CSAT data:** Loaded from Domo when configured (`DOMO_CLIENT_ID`, `DOMO_CLIENT_SECRET`, `DOMO_DATASET_ID`), otherwise from `call_quality.csv`; re-uploadable via dashboard UI.
 
 ---
 
@@ -113,11 +114,11 @@ The `/csat` page has three synchronized subpages, switched via the Overview / By
 
 - **Overview** — unscoped: all teams and consultants.
 - **By Team** — a team selector at the top. Picking a team re-scopes the *entire page* (KPIs, rating distribution, CSAT trend, FCR trend, leaderboards) to that team, and shows a per-team breakdown with its consultants. The CS Teams comparison cards always stay unscoped so they keep comparing all teams.
-- **By Member** — team filter + search + a consultant selector. Picking a consultant re-scopes the whole page to that member and renders an **individual-calls table**: each row shows the **Call ID** (a clickable deep link into the Unified Comm Journal, filtered to that call via `globalFilter`), `OPPORTUNITY_ID`, linked call reason (when configured), the date, the star rating, and solved/unsolved.
+- **By Member** — team filter + search + a consultant selector. Picking a consultant re-scopes the whole page to that member and renders an **individual-calls table**: each row shows the **Call ID** (a clickable deep link into the Unified Comm Journal, filtered to that call via `globalFilter`), the date, the star rating, and solved/unsolved.
 
 ### Required CSV column
 
-`call_quality.csv` now includes a `CALL_ID` column. It is captured by the startup CSV loader, the `.xlsx` parser, and the upload endpoint, and stored per-call under `days[date].cn[cid].c` as `{i: call_id, r: rating, s: solved, o: opp_id, rs: reason}`. Rows without a `CALL_ID` are still counted in the aggregates but produce no per-call row.
+`call_quality.csv` now includes a `CALL_ID` column. It is captured by the startup CSV loader, the `.xlsx` parser, and the upload endpoint, and stored per-call under `days[date].cn[cid].c` as `{i: call_id, r: rating, s: solved}`. Rows without a `CALL_ID` are still counted in the aggregates but produce no per-call row.
 
 | Column | Type | Example |
 |--------|------|---------|

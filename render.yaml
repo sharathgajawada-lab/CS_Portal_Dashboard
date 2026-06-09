@@ -14,7 +14,9 @@ services:
         sync: false   # service_role JWT from Supabase project settings
       - key: CSAT_UPLOAD_PASSWORD
         sync: false   # password for POST /upload/csat (default: hearcom2024)
+      - key: DOMO_CLIENT_ID
+        sync: false
+      - key: DOMO_CLIENT_SECRET
+        sync: false
       - key: DOMO_DATASET_ID
-        sync: false   # CSAT data: CALL_ID, RATING, CONSULTANT_ID, etc. (default: audibene bc75b418...)
-      - key: DOMO_REASONS_DATASET_ID
-        sync: false   # Call details: CALL_SID__C, call reasons (default: audibene b96f9a8a...)
+        value: e1dc0e03-bb12-48fc-9908-937b7a5b91d2

@@ -23,7 +23,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
-import httpx, os, asyncio, time, json, hashlib, csv, secrets, io, gc
+import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
 
 # ── Supabase client (lazy init) ───────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -197,7 +197,6 @@ DATA_START    = "2026-04-24"
 # Also rebuilt on-demand via POST /upload/csat
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
-_csat_reasons_map: dict = {}  # cached reasons maps for debugging: {by_call, by_opp}
 
 # Upload password — set CSAT_UPLOAD_PASSWORD env var on Render
 # Default is "hearcom2024" — change it in Render environment variables
@@ -282,16 +281,13 @@ def _build_csat_index(rows: list) -> dict:
         bad_name = (not name or name.strip().lower() in BAD_NAMES)
 
         if d not in day_map:
-            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"rs":{},"tm":{},"cn":{},"ft":0,"fr":0}
+            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"ft":0,"fr":0}
         dm = day_map[d]
         dm["t"]  += 1
         dm["sr"] += r["rating"]
         dm["s"]  += int(r["solved"])
         dm["l"]  += int(r["rating"] <= 2)
         dm["d"][r["rating"]] = dm["d"].get(r["rating"], 0) + 1
-        reason = str(r.get("reason") or "").strip()
-        if reason:
-            dm["rs"][reason] = dm["rs"].get(reason, 0) + 1
         # True FCR counters (only the first call of each opportunity is evaluated)
         if r.get("_fcr_eval"):
             dm["ft"] += 1
@@ -300,14 +296,12 @@ def _build_csat_index(rows: list) -> dict:
         if not bad_team:
             t = team.strip()
             if t not in dm["tm"]:
-                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"rs":{},"ft":0,"fr":0}
+                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"ft":0,"fr":0}
             dm["tm"][t]["t"]  += 1
             dm["tm"][t]["sr"] += r["rating"]
             dm["tm"][t]["s"]  += int(r["solved"])
             dm["tm"][t]["l"]  += int(r["rating"] <= 2)
             dm["tm"][t]["d"][r["rating"]] = dm["tm"][t]["d"].get(r["rating"], 0) + 1
-            if reason:
-                dm["tm"][t]["rs"][reason] = dm["tm"][t]["rs"].get(reason, 0) + 1
             if r.get("_fcr_eval"):
                 dm["tm"][t]["ft"] += 1
                 dm["tm"][t]["fr"] += int(r.get("_fcr_ok", False))
@@ -315,28 +309,20 @@ def _build_csat_index(rows: list) -> dict:
         if not bad_name:
             # Per-day consultant data — ensures team totals == sum of consultant totals
             if cid not in dm["cn"]:
-                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"rs":{},"c":[],"ft":0,"fr":0}
+                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"c":[],"ft":0,"fr":0}
             dm["cn"][cid]["t"]  += 1
             dm["cn"][cid]["sr"] += r["rating"]
             dm["cn"][cid]["s"]  += int(r["solved"])
             dm["cn"][cid]["l"]  += int(r["rating"] <= 2)
             dm["cn"][cid]["d"][r["rating"]] = dm["cn"][cid]["d"].get(r["rating"], 0) + 1
-            if reason:
-                dm["cn"][cid]["rs"][reason] = dm["cn"][cid]["rs"].get(reason, 0) + 1
             if r.get("_fcr_eval"):
                 dm["cn"][cid]["ft"] += 1
                 dm["cn"][cid]["fr"] += int(r.get("_fcr_ok", False))
             # Per-call record for individual-call tables (Call ID → UCJ link).
-            # Compact keys: i=call_id, r=rating, s=solved(0/1), o=opp_id, rs=reason.
+            # Compact keys: i=call_id, r=rating, s=solved(0/1). Date comes from the day key.
             call_id = r.get("call_id") or ""
             if call_id:
-                dm["cn"][cid]["c"].append({
-                    "i": call_id,
-                    "r": r["rating"],
-                    "s": int(r["solved"]),
-                    "o": str(r.get("opp_id") or "").strip(),
-                    "rs": reason,
-                })
+                dm["cn"][cid]["c"].append({"i": call_id, "r": r["rating"], "s": int(r["solved"])})
 
         if not bad_name:
             try:
@@ -388,9 +374,6 @@ def _parse_csv_text(text: str) -> list:
             opp = (row.get("OPPORTUNITY_ID") or row.get("OPPORTUNITYID")
                    or row.get("OpportunityId") or row.get("opportunityId")
                    or row.get("OPPORTUNITY") or "")
-            reason = (row.get("CALL_REASON") or row.get("CALLREASON")
-                      or row.get("REASON") or row.get("CONTACT_REASON")
-                      or row.get("CALL_CATEGORY") or "")
             rows.append({
                 "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
                 "cid":    row["CONSULTANT_ID"],
@@ -401,7 +384,6 @@ def _parse_csv_text(text: str) -> list:
                 "solved": str(row["SOLVED"]).strip().lower() == "true",
                 "call_id": (row.get("CALL_ID") or "").strip(),
                 "opp_id": str(opp).strip(),
-                "reason": str(reason).strip(),
             })
         except (ValueError, KeyError):
             continue
@@ -417,10 +399,7 @@ def _parse_csv_text(text: str) -> list:
 # (requires a Domo admin). Tokens last ~1 hour; we fetch a fresh one each pull.
 DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
 DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
-# CSAT dataset: CALL_ID, RATING, CONSULTANT_ID, CONSULTANT_NAME, CONSULTANT_TEAM, DATETIME, SOLVED, OPPORTUNITY_ID
-DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "bc75b418-1308-468d-8856-07488a4b57d8")
-# Call details dataset: CALL_SID__C, call reasons, linked via CALL_SID__C ↔ CALL_ID
-DOMO_REASONS_DATASET_ID = os.getenv("DOMO_REASONS_DATASET_ID", "b96f9a8a-8082-48f1-8f02-107197f177f4").strip()
+DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "e1dc0e03-bb12-48fc-9908-937b7a5b91d2")
 DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
 
 
@@ -428,14 +407,14 @@ def _domo_configured() -> bool:
     return bool(DOMO_CLIENT_ID and DOMO_CLIENT_SECRET and DOMO_DATASET_ID)
 
 
-def _domo_fetch_csv(dataset_id: str, required_hint: str = "") -> str | None:
-    """Authenticate to Domo and export any dataset as CSV text.
+def _domo_fetch_csv() -> str | None:
+    """Authenticate to Domo and export the CSAT dataset as CSV text.
 
     Returns the CSV string on success, or None on any failure (caller falls
     back to the bundled CSV). Synchronous httpx — called from the refresh loop
     via asyncio.to_thread so it never blocks the event loop.
     """
-    if not _domo_configured() or not dataset_id:
+    if not _domo_configured():
         return None
     try:
         with httpx.Client(timeout=60.0) as client:
@@ -468,7 +447,7 @@ def _domo_fetch_csv(dataset_id: str, required_hint: str = "") -> str | None:
 
             # 2) Export dataset as CSV (includeHeader so DictReader gets column names).
             exp = client.get(
-                f"{DOMO_API_BASE}/v1/datasets/{dataset_id}/data",
+                f"{DOMO_API_BASE}/v1/datasets/{DOMO_DATASET_ID}/data",
                 params={"includeHeader": "true"},
                 headers={"Authorization": f"Bearer {token}", "Accept": "text/csv"},
             )
@@ -476,274 +455,28 @@ def _domo_fetch_csv(dataset_id: str, required_hint: str = "") -> str | None:
                 print(f"[domo] export failed: HTTP {exp.status_code} {exp.text[:200]}", flush=True)
                 return None
             csv_text = exp.text
-            if not csv_text:
-                print("[domo] export returned empty data — keeping previous", flush=True)
-                return None
-            if required_hint and required_hint not in csv_text:
+            if not csv_text or "CONSULTANT_ID" not in csv_text:
                 print("[domo] export returned unexpected/empty data — keeping previous", flush=True)
                 return None
-            print(f"[domo] exported dataset {dataset_id[:8]}… ({len(csv_text)//1024} KB)", flush=True)
+            print(f"[domo] exported dataset {DOMO_DATASET_ID[:8]}… ({len(csv_text)//1024} KB)", flush=True)
             return csv_text
     except Exception as e:
         print(f"[domo] pull error: {e}", flush=True)
         return None
 
 
-def _norm_join_key(value: str) -> str:
-    """Normalize join keys (CALL_ID/CALL_SID/OPPORTUNITY_ID) for robust matching."""
-    s = str(value or "").strip().strip('"').strip("'")
-    if not s:
-        return ""
-    return "".join(ch for ch in s.upper() if ch.isalnum())
-
-
-def _parse_date_yyyy_mm_dd(raw_value: str) -> str:
-    """Parse date-ish strings and return YYYY-MM-DD, or empty on failure."""
-    s = str(raw_value or "").strip()
-    if not s:
-        return ""
-    # Common forms from Domo/Salesforce exports.
-    for fmt in (
-        "%Y-%m-%d",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S.%f",
-        "%m/%d/%Y",
-        "%m/%d/%Y %H:%M:%S",
-        "%m/%d/%Y %I:%M:%S %p",
-    ):
-        try:
-            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    # Fallback: try first 10 chars if already ISO-like.
-    head = s[:10]
-    try:
-        return datetime.strptime(head, "%Y-%m-%d").strftime("%Y-%m-%d")
-    except ValueError:
-        return ""
-
-
-def _parse_reasons_csv_text(text: str) -> dict:
-    """Parse reasons CSV and return normalized maps keyed by call and opportunity IDs.
-
-    Applied filters for call-details dataset:
-    - LASTMODIFIEDDATE after 2025-07-14
-    - CALL_SID not null
-    - ISO_COUNTRY == USA
-    """
-    call_to_reasons = defaultdict(Counter)
-    opp_to_reasons = defaultdict(Counter)
-    rows_seen = 0
-    rows_kept = 0
-    rows_with_call = 0
-    rows_with_opp = 0
-    rows_with_reason = 0
-    sample_calls = []
-    sample_opps = []
-    sample_kept = []
-    cutoff = "2025-07-15"  # strictly after 07/14/2025
-
-    for row in csv.DictReader(io.StringIO(text)):
-        rows_seen += 1
-        if rows_seen == 1:
-            print(f"[reasons] CSV columns: {list(row.keys())}", flush=True)
-
-        last_modified_raw = (
-            row.get("LASTMODIFIEDDATE")
-            or row.get("LAST_MODIFIED_DATE")
-            or row.get("LAST_MODIFIED")
-            or ""
-        )
-        iso_country = str(row.get("ISO_COUNTRY") or "").strip().upper()
-        call_id_raw = (
-            row.get("CALL_SID__C")
-            or row.get("CALL_SID__")
-            or row.get("CALL_ID")
-            or row.get("CALLSID")
-            or row.get("CALL_SID")
-            or ""
-        )
-        opp_id_raw = (
-            row.get("OPPORTUNITY_ID")
-            or row.get("OPPORTUNITYID")
-            or row.get("OpportunityId")
-            or row.get("opportunityId")
-            or row.get("OPPORTUNITY")
-            or ""
-        )
-        reason = str(
-            row.get("REASON_FOR_CALL__C")
-            or row.get("CALL_REASON")
-            or row.get("CALLREASON")
-            or row.get("REASON")
-            or row.get("CONTACT_REASON")
-            or row.get("CALL_CATEGORY")
-            or ""
-        ).strip()
-
-        call_key = _norm_join_key(call_id_raw)
-        opp_key = _norm_join_key(opp_id_raw)
-        last_modified = _parse_date_yyyy_mm_dd(last_modified_raw)
-
-        # Required filters for call-details dataset minimization.
-        if iso_country != "USA":
-            continue
-        if not call_key:
-            continue
-        if not last_modified or last_modified < cutoff:
-            continue
-
-        rows_kept += 1
-        if len(sample_kept) < 3:
-            sample_kept.append({
-                "LASTMODIFIEDDATE": str(last_modified_raw),
-                "CALL_SID": str(call_id_raw),
-                "ISO_COUNTRY": iso_country,
-                "REASON_FOR_CALL": reason,
-            })
-
-        rows_with_call += 1
-        if len(sample_calls) < 3:
-            sample_calls.append(str(call_id_raw).strip())
-        if opp_key:
-            rows_with_opp += 1
-            if len(sample_opps) < 3:
-                sample_opps.append(str(opp_id_raw).strip())
-        if reason:
-            rows_with_reason += 1
-
-        if reason:
-            call_to_reasons[call_key][reason] += 1
-        if reason and opp_key:
-            opp_to_reasons[opp_key][reason] += 1
-
-    reason_by_call = {k: c.most_common(1)[0][0] for k, c in call_to_reasons.items() if c}
-    reason_by_opp = {k: c.most_common(1)[0][0] for k, c in opp_to_reasons.items() if c}
-
-    print(
-        f"[reasons] parsed {rows_seen} rows, kept {rows_kept} after filters "
-        f"(date>2025-07-14, call sid not null, ISO_COUNTRY=USA): "
-        f"{rows_with_call} with call sid, {rows_with_opp} with opp_id, {rows_with_reason} with reason, "
-        f"maps(call={len(reason_by_call)}, opp={len(reason_by_opp)})",
-        flush=True,
-    )
-    if sample_calls:
-        print(f"[reasons] sample CALL_SID/CALL_ID values: {sample_calls}", flush=True)
-    if sample_opps:
-        print(f"[reasons] sample OPPORTUNITY_ID values: {sample_opps}", flush=True)
-    if sample_kept:
-        print(f"[reasons] sample kept rows: {sample_kept}", flush=True)
-    return {"by_call": reason_by_call, "by_opp": reason_by_opp}
-
-
-def _attach_reasons(rows: list, reason_maps: dict) -> list:
-    """Attach call reason to CSAT rows (CALL_ID/CALL_SID first, then OPPORTUNITY_ID)."""
-    reason_by_call = reason_maps.get("by_call", {}) if isinstance(reason_maps, dict) else {}
-    reason_by_opp = reason_maps.get("by_opp", {}) if isinstance(reason_maps, dict) else {}
-    if not reason_by_call and not reason_by_opp:
-        print("[csat] no reasons maps provided", flush=True)
-        return rows
-
-    matched_total = 0
-    matched_by_call = 0
-    matched_by_opp = 0
-    sample_matches = []
-
-    for row in rows:
-        call_key = _norm_join_key(row.get("call_id") or "")
-        opp_key = _norm_join_key(row.get("opp_id") or "")
-
-        reason = ""
-        source = ""
-        if call_key and call_key in reason_by_call:
-            reason = reason_by_call[call_key]
-            source = "call"
-            matched_by_call += 1
-        elif opp_key and opp_key in reason_by_opp:
-            reason = reason_by_opp[opp_key]
-            source = "opp"
-            matched_by_opp += 1
-
-        if reason:
-            matched_total += 1
-            if len(sample_matches) < 5:
-                sample_matches.append({
-                    "call_id": row.get("call_id", ""),
-                    "opp_id": row.get("opp_id", ""),
-                    "reason": reason,
-                    "source": source,
-                })
-        row["reason"] = reason
-
-    print(
-        f"[csat] reasons linked: {matched_total}/{len(rows)} rows "
-        f"(by_call={matched_by_call}, by_opp={matched_by_opp})",
-        flush=True,
-    )
-    if sample_matches:
-        print(f"[csat] sample matches: {sample_matches}", flush=True)
-    return rows
-
-
-def _refresh_csat_from_domo(include_reasons: bool = False) -> bool:
-    """Pull from Domo and rebuild the CSAT index. 
-    
-    Args:
-        include_reasons: if True, also pull and attach call reasons (requires extra memory)
-    
-    Returns True if CSAT pull succeeded.
-    """
-    global _csat_reasons_map
-    csv_text = _domo_fetch_csv(DOMO_DATASET_ID, required_hint="CONSULTANT_ID")
+def _refresh_csat_from_domo() -> bool:
+    """Pull from Domo and rebuild the CSAT index. Returns True if it succeeded."""
+    csv_text = _domo_fetch_csv()
     if csv_text is None:
         return False
     rows = _parse_csv_text(csv_text)
-    # Drop the large raw CSV string as early as possible to reduce peak memory.
-    csv_text = None
-    gc.collect()
     if not rows:
         print("[domo] parsed 0 rows — keeping previous index", flush=True)
         return False
-
-    # Build index FIRST with just CSAT data
     _build_csat_index(rows)
     _save_csat_json()
     print(f"[domo] CSAT index rebuilt from Domo — {len(rows)} rows", flush=True)
-
-    # THEN (separately, if requested) pull and attach reasons
-    if include_reasons and DOMO_REASONS_DATASET_ID:
-        try:
-            reasons_csv = _domo_fetch_csv(DOMO_REASONS_DATASET_ID)
-            if reasons_csv:
-                reason_maps = _parse_reasons_csv_text(reasons_csv)
-                _csat_reasons_map = reason_maps  # cache for debugging
-                reasons_csv = None
-                gc.collect()
-                _attach_reasons(rows, reason_maps)
-                # Rebuild index with reasons now attached
-                _build_csat_index(rows)
-                _save_csat_json()
-                print(
-                    f"[domo] reasons maps loaded and attached: "
-                    f"call={len(reason_maps.get('by_call', {}))}, "
-                    f"opp={len(reason_maps.get('by_opp', {}))}",
-                    flush=True,
-                )
-            else:
-                print("[domo] reasons dataset unavailable — CSAT index has no reasons", flush=True)
-                _csat_reasons_map = {}
-        except MemoryError:
-            print("[domo] reasons skipped due to memory pressure — CSAT index has no reasons", flush=True)
-            _csat_reasons_map = {}
-        except Exception as ex:
-            print(f"[domo] reasons fetch/attach failed ({ex}) — CSAT index has no reasons", flush=True)
-            _csat_reasons_map = {}
-    else:
-        if DOMO_REASONS_DATASET_ID:
-            print("[domo] reasons dataset configured but not fetched at startup (use /api/refresh/csat to include)", flush=True)
-        _csat_reasons_map = {}
-
     return True
 
 
@@ -817,11 +550,6 @@ def _parse_excel_bytes(data: bytes) -> list:
                 if _k in col:
                     opp_id = str(row[col[_k]] or "").strip()
                     break
-            reason = ""
-            for _k in ("CALL_REASON", "CALLREASON", "REASON", "CONTACT_REASON", "CALL_CATEGORY"):
-                if _k in col:
-                    reason = str(row[col[_k]] or "").strip()
-                    break
             if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
                 date_str = dt_val.strftime("%Y-%m-%d")
                 dt_full  = dt_val.isoformat()
@@ -836,7 +564,7 @@ def _parse_excel_bytes(data: bytes) -> list:
                 continue
             rows.append({"rating":rating,"cid":cid,"name":name,
                          "team":team,"date":date_str,"datetime":dt_full,"solved":solved,
-                         "call_id":call_id,"opp_id":opp_id,"reason":reason})
+                         "call_id":call_id,"opp_id":opp_id})
         except (TypeError, ValueError):
             continue
     return rows
@@ -1672,7 +1400,22 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
         print(f"[upload] received {fname} ({len(data)//1024} KB)", flush=True)
 
         if fname.lower().endswith(".csv"):
-            rows = _parse_csv_text(data.decode("utf-8"))
+            # Parse CSV directly
+            rows = []
+            for row in csv.DictReader(io.StringIO(data.decode("utf-8"))):
+                try:
+                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
+                    rows.append({
+                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
+                        "cid":    row["CONSULTANT_ID"].strip(),
+                        "name":   row["CONSULTANT_NAME"].strip(),
+                        "team":   row["CONSULTANT_TEAM"].strip(),
+                        "date":   raw_date[:10].strip(),
+                        "solved": row["SOLVED"].strip().lower() == "true",
+                        "call_id": (row.get("CALL_ID") or "").strip(),
+                    })
+                except (KeyError, ValueError):
+                    continue
         else:
             rows = _parse_excel_bytes(data)
 
@@ -1746,32 +1489,17 @@ async def debug_csat():
         "/app/call_quality.csv",
         "/app/data/call_quality.csv",
     ]
-    # Check if any rows have reasons filled
-    rows_with_reasons = sum(1 for r in _csat_rows if str(r.get("reason") or "").strip())
-    sample_with_reasons = [r for r in _csat_rows[:10] if str(r.get("reason") or "").strip()]
-    sample_opps = [str(r.get("opp_id", "")) for r in _csat_rows[:5] if r.get("opp_id")]
-    
     return {
         "rows_loaded": len(_csat_rows),
         "available": len(_csat_rows) > 0,
         "cwd": os.getcwd(),
         "paths_checked": {p: os.path.exists(p) for p in paths},
-        "sample_first_5": _csat_rows[:5] if _csat_rows else [],
-        "sample_opps_in_first_5": sample_opps,
-        "reasons": {
-            "total_rows_with_reasons": rows_with_reasons,
-            "reasons_by_call_size": len(_csat_reasons_map.get("by_call", {})) if isinstance(_csat_reasons_map, dict) else 0,
-            "reasons_by_opp_size": len(_csat_reasons_map.get("by_opp", {})) if isinstance(_csat_reasons_map, dict) else 0,
-            "sample_reasons_by_call": dict(list((_csat_reasons_map.get("by_call", {}) if isinstance(_csat_reasons_map, dict) else {}).items())[:5]),
-            "sample_reasons_by_opp": dict(list((_csat_reasons_map.get("by_opp", {}) if isinstance(_csat_reasons_map, dict) else {}).items())[:5]),
-            "sample_rows_with_reasons": sample_with_reasons,
-        },
+        "sample": _csat_rows[:2] if _csat_rows else [],
         "domo": {
             "configured": _domo_configured(),
             "client_id_set": bool(DOMO_CLIENT_ID),
             "secret_set": bool(DOMO_CLIENT_SECRET),
             "dataset_id_set": bool(DOMO_DATASET_ID),
-            "reasons_dataset_id_set": bool(DOMO_REASONS_DATASET_ID),
             "source": "domo" if _domo_configured() else "bundled_csv",
         },
         "team_allow_list": CSAT_TEAMS_ALLOW,
@@ -1850,9 +1578,9 @@ async def api_refresh():
     return {"status": "refresh already running", "note": "Check /health for progress."}
 
 @app.get("/api/refresh/csat")
-async def api_refresh_csat(include_reasons: bool = False):
+async def api_refresh_csat():
     """Manually pull the latest CSAT data from Domo and rebuild the index.
-    Set include_reasons=true to also pull and attach call reasons (heavier memory usage).
+    Replaces the manual 'Update CSAT' upload when Domo is configured.
     """
     if not _domo_configured():
         return JSONResponse(
@@ -1860,18 +1588,13 @@ async def api_refresh_csat(include_reasons: bool = False):
              "note": "Set DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID env vars."},
             status_code=400,
         )
-    ok = await asyncio.to_thread(_refresh_csat_from_domo, include_reasons=include_reasons)
+    ok = await asyncio.to_thread(_refresh_csat_from_domo)
     if ok:
         idx = _csat_index.get("index_data", {})
-        reasons_count = len(_csat_reasons_map.get("by_call", {})) + len(_csat_reasons_map.get("by_opp", {}))
-        return {
-            "status": "csat + reasons refreshed from domo" if include_reasons else "csat refreshed from domo",
-            "data_min": idx.get("date_min"),
-            "data_max": idx.get("date_max"),
-            "rows": idx.get("total_rows"),
-            "include_reasons": include_reasons,
-            "reasons_entries": reasons_count,
-        }
+        return {"status": "csat refreshed from domo",
+                "data_min": idx.get("date_min"),
+                "data_max": idx.get("date_max"),
+                "rows": idx.get("total_rows")}
     return JSONResponse(
         {"status": "domo pull failed", "note": "Check server logs for the [domo] error line."},
         status_code=502,
