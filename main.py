@@ -621,8 +621,14 @@ def _attach_reasons(rows: list, reason_maps: dict) -> list:
     return rows
 
 
-def _refresh_csat_from_domo() -> bool:
-    """Pull from Domo and rebuild the CSAT index. Returns True if it succeeded."""
+def _refresh_csat_from_domo(include_reasons: bool = False) -> bool:
+    """Pull from Domo and rebuild the CSAT index. 
+    
+    Args:
+        include_reasons: if True, also pull and attach call reasons (requires extra memory)
+    
+    Returns True if CSAT pull succeeded.
+    """
     global _csat_reasons_map
     csv_text = _domo_fetch_csv(DOMO_DATASET_ID, required_hint="CONSULTANT_ID")
     if csv_text is None:
@@ -635,7 +641,13 @@ def _refresh_csat_from_domo() -> bool:
         print("[domo] parsed 0 rows — keeping previous index", flush=True)
         return False
 
-    if DOMO_REASONS_DATASET_ID:
+    # Build index FIRST with just CSAT data
+    _build_csat_index(rows)
+    _save_csat_json()
+    print(f"[domo] CSAT index rebuilt from Domo — {len(rows)} rows", flush=True)
+
+    # THEN (separately, if requested) pull and attach reasons
+    if include_reasons and DOMO_REASONS_DATASET_ID:
         try:
             reasons_csv = _domo_fetch_csv(DOMO_REASONS_DATASET_ID)
             if reasons_csv:
@@ -644,25 +656,26 @@ def _refresh_csat_from_domo() -> bool:
                 reasons_csv = None
                 gc.collect()
                 _attach_reasons(rows, reason_maps)
+                # Rebuild index with reasons now attached
+                _build_csat_index(rows)
+                _save_csat_json()
                 print(
-                    f"[domo] reasons maps loaded: "
+                    f"[domo] reasons maps loaded and attached: "
                     f"call={len(reason_maps.get('by_call', {}))}, "
                     f"opp={len(reason_maps.get('by_opp', {}))}",
                     flush=True,
                 )
             else:
-                print("[domo] reasons dataset unavailable — continuing with CSAT-only rows", flush=True)
+                print("[domo] reasons dataset unavailable — CSAT index has no reasons", flush=True)
                 _csat_reasons_map = {}
         except MemoryError:
-            print("[domo] reasons skipped due to memory pressure — continuing with CSAT-only rows", flush=True)
+            print("[domo] reasons skipped due to memory pressure — CSAT index has no reasons", flush=True)
             _csat_reasons_map = {}
     else:
-        print("[domo] reasons dataset not configured (DOMO_REASONS_DATASET_ID not set)", flush=True)
+        if DOMO_REASONS_DATASET_ID:
+            print("[domo] reasons dataset configured but not fetched at startup (use /api/refresh/csat to include)", flush=True)
         _csat_reasons_map = {}
 
-    _build_csat_index(rows)
-    _save_csat_json()
-    print(f"[domo] CSAT index rebuilt from Domo — {len(rows)} rows", flush=True)
     return True
 
 
@@ -1770,22 +1783,26 @@ async def api_refresh():
 
 @app.get("/api/refresh/csat")
 async def api_refresh_csat():
-    """Manually pull the latest CSAT data from Domo and rebuild the index.
-    Replaces the manual 'Update CSAT' upload when Domo is configured.
+    """Manually pull the latest CSAT data and call reasons from Domo and rebuild the index.
+    This endpoint includes reasons fetch (requires extra memory). Use /api/refresh for full portal refresh.
     """
     if not _domo_configured():
         return JSONResponse(
             {"status": "domo not configured",
-             "note": "Set DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID env vars (and optional DOMO_REASONS_DATASET_ID)."},
+             "note": "Set DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID env vars."},
             status_code=400,
         )
-    ok = await asyncio.to_thread(_refresh_csat_from_domo)
+    ok = await asyncio.to_thread(_refresh_csat_from_domo, include_reasons=True)
     if ok:
         idx = _csat_index.get("index_data", {})
-        return {"status": "csat refreshed from domo",
-                "data_min": idx.get("date_min"),
-                "data_max": idx.get("date_max"),
-                "rows": idx.get("total_rows")}
+        reasons_count = len(_csat_reasons_map.get("by_call", {})) + len(_csat_reasons_map.get("by_opp", {}))
+        return {
+            "status": "csat + reasons refreshed from domo",
+            "data_min": idx.get("date_min"),
+            "data_max": idx.get("date_max"),
+            "rows": idx.get("total_rows"),
+            "reasons_entries": reasons_count,
+        }
     return JSONResponse(
         {"status": "domo pull failed", "note": "Check server logs for the [domo] error line."},
         status_code=502,
