@@ -197,6 +197,7 @@ DATA_START    = "2026-04-24"
 # Also rebuilt on-demand via POST /upload/csat
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
+_csat_reasons_map: dict = {}  # cached reasons map for debugging: {opp_id: reason}
 
 # Upload password — set CSAT_UPLOAD_PASSWORD env var on Render
 # Default is "hearcom2024" — change it in Render environment variables
@@ -490,7 +491,17 @@ def _domo_fetch_csv(dataset_id: str, required_hint: str = "") -> str | None:
 def _parse_reasons_csv_text(text: str) -> dict:
     """Parse reasons CSV and return a map of OPPORTUNITY_ID -> reason."""
     opp_to_reasons = defaultdict(Counter)
+    rows_seen = 0
+    rows_with_opp = 0
+    rows_with_reason = 0
+    sample_opps = []
+    
     for row in csv.DictReader(io.StringIO(text)):
+        rows_seen += 1
+        # Log available columns once
+        if rows_seen == 1:
+            print(f"[reasons] CSV columns: {list(row.keys())}", flush=True)
+        
         opp_id = str(
             row.get("OPPORTUNITY_ID")
             or row.get("OPPORTUNITYID")
@@ -499,8 +510,11 @@ def _parse_reasons_csv_text(text: str) -> dict:
             or row.get("OPPORTUNITY")
             or ""
         ).strip()
-        if not opp_id:
-            continue
+        if opp_id:
+            rows_with_opp += 1
+            if len(sample_opps) < 3:
+                sample_opps.append(opp_id)
+        
         reason = str(
             row.get("CALL_REASON")
             or row.get("CALLREASON")
@@ -510,32 +524,54 @@ def _parse_reasons_csv_text(text: str) -> dict:
             or ""
         ).strip()
         if reason:
+            rows_with_reason += 1
+        
+        if opp_id and reason:
             opp_to_reasons[opp_id][reason] += 1
 
     reason_by_opp = {}
     for opp_id, counts in opp_to_reasons.items():
         if counts:
             reason_by_opp[opp_id] = counts.most_common(1)[0][0]
+    
+    print(f"[reasons] parsed {rows_seen} rows: {rows_with_opp} with opp_id, {rows_with_reason} with reason, {len(reason_by_opp)} matched pairs", flush=True)
+    if sample_opps:
+        print(f"[reasons] sample opportunity IDs: {sample_opps}", flush=True)
     return reason_by_opp
 
 
 def _attach_reasons_by_opp(rows: list, reason_by_opp: dict) -> list:
     """Attach call reason on each CSAT row by opportunity id."""
     if not reason_by_opp:
+        print(f"[csat] no reasons map provided", flush=True)
         return rows
     matched = 0
-    for row in rows:
+    sample_matches = []
+    sample_csat_opps = []
+    
+    for i, row in enumerate(rows):
         oid = str(row.get("opp_id") or "").strip()
+        if i < 3 and oid:
+            sample_csat_opps.append(oid)
+        
         reason = reason_by_opp.get(oid, "") if oid else ""
         if reason:
             matched += 1
+            if len(sample_matches) < 3:
+                sample_matches.append((oid, reason))
         row["reason"] = reason
-    print(f"[csat] reasons linked by opp_id: {matched}/{len(rows)} rows", flush=True)
+    
+    print(f"[csat] reasons linked by opp_id: {matched}/{len(rows)} rows matched", flush=True)
+    if sample_csat_opps:
+        print(f"[csat] sample CSAT opportunity IDs: {sample_csat_opps}", flush=True)
+    if sample_matches:
+        print(f"[csat] sample matched pairs: {sample_matches}", flush=True)
     return rows
 
 
 def _refresh_csat_from_domo() -> bool:
     """Pull from Domo and rebuild the CSAT index. Returns True if it succeeded."""
+    global _csat_reasons_map
     csv_text = _domo_fetch_csv(DOMO_DATASET_ID, required_hint="CONSULTANT_ID")
     if csv_text is None:
         return False
@@ -552,14 +588,20 @@ def _refresh_csat_from_domo() -> bool:
             reasons_csv = _domo_fetch_csv(DOMO_REASONS_DATASET_ID)
             if reasons_csv:
                 reason_by_opp = _parse_reasons_csv_text(reasons_csv)
+                _csat_reasons_map = reason_by_opp  # cache for debugging
                 reasons_csv = None
                 gc.collect()
                 _attach_reasons_by_opp(rows, reason_by_opp)
                 print(f"[domo] reasons map loaded: {len(reason_by_opp)} opportunity IDs", flush=True)
             else:
                 print("[domo] reasons dataset unavailable — continuing with CSAT-only rows", flush=True)
+                _csat_reasons_map = {}
         except MemoryError:
             print("[domo] reasons skipped due to memory pressure — continuing with CSAT-only rows", flush=True)
+            _csat_reasons_map = {}
+    else:
+        print("[domo] reasons dataset not configured (DOMO_REASONS_DATASET_ID not set)", flush=True)
+        _csat_reasons_map = {}
 
     _build_csat_index(rows)
     _save_csat_json()
@@ -1566,12 +1608,24 @@ async def debug_csat():
         "/app/call_quality.csv",
         "/app/data/call_quality.csv",
     ]
+    # Check if any rows have reasons filled
+    rows_with_reasons = sum(1 for r in _csat_rows if str(r.get("reason") or "").strip())
+    sample_with_reasons = [r for r in _csat_rows[:10] if str(r.get("reason") or "").strip()]
+    sample_opps = [str(r.get("opp_id", "")) for r in _csat_rows[:5] if r.get("opp_id")]
+    
     return {
         "rows_loaded": len(_csat_rows),
         "available": len(_csat_rows) > 0,
         "cwd": os.getcwd(),
         "paths_checked": {p: os.path.exists(p) for p in paths},
-        "sample": _csat_rows[:2] if _csat_rows else [],
+        "sample_first_5": _csat_rows[:5] if _csat_rows else [],
+        "sample_opps_in_first_5": sample_opps,
+        "reasons": {
+            "total_rows_with_reasons": rows_with_reasons,
+            "reasons_map_size": len(_csat_reasons_map),
+            "sample_reasons_entries": dict(list(_csat_reasons_map.items())[:5]),
+            "sample_rows_with_reasons": sample_with_reasons,
+        },
         "domo": {
             "configured": _domo_configured(),
             "client_id_set": bool(DOMO_CLIENT_ID),
