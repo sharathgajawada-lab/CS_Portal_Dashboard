@@ -736,6 +736,9 @@ def _refresh_csat_from_domo(include_reasons: bool = False) -> bool:
         except MemoryError:
             print("[domo] reasons skipped due to memory pressure — CSAT index has no reasons", flush=True)
             _csat_reasons_map = {}
+        except Exception as ex:
+            print(f"[domo] reasons fetch/attach failed ({ex}) — CSAT index has no reasons", flush=True)
+            _csat_reasons_map = {}
     else:
         if DOMO_REASONS_DATASET_ID:
             print("[domo] reasons dataset configured but not fetched at startup (use /api/refresh/csat to include)", flush=True)
@@ -1847,9 +1850,9 @@ async def api_refresh():
     return {"status": "refresh already running", "note": "Check /health for progress."}
 
 @app.get("/api/refresh/csat")
-async def api_refresh_csat():
-    """Manually pull the latest CSAT data and call reasons from Domo and rebuild the index.
-    This endpoint includes reasons fetch (requires extra memory). Use /api/refresh for full portal refresh.
+async def api_refresh_csat(include_reasons: bool = False):
+    """Manually pull the latest CSAT data from Domo and rebuild the index.
+    Set include_reasons=true to also pull and attach call reasons (heavier memory usage).
     """
     if not _domo_configured():
         return JSONResponse(
@@ -1857,15 +1860,16 @@ async def api_refresh_csat():
              "note": "Set DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID env vars."},
             status_code=400,
         )
-    ok = await asyncio.to_thread(_refresh_csat_from_domo, include_reasons=True)
+    ok = await asyncio.to_thread(_refresh_csat_from_domo, include_reasons=include_reasons)
     if ok:
         idx = _csat_index.get("index_data", {})
         reasons_count = len(_csat_reasons_map.get("by_call", {})) + len(_csat_reasons_map.get("by_opp", {}))
         return {
-            "status": "csat + reasons refreshed from domo",
+            "status": "csat + reasons refreshed from domo" if include_reasons else "csat refreshed from domo",
             "data_min": idx.get("date_min"),
             "data_max": idx.get("date_max"),
             "rows": idx.get("total_rows"),
+            "include_reasons": include_reasons,
             "reasons_entries": reasons_count,
         }
     return JSONResponse(
