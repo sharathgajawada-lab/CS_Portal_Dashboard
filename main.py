@@ -197,7 +197,7 @@ DATA_START    = "2026-04-24"
 # Also rebuilt on-demand via POST /upload/csat
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
-_csat_reasons_map: dict = {}  # cached reasons map for debugging: {opp_id: reason}
+_csat_reasons_map: dict = {}  # cached reasons maps for debugging: {by_call, by_opp}
 
 # Upload password — set CSAT_UPLOAD_PASSWORD env var on Render
 # Default is "hearcom2024" — change it in Render environment variables
@@ -488,33 +488,45 @@ def _domo_fetch_csv(dataset_id: str, required_hint: str = "") -> str | None:
         return None
 
 
+def _norm_join_key(value: str) -> str:
+    """Normalize join keys (CALL_ID/CALL_SID/OPPORTUNITY_ID) for robust matching."""
+    s = str(value or "").strip().strip('"').strip("'")
+    if not s:
+        return ""
+    return "".join(ch for ch in s.upper() if ch.isalnum())
+
+
 def _parse_reasons_csv_text(text: str) -> dict:
-    """Parse reasons CSV and return a map of OPPORTUNITY_ID -> reason."""
+    """Parse reasons CSV and return normalized maps keyed by call and opportunity IDs."""
+    call_to_reasons = defaultdict(Counter)
     opp_to_reasons = defaultdict(Counter)
     rows_seen = 0
+    rows_with_call = 0
     rows_with_opp = 0
     rows_with_reason = 0
+    sample_calls = []
     sample_opps = []
-    
+
     for row in csv.DictReader(io.StringIO(text)):
         rows_seen += 1
-        # Log available columns once
         if rows_seen == 1:
             print(f"[reasons] CSV columns: {list(row.keys())}", flush=True)
-        
-        opp_id = str(
+
+        call_id_raw = (
+            row.get("CALL_SID__C")
+            or row.get("CALL_ID")
+            or row.get("CALLSID")
+            or row.get("CALL_SID")
+            or ""
+        )
+        opp_id_raw = (
             row.get("OPPORTUNITY_ID")
             or row.get("OPPORTUNITYID")
             or row.get("OpportunityId")
             or row.get("opportunityId")
             or row.get("OPPORTUNITY")
             or ""
-        ).strip()
-        if opp_id:
-            rows_with_opp += 1
-            if len(sample_opps) < 3:
-                sample_opps.append(opp_id)
-        
+        )
         reason = str(
             row.get("CALL_REASON")
             or row.get("CALLREASON")
@@ -523,49 +535,88 @@ def _parse_reasons_csv_text(text: str) -> dict:
             or row.get("CALL_CATEGORY")
             or ""
         ).strip()
+
+        call_key = _norm_join_key(call_id_raw)
+        opp_key = _norm_join_key(opp_id_raw)
+
+        if call_key:
+            rows_with_call += 1
+            if len(sample_calls) < 3:
+                sample_calls.append(str(call_id_raw).strip())
+        if opp_key:
+            rows_with_opp += 1
+            if len(sample_opps) < 3:
+                sample_opps.append(str(opp_id_raw).strip())
         if reason:
             rows_with_reason += 1
-        
-        if opp_id and reason:
-            opp_to_reasons[opp_id][reason] += 1
 
-    reason_by_opp = {}
-    for opp_id, counts in opp_to_reasons.items():
-        if counts:
-            reason_by_opp[opp_id] = counts.most_common(1)[0][0]
-    
-    print(f"[reasons] parsed {rows_seen} rows: {rows_with_opp} with opp_id, {rows_with_reason} with reason, {len(reason_by_opp)} matched pairs", flush=True)
+        if reason and call_key:
+            call_to_reasons[call_key][reason] += 1
+        if reason and opp_key:
+            opp_to_reasons[opp_key][reason] += 1
+
+    reason_by_call = {k: c.most_common(1)[0][0] for k, c in call_to_reasons.items() if c}
+    reason_by_opp = {k: c.most_common(1)[0][0] for k, c in opp_to_reasons.items() if c}
+
+    print(
+        f"[reasons] parsed {rows_seen} rows: {rows_with_call} with call sid, "
+        f"{rows_with_opp} with opp_id, {rows_with_reason} with reason, "
+        f"maps(call={len(reason_by_call)}, opp={len(reason_by_opp)})",
+        flush=True,
+    )
+    if sample_calls:
+        print(f"[reasons] sample CALL_SID/CALL_ID values: {sample_calls}", flush=True)
     if sample_opps:
-        print(f"[reasons] sample opportunity IDs: {sample_opps}", flush=True)
-    return reason_by_opp
+        print(f"[reasons] sample OPPORTUNITY_ID values: {sample_opps}", flush=True)
+    return {"by_call": reason_by_call, "by_opp": reason_by_opp}
 
 
-def _attach_reasons_by_opp(rows: list, reason_by_opp: dict) -> list:
-    """Attach call reason on each CSAT row by opportunity id."""
-    if not reason_by_opp:
-        print(f"[csat] no reasons map provided", flush=True)
+def _attach_reasons(rows: list, reason_maps: dict) -> list:
+    """Attach call reason to CSAT rows (CALL_ID/CALL_SID first, then OPPORTUNITY_ID)."""
+    reason_by_call = reason_maps.get("by_call", {}) if isinstance(reason_maps, dict) else {}
+    reason_by_opp = reason_maps.get("by_opp", {}) if isinstance(reason_maps, dict) else {}
+    if not reason_by_call and not reason_by_opp:
+        print("[csat] no reasons maps provided", flush=True)
         return rows
-    matched = 0
+
+    matched_total = 0
+    matched_by_call = 0
+    matched_by_opp = 0
     sample_matches = []
-    sample_csat_opps = []
-    
-    for i, row in enumerate(rows):
-        oid = str(row.get("opp_id") or "").strip()
-        if i < 3 and oid:
-            sample_csat_opps.append(oid)
-        
-        reason = reason_by_opp.get(oid, "") if oid else ""
+
+    for row in rows:
+        call_key = _norm_join_key(row.get("call_id") or "")
+        opp_key = _norm_join_key(row.get("opp_id") or "")
+
+        reason = ""
+        source = ""
+        if call_key and call_key in reason_by_call:
+            reason = reason_by_call[call_key]
+            source = "call"
+            matched_by_call += 1
+        elif opp_key and opp_key in reason_by_opp:
+            reason = reason_by_opp[opp_key]
+            source = "opp"
+            matched_by_opp += 1
+
         if reason:
-            matched += 1
-            if len(sample_matches) < 3:
-                sample_matches.append((oid, reason))
+            matched_total += 1
+            if len(sample_matches) < 5:
+                sample_matches.append({
+                    "call_id": row.get("call_id", ""),
+                    "opp_id": row.get("opp_id", ""),
+                    "reason": reason,
+                    "source": source,
+                })
         row["reason"] = reason
-    
-    print(f"[csat] reasons linked by opp_id: {matched}/{len(rows)} rows matched", flush=True)
-    if sample_csat_opps:
-        print(f"[csat] sample CSAT opportunity IDs: {sample_csat_opps}", flush=True)
+
+    print(
+        f"[csat] reasons linked: {matched_total}/{len(rows)} rows "
+        f"(by_call={matched_by_call}, by_opp={matched_by_opp})",
+        flush=True,
+    )
     if sample_matches:
-        print(f"[csat] sample matched pairs: {sample_matches}", flush=True)
+        print(f"[csat] sample matches: {sample_matches}", flush=True)
     return rows
 
 
@@ -587,12 +638,17 @@ def _refresh_csat_from_domo() -> bool:
         try:
             reasons_csv = _domo_fetch_csv(DOMO_REASONS_DATASET_ID)
             if reasons_csv:
-                reason_by_opp = _parse_reasons_csv_text(reasons_csv)
-                _csat_reasons_map = reason_by_opp  # cache for debugging
+                reason_maps = _parse_reasons_csv_text(reasons_csv)
+                _csat_reasons_map = reason_maps  # cache for debugging
                 reasons_csv = None
                 gc.collect()
-                _attach_reasons_by_opp(rows, reason_by_opp)
-                print(f"[domo] reasons map loaded: {len(reason_by_opp)} opportunity IDs", flush=True)
+                _attach_reasons(rows, reason_maps)
+                print(
+                    f"[domo] reasons maps loaded: "
+                    f"call={len(reason_maps.get('by_call', {}))}, "
+                    f"opp={len(reason_maps.get('by_opp', {}))}",
+                    flush=True,
+                )
             else:
                 print("[domo] reasons dataset unavailable — continuing with CSAT-only rows", flush=True)
                 _csat_reasons_map = {}
@@ -1622,8 +1678,10 @@ async def debug_csat():
         "sample_opps_in_first_5": sample_opps,
         "reasons": {
             "total_rows_with_reasons": rows_with_reasons,
-            "reasons_map_size": len(_csat_reasons_map),
-            "sample_reasons_entries": dict(list(_csat_reasons_map.items())[:5]),
+            "reasons_by_call_size": len(_csat_reasons_map.get("by_call", {})) if isinstance(_csat_reasons_map, dict) else 0,
+            "reasons_by_opp_size": len(_csat_reasons_map.get("by_opp", {})) if isinstance(_csat_reasons_map, dict) else 0,
+            "sample_reasons_by_call": dict(list((_csat_reasons_map.get("by_call", {}) if isinstance(_csat_reasons_map, dict) else {}).items())[:5]),
+            "sample_reasons_by_opp": dict(list((_csat_reasons_map.get("by_opp", {}) if isinstance(_csat_reasons_map, dict) else {}).items())[:5]),
             "sample_rows_with_reasons": sample_with_reasons,
         },
         "domo": {
