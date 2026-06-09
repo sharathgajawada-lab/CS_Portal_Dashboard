@@ -29,8 +29,9 @@ export CMS_API_KEY=your-cms-api-key
 export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co   # optional
 export SUPABASE_KEY=your-service-role-jwt              # optional
 export CSAT_UPLOAD_PASSWORD=hearcom2024                # optional
-# Optional (unset by default): enable reasons linkage by OPPORTUNITY_ID
-export DOMO_REASONS_DATASET_ID=b96f9a8a-8082-48f1-8f02-107197f177f4
+# Domo datasets (pre-configured for Audibene; override if using different org)
+export DOMO_DATASET_ID=bc75b418-1308-468d-8856-07488a4b57d8          # CSAT: CALL_ID, ratings, etc.
+export DOMO_REASONS_DATASET_ID=b96f9a8a-8082-48f1-8f02-107197f177f4  # Call details: CALL_SID__C, reasons
 
 uvicorn main:app --reload
 # Open http://localhost:8000
@@ -45,7 +46,8 @@ uvicorn main:app --reload
    - `SUPABASE_URL` — Supabase project URL (optional, enables full session analytics)
    - `SUPABASE_KEY` — Supabase service_role JWT (optional)
    - `CSAT_UPLOAD_PASSWORD` — password for CSAT upload endpoint (default: `hearcom2024`)
-  - `DOMO_REASONS_DATASET_ID` — optional Domo dataset with `OPPORTUNITY_ID` + reason columns to link reasons into CSAT calls
+   - `DOMO_DATASET_ID` — Domo dataset for CSAT data: CALL_ID, ratings, consultant info (pre-set: audibene)
+   - `DOMO_REASONS_DATASET_ID` — Domo dataset for call details: CALL_SID__C, call reasons (pre-set: audibene)
 4. Deploy
 
 UptimeRobot pings `/health` every 5 minutes to keep the free-tier instance warm.

@@ -417,9 +417,10 @@ def _parse_csv_text(text: str) -> list:
 # (requires a Domo admin). Tokens last ~1 hour; we fetch a fresh one each pull.
 DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
 DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
-DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "")
-# Optional: set this only when you want reasons linkage enabled.
-DOMO_REASONS_DATASET_ID = os.getenv("DOMO_REASONS_DATASET_ID", "").strip()
+# CSAT dataset: CALL_ID, RATING, CONSULTANT_ID, CONSULTANT_NAME, CONSULTANT_TEAM, DATETIME, SOLVED, OPPORTUNITY_ID
+DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "bc75b418-1308-468d-8856-07488a4b57d8")
+# Call details dataset: CALL_SID__C, call reasons, linked via CALL_SID__C ↔ CALL_ID
+DOMO_REASONS_DATASET_ID = os.getenv("DOMO_REASONS_DATASET_ID", "b96f9a8a-8082-48f1-8f02-107197f177f4").strip()
 DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
 
 
