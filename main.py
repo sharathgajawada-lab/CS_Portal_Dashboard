@@ -427,8 +427,25 @@ def _parse_csv_text(text: str) -> list:
         if raw[:1] in ("{", "["):
             try:
                 payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    # Common Domo structure from AI call summaries.
+                    getv = lambda *ks: next((str(payload.get(k) or "").strip() for k in ks if str(payload.get(k) or "").strip()), "")
+                    call_summary = getv("callsummary", "call_summary", "summary", "full_summary", "conversation_summary")
+                    call_reason  = getv("customerscallreason", "customer_call_reason", "callreason", "reason")
+                    next_steps   = getv("nextsteps", "next_steps", "actionitems", "actions")
+
+                    if call_summary or call_reason or next_steps:
+                        parts = []
+                        if call_reason:
+                            parts.append("Customer Call Reason:\n" + call_reason)
+                        if call_summary:
+                            parts.append("Call Summary:\n" + call_summary)
+                        if next_steps:
+                            parts.append("Next Steps:\n" + next_steps)
+                        return "\n\n".join(parts)[:2200]
+
                 keys = {
-                    "summary", "call_summary", "full_summary", "short_summary",
+                    "summary", "call_summary", "callsummary", "full_summary", "short_summary",
                     "conversation_summary", "text", "content", "overview",
                 }
                 def _walk(obj):
@@ -453,10 +470,10 @@ def _parse_csv_text(text: str) -> list:
                     return ""
                 extracted = _walk(payload)
                 if extracted:
-                    return extracted[:1200]
+                    return extracted[:2200]
             except Exception:
                 pass
-        return raw[:1200]
+        return raw[:2200]
 
     rows = []
     for row in csv.DictReader(io.StringIO(text)):
@@ -617,6 +634,32 @@ def _load_csat_csv():
 def _parse_excel_bytes(data: bytes) -> list:
     """Parse Excel file bytes into survey rows. Returns list of row dicts."""
     import datetime as _dt_mod
+
+    def _normalize_summary(raw_value) -> str:
+        raw = str(raw_value or "").strip()
+        if not raw:
+            return ""
+        if raw[:1] in ("{", "["):
+            try:
+                payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    getv = lambda *ks: next((str(payload.get(k) or "").strip() for k in ks if str(payload.get(k) or "").strip()), "")
+                    call_summary = getv("callsummary", "call_summary", "summary", "full_summary", "conversation_summary")
+                    call_reason  = getv("customerscallreason", "customer_call_reason", "callreason", "reason")
+                    next_steps   = getv("nextsteps", "next_steps", "actionitems", "actions")
+                    if call_summary or call_reason or next_steps:
+                        parts = []
+                        if call_reason:
+                            parts.append("Customer Call Reason:\n" + call_reason)
+                        if call_summary:
+                            parts.append("Call Summary:\n" + call_summary)
+                        if next_steps:
+                            parts.append("Next Steps:\n" + next_steps)
+                        return "\n\n".join(parts)[:2200]
+            except Exception:
+                pass
+        return raw[:2200]
+
     try:
         from openpyxl import load_workbook
     except ImportError:
@@ -684,7 +727,7 @@ def _parse_excel_bytes(data: bytes) -> list:
             rows.append({"rating":rating,"cid":cid,"name":name,
                          "team":team,"date":date_str,"datetime":dt_full,"solved":solved,
                          "call_id":call_id,"opp_id":opp_id,"reason":reason,
-                         "summary":summary_raw,
+                         "summary":_normalize_summary(summary_raw),
                          "owner_id":owner_id,"created_by_id":created_by_id,"response_id":response_id})
         except (TypeError, ValueError):
             continue
