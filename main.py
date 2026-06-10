@@ -360,7 +360,7 @@ def _build_csat_index(rows: list) -> dict:
                 dm["cn"][cid]["ft"] += 1
                 dm["cn"][cid]["fr"] += int(r.get("_fcr_ok", False))
             # Per-call record for individual-call tables (Call ID → UCJ link).
-            # Compact keys: i=call_id, r=rating, s=solved(0/1), rs=reason, sm=summary. Date comes from day key.
+            # Compact keys: i=call_id, r=rating, s=solved(0/1), rs=reason. Date comes from day key.
             call_id = r.get("call_id") or ""
             if call_id:
                 dm["cn"][cid]["c"].append({
@@ -368,7 +368,6 @@ def _build_csat_index(rows: list) -> dict:
                     "r": r["rating"],
                     "s": int(r["solved"]),
                     "rs": reason,
-                    "sm": (r.get("summary") or "").strip()[:1200],
                 })
 
         if not bad_name:

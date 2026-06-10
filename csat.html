@@ -514,8 +514,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <div class="table-wrap" style="max-height:420px;overflow-y:auto">
         <table>
           <thead><tr>
-            <th style="width:20px"></th>
-            <th>Call ID</th>
+            <th style="padding-left:16px">Call ID</th>
             <th>Reason</th>
             <th>Date</th>
             <th class="r">Rating</th>
@@ -1489,28 +1488,23 @@ function _renderGlobalCalls() {
       const rsn = String(c.reason || '').toLowerCase();
       return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q) || rsn.includes(q);
     });
-    body.innerHTML = rows.map((c, idx) => {
+    body.innerHTML = rows.map(c => {
       const rc = barColors[c.rating] || 'var(--text2)';
       const callId = String(c.call_id || '');
       const reason = String(c.reason || 'Unspecified');
-      const summary = String(c.reason_summary || '');
-      const hasExpandId = `call-expand-${idx}`;
       let url = '#';
       try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
       const idCell = callId
         ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${callId}</a>`
         : '<span style="color:var(--text3)">—</span>';
-      const expandBtn = summary ? `<button onclick="document.getElementById('${hasExpandId}').style.display=document.getElementById('${hasExpandId}').style.display==='none'?'':'none'; this.textContent=this.textContent==='▶'?'▼':'▶'" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:11px;padding:2px 4px">▶</button>` : '';
       return `<tr>
-        <td style="padding-left:10px;width:20px;text-align:center">${expandBtn}</td>
-        <td style="padding-left:6px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
+        <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
         <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${reason}">${reason}</td>
         <td style="font-size:12px;color:var(--text3)">${c.date || '—'}</td>
         <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating ?? '—'}★</span></td>
         <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
-      </tr>
-      ${summary ? `<tr id="${hasExpandId}" style="display:none;background:var(--surface2)"><td colspan="6" style="padding:10px 16px"><div style="font-size:11px;color:var(--text2);line-height:1.6;white-space:pre-wrap">${summary}</div></td></tr>` : ''}`;
-    }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
   } catch (err) {
     console.error('[csat] _renderGlobalCalls error:', err);
     body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
@@ -1626,7 +1620,6 @@ function _csatComputeAndRender(from, to) {
             rating: call.r,
             solved: !!call.s,
             reason: call.rs || call.reason || '',
-            reason_summary: call.sm || '',
             date: d,
           });
         }
