@@ -281,13 +281,21 @@ def _build_csat_index(rows: list) -> dict:
         bad_name = (not name or name.strip().lower() in BAD_NAMES)
 
         if d not in day_map:
-            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"ft":0,"fr":0}
+            day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"rs":{},"ft":0,"fr":0}
         dm = day_map[d]
+        reason = (r.get("reason") or "").strip() or "Unspecified"
         dm["t"]  += 1
         dm["sr"] += r["rating"]
         dm["s"]  += int(r["solved"])
         dm["l"]  += int(r["rating"] <= 2)
         dm["d"][r["rating"]] = dm["d"].get(r["rating"], 0) + 1
+        if reason not in dm["rs"]:
+            dm["rs"][reason] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
+        dm["rs"][reason]["t"] += 1
+        dm["rs"][reason]["sr"] += r["rating"]
+        dm["rs"][reason]["s"] += int(r["solved"])
+        dm["rs"][reason]["l"] += int(r["rating"] <= 2)
+        dm["rs"][reason]["d"][r["rating"]] = dm["rs"][reason]["d"].get(r["rating"], 0) + 1
         # True FCR counters (only the first call of each opportunity is evaluated)
         if r.get("_fcr_eval"):
             dm["ft"] += 1
@@ -296,12 +304,19 @@ def _build_csat_index(rows: list) -> dict:
         if not bad_team:
             t = team.strip()
             if t not in dm["tm"]:
-                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"ft":0,"fr":0}
+                dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"rs":{},"ft":0,"fr":0}
             dm["tm"][t]["t"]  += 1
             dm["tm"][t]["sr"] += r["rating"]
             dm["tm"][t]["s"]  += int(r["solved"])
             dm["tm"][t]["l"]  += int(r["rating"] <= 2)
             dm["tm"][t]["d"][r["rating"]] = dm["tm"][t]["d"].get(r["rating"], 0) + 1
+            if reason not in dm["tm"][t]["rs"]:
+                dm["tm"][t]["rs"][reason] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
+            dm["tm"][t]["rs"][reason]["t"] += 1
+            dm["tm"][t]["rs"][reason]["sr"] += r["rating"]
+            dm["tm"][t]["rs"][reason]["s"] += int(r["solved"])
+            dm["tm"][t]["rs"][reason]["l"] += int(r["rating"] <= 2)
+            dm["tm"][t]["rs"][reason]["d"][r["rating"]] = dm["tm"][t]["rs"][reason]["d"].get(r["rating"], 0) + 1
             if r.get("_fcr_eval"):
                 dm["tm"][t]["ft"] += 1
                 dm["tm"][t]["fr"] += int(r.get("_fcr_ok", False))
@@ -309,12 +324,19 @@ def _build_csat_index(rows: list) -> dict:
         if not bad_name:
             # Per-day consultant data — ensures team totals == sum of consultant totals
             if cid not in dm["cn"]:
-                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"c":[],"ft":0,"fr":0}
+                dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"rs":{},"c":[],"ft":0,"fr":0}
             dm["cn"][cid]["t"]  += 1
             dm["cn"][cid]["sr"] += r["rating"]
             dm["cn"][cid]["s"]  += int(r["solved"])
             dm["cn"][cid]["l"]  += int(r["rating"] <= 2)
             dm["cn"][cid]["d"][r["rating"]] = dm["cn"][cid]["d"].get(r["rating"], 0) + 1
+            if reason not in dm["cn"][cid]["rs"]:
+                dm["cn"][cid]["rs"][reason] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
+            dm["cn"][cid]["rs"][reason]["t"] += 1
+            dm["cn"][cid]["rs"][reason]["sr"] += r["rating"]
+            dm["cn"][cid]["rs"][reason]["s"] += int(r["solved"])
+            dm["cn"][cid]["rs"][reason]["l"] += int(r["rating"] <= 2)
+            dm["cn"][cid]["rs"][reason]["d"][r["rating"]] = dm["cn"][cid]["rs"][reason]["d"].get(r["rating"], 0) + 1
             if r.get("_fcr_eval"):
                 dm["cn"][cid]["ft"] += 1
                 dm["cn"][cid]["fr"] += int(r.get("_fcr_ok", False))
@@ -384,6 +406,8 @@ def _parse_csv_text(text: str) -> list:
                 "solved": str(row["SOLVED"]).strip().lower() == "true",
                 "call_id": (row.get("CALL_ID") or "").strip(),
                 "opp_id": str(opp).strip(),
+                "reason": (row.get("REASON_FOR_CALL__C") or row.get("REASON_FOR_CALL")
+                           or row.get("CALL_REASON") or row.get("REASON") or "").strip(),
             })
         except (ValueError, KeyError):
             continue
@@ -550,6 +574,11 @@ def _parse_excel_bytes(data: bytes) -> list:
                 if _k in col:
                     opp_id = str(row[col[_k]] or "").strip()
                     break
+            reason = ""
+            for _k in ("REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON"):
+                if _k in col:
+                    reason = str(row[col[_k]] or "").strip()
+                    break
             if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
                 date_str = dt_val.strftime("%Y-%m-%d")
                 dt_full  = dt_val.isoformat()
@@ -564,7 +593,7 @@ def _parse_excel_bytes(data: bytes) -> list:
                 continue
             rows.append({"rating":rating,"cid":cid,"name":name,
                          "team":team,"date":date_str,"datetime":dt_full,"solved":solved,
-                         "call_id":call_id,"opp_id":opp_id})
+                         "call_id":call_id,"opp_id":opp_id,"reason":reason})
         except (TypeError, ValueError):
             continue
     return rows
@@ -1401,21 +1430,7 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
 
         if fname.lower().endswith(".csv"):
             # Parse CSV directly
-            rows = []
-            for row in csv.DictReader(io.StringIO(data.decode("utf-8"))):
-                try:
-                    raw_date = row.get("DATE") or row.get("DATETIME") or ""
-                    rows.append({
-                        "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
-                        "cid":    row["CONSULTANT_ID"].strip(),
-                        "name":   row["CONSULTANT_NAME"].strip(),
-                        "team":   row["CONSULTANT_TEAM"].strip(),
-                        "date":   raw_date[:10].strip(),
-                        "solved": row["SOLVED"].strip().lower() == "true",
-                        "call_id": (row.get("CALL_ID") or "").strip(),
-                    })
-                except (KeyError, ValueError):
-                    continue
+            rows = _parse_csv_text(data.decode("utf-8", errors="ignore"))
         else:
             rows = _parse_excel_bytes(data)
 
