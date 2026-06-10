@@ -660,6 +660,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
               <div class="card-title">Call reasons analysis</div>
               <div class="card-sub" id="callReasonSub">Most frequent call reasons and how they perform</div>
             </div>
+            <div id="callReason_controls_placeholder"></div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <input id="callReasonFilter" type="text" placeholder="Filter reasons..."
                 oninput="renderCallReasons(csatData?.call_reasons||[], csatData?.total||0)"
@@ -710,28 +711,42 @@ thead th:hover .sort-arrow { color:var(--text2) }
         </div>
         <div class="two-col" style="padding:12px 14px 14px;align-items:start">
           <div class="card" style="box-shadow:none;padding:12px">
-            <div class="card-title" style="font-size:12px">Calls vs unique opportunities</div>
-            <div class="card-sub">Identifies repeat-contact pressure over time</div>
+            <div class="chart-controls" style="margin-bottom:8px">
+              <div>
+                <div class="card-title" style="font-size:12px">Calls vs unique opportunities</div>
+                <div class="card-sub">Identifies repeat-contact pressure over time</div>
+              </div>
+              <div id="opsTrend_controls_placeholder"></div>
+            </div>
             <div class="chart-wrap" style="height:220px" id="opsTrendWrap">
               <canvas id="opsTrendChart"></canvas>
             </div>
           </div>
           <div class="card" style="box-shadow:none;padding:12px">
-            <div class="card-title" style="font-size:12px">Top consultants by call volume</div>
-            <div class="card-sub">Workload concentration in selected scope</div>
+            <div class="chart-controls" style="margin-bottom:8px">
+              <div>
+                <div class="card-title" style="font-size:12px">Top consultants by call volume</div>
+                <div class="card-sub">Workload concentration in selected scope</div>
+              </div>
+              <div id="opsConsultant_controls_placeholder"></div>
+            </div>
             <div class="chart-wrap" style="height:220px" id="opsConsultantWrap">
               <canvas id="opsConsultantChart"></canvas>
             </div>
           </div>
         </div>
         <div style="padding:0 16px 14px">
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <input id="opsTableFilter" type="text" placeholder="Filter dates..." oninput="renderOpsIntelligence(csatData||{})"
+              style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:150px;background:var(--surface2);color:var(--text1)">
+          </div>
           <div class="table-wrap" style="max-height:260px;overflow-y:auto">
             <table>
               <thead><tr>
-                <th style="padding-left:10px">Date</th>
-                <th class="r">Calls</th>
-                <th class="r">Unique opps</th>
-                <th class="r">Calls / opp</th>
+                <th style="padding-left:10px;cursor:pointer;user-select:none" onclick="sortOpsTable('date')">Date <span id="opsArrowDate" style="color:var(--text3)">↕</span></th>
+                <th class="r" style="cursor:pointer;user-select:none" onclick="sortOpsTable('calls')">Calls <span id="opsArrowCalls" style="color:var(--text3)">↕</span></th>
+                <th class="r" style="cursor:pointer;user-select:none" onclick="sortOpsTable('unique_opps')">Unique opps <span id="opsArrowUnique_opps" style="color:var(--text3)">↕</span></th>
+                <th class="r" style="cursor:pointer;user-select:none" onclick="sortOpsTable('calls_per_opp')">Calls / opp <span id="opsArrowCalls_per_opp" style="color:var(--blue)">↓</span></th>
               </tr></thead>
               <tbody id="opsRepeatTableBody"></tbody>
             </table>
@@ -1086,6 +1101,13 @@ function _chartCtrlChange(id) {
   }
   else if (id === 'trueFcrChart') {
     if (_csatRaw) renderTrueFCR();
+  }
+  else if (id === 'callReason') {
+    const { from: df, to: dt } = getChartRange('callReason');
+    if (_csatRaw) _csatComputeAndRender(df, dt);
+  }
+  else if (id === 'opsTrend' || id === 'opsConsultant') {
+    if (_csatRaw && csatData) renderOpsIntelligence(csatData);
   }
 }
 
@@ -2064,8 +2086,84 @@ function renderOpsIntelligence(d) {
   const consCanvas = document.getElementById('opsConsultantChart');
   if (!subEl || !tableBody || !trendCanvas || !consCanvas) return;
 
-  const daily = (d.ops_daily || []).slice().sort((a,b) => a.date < b.date ? -1 : 1);
-  const cons = (d.consultants_by_volume || []).slice();
+  const daysMap = _csatScopedDays || _csatRaw?.days || {};
+  const opsRange = getChartRange('opsTrend');
+  const consRange = getChartRange('opsConsultant');
+  const opsGb = getChartGroupBy('opsTrend');
+  const opsCompare = isChartCompare('opsTrend');
+
+  function buildDaily(fromIso, toIso) {
+    const out = [];
+    const d0 = new Date(fromIso + 'T00:00:00');
+    const d1 = new Date(toIso + 'T00:00:00');
+    while (d0 <= d1) {
+      const iso = d0.toISOString().slice(0,10);
+      const dm = daysMap[iso] || {};
+      const calls = dm.t || 0;
+      const opps = dm.uo || 0;
+      out.push({
+        date: iso,
+        calls,
+        unique_opps: opps,
+        calls_per_opp: opps > 0 ? Math.round(calls / opps * 100) / 100 : null,
+      });
+      d0.setDate(d0.getDate() + 1);
+    }
+    return out;
+  }
+
+  function aggregateOps(series, gb) {
+    if (!gb || gb === 'day') return series;
+    const buckets = {};
+    for (const p of series) {
+      const d = new Date((p.date) + 'T00:00:00');
+      let key = p.date;
+      if (gb === 'week') {
+        const day = d.getDay() || 7;
+        const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
+        key = mon.toISOString().slice(0,10);
+      } else if (gb === 'month') {
+        key = p.date.slice(0,7) + '-01';
+      } else if (gb === 'quarter') {
+        const q = Math.floor(d.getMonth() / 3);
+        key = `${d.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`;
+      } else if (gb === 'year') {
+        key = `${d.getFullYear()}-01-01`;
+      }
+      if (!buckets[key]) buckets[key] = { date: key, calls: 0, unique_opps: 0, calls_per_opp: null };
+      buckets[key].calls += p.calls || 0;
+      buckets[key].unique_opps += p.unique_opps || 0;
+    }
+    return Object.values(buckets).sort((a,b) => a.date < b.date ? -1 : 1).map(x => ({
+      ...x,
+      calls_per_opp: x.unique_opps > 0 ? Math.round(x.calls / x.unique_opps * 100) / 100 : null,
+    }));
+  }
+
+  const daily = buildDaily(opsRange.from, opsRange.to).sort((a,b) => a.date < b.date ? -1 : 1);
+  const opsSeries = aggregateOps(daily, opsGb);
+
+  let prevSeries = [];
+  if (opsCompare) {
+    const periodDays = Math.round((new Date(opsRange.to) - new Date(opsRange.from)) / 86400000) + 1;
+    const prevTo = subtractUnit(opsRange.from, 1, 'days');
+    const prevFrom = subtractUnit(prevTo, periodDays - 1, 'days');
+    prevSeries = aggregateOps(buildDaily(prevFrom, prevTo), opsGb);
+  }
+
+  // Build consultant volume for consultant-chart-specific range.
+  const consAgg = {};
+  for (const [date, dm] of Object.entries(daysMap)) {
+    if (date < consRange.from || date > consRange.to) continue;
+    for (const [cid, cv] of Object.entries(dm.cn || {})) {
+      if (!consAgg[cid]) consAgg[cid] = { cid, name: cv.n || cid, team: cv.tm || '', total: 0 };
+      consAgg[cid].total += cv.t || 0;
+    }
+  }
+  const cons = Object.values(consAgg)
+    .sort((a,b) => (b.total || 0) - (a.total || 0))
+    .slice(0, 12);
+
   const scopeLabel = _csatScope?.type === 'member' ? 'consultant scope' : (_csatScope?.type === 'team' ? 'team scope' : 'all consultants');
 
   const totalCalls = daily.reduce((s, x) => s + (x.calls || 0), 0);
@@ -2073,11 +2171,16 @@ function renderOpsIntelligence(d) {
   const ratio = totalOpps > 0 ? Math.round(totalCalls / totalOpps * 100) / 100 : null;
   subEl.textContent = `${scopeLabel} · ${fmt(totalCalls)} calls · ${fmt(totalOpps)} unique opportunities · ${ratio ?? '—'} calls/opp`;
 
-  const topDays = daily
-    .filter(x => x.calls > 0)
-    .slice()
-    .sort((a,b) => ((b.calls_per_opp || 0) - (a.calls_per_opp || 0)))
-    .slice(0, 25);
+  const q = (document.getElementById('opsTableFilter')?.value || '').trim().toLowerCase();
+  let topDays = daily.filter(x => x.calls > 0 && (!q || x.date.toLowerCase().includes(q))).slice();
+  topDays.sort((a,b) => {
+    const k = _opsTableSort.key;
+    const av = a[k] ?? (k === 'date' ? '' : 0);
+    const bv = b[k] ?? (k === 'date' ? '' : 0);
+    if (typeof av === 'string') return av < bv ? -_opsTableSort.dir : av > bv ? _opsTableSort.dir : 0;
+    return (av - bv) * _opsTableSort.dir;
+  });
+  topDays = topDays.slice(0, 25);
   tableBody.innerHTML = topDays.map(r => `<tr>
     <td style="padding-left:10px">${r.date}</td>
     <td class="mono r">${fmt(r.calls)}</td>
@@ -2085,14 +2188,31 @@ function renderOpsIntelligence(d) {
     <td class="mono r" style="color:${(r.calls_per_opp || 0) >= 1.5 ? 'var(--red)' : (r.calls_per_opp || 0) >= 1.2 ? 'var(--amber)' : 'var(--green)'}">${r.calls_per_opp ?? '—'}</td>
   </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No operational records in this scope</td></tr>';
 
+  document.querySelectorAll('[id^="opsArrow"]').forEach(el => {
+    el.style.color = 'var(--text3)'; el.textContent = '↕';
+  });
+  const _opsArrowIds = {
+    date: 'opsArrowDate',
+    calls: 'opsArrowCalls',
+    unique_opps: 'opsArrowUnique_opps',
+    calls_per_opp: 'opsArrowCalls_per_opp',
+  };
+  const activeArrowId = _opsArrowIds[_opsTableSort.key];
+  const activeArrow = document.getElementById(activeArrowId);
+  if (activeArrow) { activeArrow.style.color = 'var(--blue)'; activeArrow.textContent = _opsTableSort.dir === -1 ? '↓' : '↑'; }
+
   if (charts.opsTrendChart) charts.opsTrendChart.destroy();
   charts.opsTrendChart = new Chart(trendCanvas, {
     type: 'line',
     data: {
-      labels: daily.map(x => fmtBucketDate(x.date, 'day')),
+      labels: opsSeries.map(x => fmtBucketDate(x.date, opsGb)),
       datasets: [
-        { label: 'Calls', data: daily.map(x => x.calls), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.08)', pointRadius: 1.5, borderWidth: 2, tension: .25, yAxisID: 'y' },
-        { label: 'Unique opps', data: daily.map(x => x.unique_opps), borderColor: '#0d9488', backgroundColor: 'transparent', borderDash: [4,3], pointRadius: 1.5, borderWidth: 2, tension: .25, yAxisID: 'y' },
+        { label: 'Calls', data: opsSeries.map(x => x.calls), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.08)', pointRadius: 1.5, borderWidth: 2, tension: .25, yAxisID: 'y' },
+        { label: 'Unique opps', data: opsSeries.map(x => x.unique_opps), borderColor: '#0d9488', backgroundColor: 'transparent', borderDash: [4,3], pointRadius: 1.5, borderWidth: 2, tension: .25, yAxisID: 'y' },
+        ...(opsCompare ? [
+          { label: 'Calls (prev)', data: prevSeries.map(x => x.calls), borderColor: '#2563eb99', backgroundColor: 'transparent', borderDash: [5,4], pointRadius: 1.2, borderWidth: 1.8, tension: .2, yAxisID: 'y' },
+          { label: 'Unique opps (prev)', data: prevSeries.map(x => x.unique_opps), borderColor: '#0d948899', backgroundColor: 'transparent', borderDash: [5,4], pointRadius: 1.2, borderWidth: 1.8, tension: .2, yAxisID: 'y' },
+        ] : []),
       ],
     },
     options: {
@@ -2528,6 +2648,16 @@ function ucjCallUrl(callId) {
 
 // ── Team leaderboard sort ─────────────────────────────────────────────────────
 const _teamSort = { key: 'avg_rating', dir: -1 };
+const _opsTableSort = { key: 'calls_per_opp', dir: -1 };
+
+function sortOpsTable(key) {
+  if (_opsTableSort.key === key) _opsTableSort.dir *= -1;
+  else {
+    _opsTableSort.key = key;
+    _opsTableSort.dir = key === 'date' ? 1 : -1;
+  }
+  if (csatData) renderOpsIntelligence(csatData);
+}
 
 function sortTeamTable(key) {
   if (_teamSort.key === key) _teamSort.dir *= -1;
@@ -3026,6 +3156,9 @@ async function init() {
   // Inject chart controls into placeholders
   [
     { id: 'csatDist',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'callReason',  opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'opsTrend',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
+    { id: 'opsConsultant', opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
     { id: 'csTeamTrend', opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
     { id: 'fcrChart',    opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
     { id: 'trueFcrChart',opts: { defaultN: 30, defaultUnit: 'days', defaultGb: 'day' } },
