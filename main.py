@@ -24,7 +24,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
 import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
-import re
 
 # ── Supabase client (lazy init) ───────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -366,79 +365,28 @@ def _build_csat_index(rows: list) -> dict:
 
 def _parse_csv_text(text: str) -> list:
     """Parse CSAT CSV text (from disk or Domo export) into survey rows."""
-    def _norm_col(name: str) -> str:
-        return re.sub(r"[^A-Z0-9]", "", (name or "").upper())
-
-    def _as_bool(value) -> bool:
-        s = str(value or "").strip().lower()
-        return s in {"true", "1", "yes", "y", "t"}
-
     rows = []
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        print("[domo] CSV parse failed: no headers in export", flush=True)
-        return rows
-
-    # Map normalized header names to original names once, then do tolerant lookups.
-    header_map = {}
-    for h in reader.fieldnames:
-        n = _norm_col(h)
-        if n and n not in header_map:
-            header_map[n] = h
-
-    def _pick(row: dict, *aliases: str) -> str:
-        for a in aliases:
-            h = header_map.get(_norm_col(a))
-            if h is None:
-                continue
-            v = row.get(h)
-            if v is not None and str(v).strip() != "":
-                return str(v)
-        return ""
-
-    skipped = 0
-    for row in reader:
+    for row in csv.DictReader(io.StringIO(text)):
         try:
-            raw_date = _pick(row, "DATE", "DATETIME", "CREATED_AT", "CREATEDAT", "TIMESTAMP")
+            raw_date = row.get("DATE") or row.get("DATETIME") or ""
             date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
             # opportunity id (for true FCR) — tolerate a few likely column names.
-            opp = _pick(
-                row,
-                "OPPORTUNITY_ID", "OPPORTUNITYID", "OpportunityId", "opportunityId",
-                "OPPORTUNITY", "OPP_ID", "OPPID"
-            )
-
-            rating_raw = _pick(row, "RATING", "CSAT_RATING", "CSAT_SCORE", "SCORE")
-            cid = _pick(row, "CONSULTANT_ID", "CONSULTANTID", "AGENT_ID", "USER_ID", "AGENTID")
-            name = _pick(row, "CONSULTANT_NAME", "CONSULTANTNAME", "AGENT_NAME", "USER_NAME", "AGENTNAME")
-            team = _pick(row, "CONSULTANT_TEAM", "CONSULTANTTEAM", "TEAM", "DEPARTMENT")
-            solved_raw = _pick(row, "SOLVED", "RESOLVED", "IS_SOLVED", "ISSOLVED")
-            call_id = _pick(row, "CALL_ID", "CALLID", "CONTACT_ID", "CONVERSATION_ID")
-
-            if not (rating_raw and cid and name and team and date_str):
-                skipped += 1
-                continue
-
+            opp = (row.get("OPPORTUNITY_ID") or row.get("OPPORTUNITYID")
+                   or row.get("OpportunityId") or row.get("opportunityId")
+                   or row.get("OPPORTUNITY") or "")
             rows.append({
-                "rating": int(float(rating_raw)),  # handles "5.0" and "5"
-                "cid":    cid,
-                "name":   name,
-                "team":   team.strip(),
+                "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
+                "cid":    row["CONSULTANT_ID"],
+                "name":   row["CONSULTANT_NAME"],
+                "team":   row["CONSULTANT_TEAM"].strip(),
                 "date":   date_str,
                 "datetime": str(raw_date).strip(),  # full timestamp for FCR ordering
-                "solved": _as_bool(solved_raw),
-                "call_id": call_id.strip(),
+                "solved": str(row["SOLVED"]).strip().lower() == "true",
+                "call_id": (row.get("CALL_ID") or "").strip(),
                 "opp_id": str(opp).strip(),
             })
-        except ValueError:
-            skipped += 1
+        except (ValueError, KeyError):
             continue
-
-    if not rows:
-        print(f"[domo] CSV parsed 0 rows. Headers seen: {reader.fieldnames}", flush=True)
-    elif skipped:
-        print(f"[domo] CSV parsed {len(rows)} rows (skipped {skipped} incomplete/invalid rows)", flush=True)
-
     return rows
 
 
@@ -449,30 +397,9 @@ def _parse_csv_text(text: str) -> list:
 #   DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID
 # The OAuth client must be created at developer.domo.com with the `data` scope
 # (requires a Domo admin). Tokens last ~1 hour; we fetch a fresh one each pull.
-
-def _normalize_domo_dataset_id(raw_value: str) -> str:
-    """Accept a UUID or full Domo URL and return the dataset UUID when possible."""
-    raw = (raw_value or "").strip()
-    if not raw:
-        return ""
-
-    cleaned = raw.split("?", 1)[0].split("#", 1)[0]
-    for pattern in (
-        r"/datasources/([0-9a-fA-F-]{36})(?:/|$)",
-        r"/datasets/([0-9a-fA-F-]{36})(?:/|$)",
-        r"^([0-9a-fA-F-]{36})$",
-    ):
-        match = re.search(pattern, cleaned)
-        if match:
-            return match.group(1)
-
-    # Keep the original value so existing non-UUID IDs continue to work.
-    return raw
-
 DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
 DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
-DOMO_DATASET_RAW   = os.getenv("DOMO_DATASET_ID", "")
-DOMO_DATASET_ID    = _normalize_domo_dataset_id(DOMO_DATASET_RAW)
+DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "")
 DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
 
 
@@ -528,15 +455,10 @@ def _domo_fetch_csv() -> str | None:
                 print(f"[domo] export failed: HTTP {exp.status_code} {exp.text[:200]}", flush=True)
                 return None
             csv_text = exp.text
-            if not csv_text or not csv_text.strip():
-                print("[domo] export returned empty data — keeping previous", flush=True)
+            if not csv_text or "CONSULTANT_ID" not in csv_text:
+                print("[domo] export returned unexpected/empty data — keeping previous", flush=True)
                 return None
-            first_line = csv_text.splitlines()[0] if csv_text.splitlines() else ""
-            print(
-                f"[domo] exported dataset {DOMO_DATASET_ID[:8]}… ({len(csv_text)//1024} KB)"
-                f" | headers: {first_line[:200]}",
-                flush=True,
-            )
+            print(f"[domo] exported dataset {DOMO_DATASET_ID[:8]}… ({len(csv_text)//1024} KB)", flush=True)
             return csv_text
     except Exception as e:
         print(f"[domo] pull error: {e}", flush=True)
