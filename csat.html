@@ -1488,6 +1488,22 @@ function _renderGlobalCalls() {
       const rsn = String(c.reason || '').toLowerCase();
       return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q) || rsn.includes(q);
     });
+    
+    // Populate _csatDetailData with reason info for all unique reasons in this table
+    const uniqueReasons = new Set();
+    rows.forEach(c => {
+      if (c.reason) uniqueReasons.add(c.reason);
+    });
+    
+    if (csatData && csatData.call_reasons) {
+      csatData.call_reasons.forEach(r => {
+        if (uniqueReasons.has(r.reason)) {
+          const reasonKey = 'reason_' + String(r.reason || '').replace(/[^a-z0-9]/gi,'_').slice(0, 120);
+          _csatDetailData[reasonKey] = r;
+        }
+      });
+    }
+    
     body.innerHTML = rows.map(c => {
       const rc = barColors[c.rating] || 'var(--text2)';
       const callId = String(c.call_id || '');
