@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict, Counter
 import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
+import re
 
 # ── Supabase client (lazy init) ───────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -397,9 +398,30 @@ def _parse_csv_text(text: str) -> list:
 #   DOMO_CLIENT_ID, DOMO_CLIENT_SECRET, DOMO_DATASET_ID
 # The OAuth client must be created at developer.domo.com with the `data` scope
 # (requires a Domo admin). Tokens last ~1 hour; we fetch a fresh one each pull.
+
+def _normalize_domo_dataset_id(raw_value: str) -> str:
+    """Accept a UUID or full Domo URL and return the dataset UUID when possible."""
+    raw = (raw_value or "").strip()
+    if not raw:
+        return ""
+
+    cleaned = raw.split("?", 1)[0].split("#", 1)[0]
+    for pattern in (
+        r"/datasources/([0-9a-fA-F-]{36})(?:/|$)",
+        r"/datasets/([0-9a-fA-F-]{36})(?:/|$)",
+        r"^([0-9a-fA-F-]{36})$",
+    ):
+        match = re.search(pattern, cleaned)
+        if match:
+            return match.group(1)
+
+    # Keep the original value so existing non-UUID IDs continue to work.
+    return raw
+
 DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
 DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
-DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "")
+DOMO_DATASET_RAW   = os.getenv("DOMO_DATASET_ID", "")
+DOMO_DATASET_ID    = _normalize_domo_dataset_id(DOMO_DATASET_RAW)
 DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
 
 
