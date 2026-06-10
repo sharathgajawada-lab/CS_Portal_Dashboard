@@ -287,6 +287,8 @@ def _build_csat_index(rows: list) -> dict:
             day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"rs":{},"ft":0,"fr":0}
         dm = day_map[d]
         reason = (r.get("reason") or "").strip() or "Unspecified"
+        summary = (r.get("summary") or "").strip()
+        call_id_for_reason = (r.get("call_id") or "").strip()
         opp_id = (r.get("opp_id") or "").strip()
         if opp_id:
             day_opp_sets.setdefault(d, set()).add(opp_id)
@@ -296,12 +298,19 @@ def _build_csat_index(rows: list) -> dict:
         dm["l"]  += int(r["rating"] <= 2)
         dm["d"][r["rating"]] = dm["d"].get(r["rating"], 0) + 1
         if reason not in dm["rs"]:
-            dm["rs"][reason] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0}}
+            dm["rs"][reason] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"sm":[]}
         dm["rs"][reason]["t"] += 1
         dm["rs"][reason]["sr"] += r["rating"]
         dm["rs"][reason]["s"] += int(r["solved"])
         dm["rs"][reason]["l"] += int(r["rating"] <= 2)
         dm["rs"][reason]["d"][r["rating"]] = dm["rs"][reason]["d"].get(r["rating"], 0) + 1
+        if summary and len(dm["rs"][reason]["sm"]) < 20:
+            dm["rs"][reason]["sm"].append({
+                "dt": d,
+                "n": (name or "").strip(),
+                "i": call_id_for_reason,
+                "t": summary[:1200],
+            })
         # True FCR counters (only the first call of each opportunity is evaluated)
         if r.get("_fcr_eval"):
             dm["ft"] += 1
@@ -410,6 +419,45 @@ def _build_csat_index(rows: list) -> dict:
 
 def _parse_csv_text(text: str) -> list:
     """Parse CSAT CSV text (from disk or Domo export) into survey rows."""
+    def _normalize_summary(raw_value) -> str:
+        raw = str(raw_value or "").strip()
+        if not raw:
+            return ""
+        # FULL_SUMMARY_JSON__C may be JSON or plain text; prefer a readable text field.
+        if raw[:1] in ("{", "["):
+            try:
+                payload = json.loads(raw)
+                keys = {
+                    "summary", "call_summary", "full_summary", "short_summary",
+                    "conversation_summary", "text", "content", "overview",
+                }
+                def _walk(obj):
+                    if isinstance(obj, str):
+                        s = obj.strip()
+                        return s if len(s) > 8 else ""
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            if str(k).strip().lower() in keys:
+                                got = _walk(v)
+                                if got:
+                                    return got
+                        for v in obj.values():
+                            got = _walk(v)
+                            if got:
+                                return got
+                    if isinstance(obj, list):
+                        for v in obj:
+                            got = _walk(v)
+                            if got:
+                                return got
+                    return ""
+                extracted = _walk(payload)
+                if extracted:
+                    return extracted[:1200]
+            except Exception:
+                pass
+        return raw[:1200]
+
     rows = []
     for row in csv.DictReader(io.StringIO(text)):
         try:
@@ -431,6 +479,10 @@ def _parse_csv_text(text: str) -> list:
                 "opp_id": str(opp).strip(),
                 "reason": (row.get("REASON_FOR_CALL__C") or row.get("REASON_FOR_CALL")
                            or row.get("CALL_REASON") or row.get("REASON") or "").strip(),
+                "summary": _normalize_summary(
+                    row.get("FULL_SUMMARY_JSON__C") or row.get("FULL_SUMMARY_JSON")
+                    or row.get("CALL_SUMMARY") or row.get("SUMMARY") or ""
+                ),
                 "owner_id": (row.get("OWNER_ID") or "").strip(),
                 "created_by_id": (row.get("CREATEDBYID") or row.get("CREATED_BY_ID") or "").strip(),
                 "response_id": (row.get("RESPONSE_ID") or "").strip(),
@@ -612,6 +664,11 @@ def _parse_excel_bytes(data: bytes) -> list:
                     created_by_id = str(row[col[_k]] or "").strip()
                     break
             response_id = str(row[col["RESPONSE_ID"]] or "").strip() if "RESPONSE_ID" in col else ""
+            summary_raw = ""
+            for _k in ("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "SUMMARY"):
+                if _k in col:
+                    summary_raw = str(row[col[_k]] or "").strip()
+                    break
             if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
                 date_str = dt_val.strftime("%Y-%m-%d")
                 dt_full  = dt_val.isoformat()
@@ -627,6 +684,7 @@ def _parse_excel_bytes(data: bytes) -> list:
             rows.append({"rating":rating,"cid":cid,"name":name,
                          "team":team,"date":date_str,"datetime":dt_full,"solved":solved,
                          "call_id":call_id,"opp_id":opp_id,"reason":reason,
+                         "summary":summary_raw,
                          "owner_id":owner_id,"created_by_id":created_by_id,"response_id":response_id})
         except (TypeError, ValueError):
             continue

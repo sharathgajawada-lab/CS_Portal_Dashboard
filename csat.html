@@ -1566,12 +1566,16 @@ function _csatComputeAndRender(from, to) {
 
     // Reason rollup for the dedicated call reasons analysis section.
     for (const [reason, rv] of Object.entries(dm.rs || {})) {
-      if (!reasons[reason]) reasons[reason] = {t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
+      if (!reasons[reason]) reasons[reason] = {t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0},sm:[]};
       reasons[reason].t += rv.t || 0;
       reasons[reason].sr += rv.sr || 0;
       reasons[reason].s += rv.s || 0;
       reasons[reason].l += rv.l || 0;
       for (let r=1; r<=5; r++) reasons[reason].d[r] = (reasons[reason].d[r] || 0) + ((rv.d && rv.d[r]) || 0);
+      for (const sm of (rv.sm || [])) {
+        if (reasons[reason].sm.length >= 60) break;
+        reasons[reason].sm.push(sm);
+      }
     }
 
     // Daily trend — store each day directly
@@ -1645,6 +1649,7 @@ function _csatComputeAndRender(from, to) {
       solved_pct: Math.round(v.s / v.t * 1000) / 10,
       low_pct: Math.round(v.l / v.t * 1000) / 10,
       dist: [1,2,3,4,5].map(r => ({ r, count: v.d?.[r] || 0, pct: v.t > 0 ? Math.round((v.d?.[r] || 0) / v.t * 1000) / 10 : 0 })),
+      summaries: (v.sm || []).slice(0, 40),
     }))
     .sort((a,b) => b.total - a.total);
 
@@ -2348,11 +2353,13 @@ function renderCallReasons(reasons, totalSurveys) {
   subEl.textContent = `${top.length} reasons shown · ${top[0].reason} is highest (${top[0].share_pct}% / ${fmt(top[0].total)} calls) · ${scopeLabel}`;
 
   body.innerHTML = rows.slice(0, 25).map(r => {
+    const reasonKey = 'reason_' + String(r.reason || '').replace(/[^a-z0-9]/gi,'_').slice(0, 120);
+    _csatDetailData[reasonKey] = r;
     const ratingColor = r.avg_rating >= 4.5 ? 'var(--green)' : r.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
     const solvedColor = r.solved_pct >= 74 ? 'var(--green)' : r.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)';
     const lowPill = r.low_pct > 20 ? 'red' : r.low_pct > 10 ? 'amber' : 'green';
     return `<tr>
-      <td style="padding-left:10px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.reason}">${r.reason}</td>
+      <td class="csat-detail-trigger" data-detail-key="${reasonKey}" style="padding-left:10px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted" title="${r.reason}">${r.reason}</td>
       <td class="mono r">${fmt(r.total)}</td>
       <td class="mono r">${r.share_pct}%</td>
       <td class="mono r" style="color:${ratingColor}">${r.avg_rating}</td>
@@ -2360,6 +2367,13 @@ function renderCallReasons(reasons, totalSurveys) {
       <td class="r"><span class="pill ${lowPill}">${r.low_pct}%</span></td>
     </tr>`;
   }).join('');
+
+  document.getElementById('callReasonTableBody').onclick = function(e) {
+    const td = e.target.closest('.csat-detail-trigger');
+    if (!td) return;
+    const key = td.dataset.detailKey;
+    if (key && _csatDetailData[key]) openCsatDetail('reason', key);
+  };
 
   if (!document.getElementById('callReasonChart')) {
     chartWrap.innerHTML = '<canvas id="callReasonChart"></canvas>';
@@ -3147,15 +3161,44 @@ function openCsatDetail(type, key) {
   const sub     = document.getElementById('csatDetailSub');
   const body    = document.getElementById('csatDetailContent');
 
-  title.textContent = data.name || data.team;
-  sub.textContent   = type === 'consultant'
-    ? `${data.team} · ${data.total} surveys · avg ${data.avg_rating}★`
-    : `${data.total} surveys · avg ${data.avg_rating}★`;
+  const _esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  title.textContent = type === 'reason' ? (data.reason || 'Call reason') : (data.name || data.team);
+  if (type === 'consultant') {
+    sub.textContent = `${data.team} · ${data.total} surveys · avg ${data.avg_rating}★`;
+  } else if (type === 'reason') {
+    sub.textContent = `${data.total} surveys · ${data.share_pct ?? '—'}% share · avg ${data.avg_rating}★`;
+  } else {
+    sub.textContent = `${data.total} surveys · avg ${data.avg_rating}★`;
+  }
 
   const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
   const barLabels = {1:'1★ Very bad',2:'2★ Bad',3:'3★ OK',4:'4★ Good',5:'5★ Excellent'};
   const dist = data.dist || [];
   const maxCount = Math.max(...dist.map(d => d.count), 1);
+  const summaries = Array.isArray(data.summaries) ? data.summaries : [];
+  const summariesHtml = type === 'reason' ? `
+    <div style="margin-top:6px">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:10px">Call summaries</div>
+      ${summaries.length ? summaries.map(s => {
+        const callId = (s.i || '').trim();
+        const callLink = callId
+          ? `<a href="${ucjCallUrl(callId)}" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${_esc(callId)}</a>`
+          : '<span style="font-size:11px;color:var(--text3)">No Call ID</span>';
+        const name = _esc(s.n || 'Unknown consultant');
+        const date = _esc(s.dt || '');
+        const txt = _esc(s.t || '');
+        return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--surface2)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <div style="font-size:11px;color:var(--text3)">${name}${date ? ' · ' + date : ''}</div>
+            ${callLink}
+          </div>
+          <div style="font-size:12px;color:var(--text2);line-height:1.55;white-space:pre-wrap">${txt || 'No summary text provided.'}</div>
+        </div>`;
+      }).join('') : '<div style="font-size:12px;color:var(--text3)">No call summaries available for this reason in the selected period.</div>'}
+    </div>` : '';
 
   body.innerHTML = `
     <div style="margin-bottom:20px">
@@ -3187,7 +3230,8 @@ function openCsatDetail(type, key) {
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px">Total Surveys</div>
         <div style="font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--text1)">${data.total}</div>
       </div>
-    </div>`;
+    </div>
+    ${summariesHtml}`;
 
   overlay.style.display = 'block';
   panel.style.display   = 'block';
