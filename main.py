@@ -267,6 +267,9 @@ def _build_csat_index(rows: list) -> dict:
     BAD_NAMES = {"none", "null", "", "n/a"}
     day_map   = {}
     week_cons = {}
+    day_opp_sets = {}
+    team_opp_sets = {}
+    cons_opp_sets = {}
 
     import datetime as _dt_mod
 
@@ -284,6 +287,9 @@ def _build_csat_index(rows: list) -> dict:
             day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"rs":{},"ft":0,"fr":0}
         dm = day_map[d]
         reason = (r.get("reason") or "").strip() or "Unspecified"
+        opp_id = (r.get("opp_id") or "").strip()
+        if opp_id:
+            day_opp_sets.setdefault(d, set()).add(opp_id)
         dm["t"]  += 1
         dm["sr"] += r["rating"]
         dm["s"]  += int(r["solved"])
@@ -303,6 +309,8 @@ def _build_csat_index(rows: list) -> dict:
 
         if not bad_team:
             t = team.strip()
+            if opp_id:
+                team_opp_sets.setdefault((d, t), set()).add(opp_id)
             if t not in dm["tm"]:
                 dm["tm"][t] = {"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"rs":{},"ft":0,"fr":0}
             dm["tm"][t]["t"]  += 1
@@ -323,6 +331,8 @@ def _build_csat_index(rows: list) -> dict:
 
         if not bad_name:
             # Per-day consultant data — ensures team totals == sum of consultant totals
+            if opp_id:
+                cons_opp_sets.setdefault((d, cid), set()).add(opp_id)
             if cid not in dm["cn"]:
                 dm["cn"][cid] = {"n":name,"tm":team.strip(),"t":0,"sr":0,"s":0,"l":0,"d":{1:0,2:0,3:0,4:0,5:0},"rs":{},"c":[],"ft":0,"fr":0}
             dm["cn"][cid]["t"]  += 1
@@ -367,6 +377,14 @@ def _build_csat_index(rows: list) -> dict:
             week_cons[wk][cid]["s"]  += int(r["solved"])
             week_cons[wk][cid]["l"]  += int(r["rating"] <= 2)
             week_cons[wk][cid]["d"][r["rating"]] = week_cons[wk][cid]["d"].get(r["rating"], 0) + 1
+
+    # Unique opportunities at day / team / consultant level.
+    for d, dm in day_map.items():
+        dm["uo"] = len(day_opp_sets.get(d, set()))
+        for t, tv in (dm.get("tm") or {}).items():
+            tv["uo"] = len(team_opp_sets.get((d, t), set()))
+        for cid, cv in (dm.get("cn") or {}).items():
+            cv["uo"] = len(cons_opp_sets.get((d, cid), set()))
 
     dates     = sorted(day_map.keys())
     index_data = {
@@ -413,6 +431,9 @@ def _parse_csv_text(text: str) -> list:
                 "opp_id": str(opp).strip(),
                 "reason": (row.get("REASON_FOR_CALL__C") or row.get("REASON_FOR_CALL")
                            or row.get("CALL_REASON") or row.get("REASON") or "").strip(),
+                "owner_id": (row.get("OWNER_ID") or "").strip(),
+                "created_by_id": (row.get("CREATEDBYID") or row.get("CREATED_BY_ID") or "").strip(),
+                "response_id": (row.get("RESPONSE_ID") or "").strip(),
             })
         except (ValueError, KeyError):
             continue
@@ -584,6 +605,13 @@ def _parse_excel_bytes(data: bytes) -> list:
                 if _k in col:
                     reason = str(row[col[_k]] or "").strip()
                     break
+            owner_id = str(row[col["OWNER_ID"]] or "").strip() if "OWNER_ID" in col else ""
+            created_by_id = ""
+            for _k in ("CREATEDBYID", "CREATED_BY_ID"):
+                if _k in col:
+                    created_by_id = str(row[col[_k]] or "").strip()
+                    break
+            response_id = str(row[col["RESPONSE_ID"]] or "").strip() if "RESPONSE_ID" in col else ""
             if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
                 date_str = dt_val.strftime("%Y-%m-%d")
                 dt_full  = dt_val.isoformat()
@@ -598,7 +626,8 @@ def _parse_excel_bytes(data: bytes) -> list:
                 continue
             rows.append({"rating":rating,"cid":cid,"name":name,
                          "team":team,"date":date_str,"datetime":dt_full,"solved":solved,
-                         "call_id":call_id,"opp_id":opp_id,"reason":reason})
+                         "call_id":call_id,"opp_id":opp_id,"reason":reason,
+                         "owner_id":owner_id,"created_by_id":created_by_id,"response_id":response_id})
         except (TypeError, ValueError):
             continue
     return rows

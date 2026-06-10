@@ -701,6 +701,45 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
     </div>
 
+    <!-- Row 2c: Operations intelligence -->
+    <div style="margin-bottom:16px">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
+          <div class="card-title">Operations intelligence</div>
+          <div class="card-sub" id="opsSub">Call volume, unique opportunities, consultant load</div>
+        </div>
+        <div class="two-col" style="padding:12px 14px 14px;align-items:start">
+          <div class="card" style="box-shadow:none;padding:12px">
+            <div class="card-title" style="font-size:12px">Calls vs unique opportunities</div>
+            <div class="card-sub">Identifies repeat-contact pressure over time</div>
+            <div class="chart-wrap" style="height:220px" id="opsTrendWrap">
+              <canvas id="opsTrendChart"></canvas>
+            </div>
+          </div>
+          <div class="card" style="box-shadow:none;padding:12px">
+            <div class="card-title" style="font-size:12px">Top consultants by call volume</div>
+            <div class="card-sub">Workload concentration in selected scope</div>
+            <div class="chart-wrap" style="height:220px" id="opsConsultantWrap">
+              <canvas id="opsConsultantChart"></canvas>
+            </div>
+          </div>
+        </div>
+        <div style="padding:0 16px 14px">
+          <div class="table-wrap" style="max-height:260px;overflow-y:auto">
+            <table>
+              <thead><tr>
+                <th style="padding-left:10px">Date</th>
+                <th class="r">Calls</th>
+                <th class="r">Unique opps</th>
+                <th class="r">Calls / opp</th>
+              </tr></thead>
+              <tbody id="opsRepeatTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Row 3: Solve-rate trend full width -->
     <div style="margin-bottom:16px">
       <div class="card">
@@ -1248,6 +1287,7 @@ function _csatScopeDays(rawDays) {
       t: src.t || 0, sr: src.sr || 0, s: src.s || 0, l: src.l || 0,
       d: Object.assign({}, src.d || {}),
       rs: Object.assign({}, src.rs || {}),
+      uo: src.uo || 0,
       ft: src.ft || 0, fr: src.fr || 0,   // carry true-FCR counters into scoped view
       tm, cn,
     };
@@ -1483,6 +1523,7 @@ function _csatComputeAndRender(from, to) {
   const dist={1:0,2:0,3:0,4:0,5:0};
   const teams={}, cons={};
   const reasons={};
+  const opsDaily=[];
   const dayTrend={}; const weekMap=dayTrend; // daily trend data
   const teamDailyMap={};  // {teamName: {date: {t,sr}}} for 3-team comparison chart
 
@@ -1494,6 +1535,12 @@ function _csatComputeAndRender(from, to) {
     solved += dm.s;
     low    += dm.l;
     for (const [k,v] of Object.entries(dm.d||{})) dist[+k] = (dist[+k]||0) + v;
+    opsDaily.push({
+      date: d,
+      calls: dm.t || 0,
+      unique_opps: dm.uo || 0,
+      calls_per_opp: (dm.uo || 0) > 0 ? Math.round((dm.t || 0) / dm.uo * 100) / 100 : null,
+    });
 
     // Reason rollup for the dedicated call reasons analysis section.
     for (const [reason, rv] of Object.entries(dm.rs || {})) {
@@ -1611,6 +1658,12 @@ function _csatComputeAndRender(from, to) {
     }))
     .sort((a,b) => b.avg_rating - a.avg_rating);
 
+  const consultantsByVolume = [...consList]
+    .slice()
+    .sort((a,b) => (b.total || 0) - (a.total || 0))
+    .slice(0, 12)
+    .map(c => ({ cid: c.cid, name: c.name, team: c.team, total: c.total }));
+
   csatData = {
     available: true, date_from: lo, date_to: hi,
     total, avg_rating: total > 0 ? Math.round(sumR/total*100)/100 : 0,
@@ -1619,6 +1672,8 @@ function _csatComputeAndRender(from, to) {
     avg_solved: avgSolved, avg_unsolved: avgUnsolved,
     rating_dist: ratingDist,
     call_reasons: reasonList,
+    ops_daily: opsDaily,
+    consultants_by_volume: consultantsByVolume,
     weekly_trend: weeklyTrend,
     team_daily: teamDailyMap,
     teams: teamList,
@@ -1829,6 +1884,9 @@ function renderCSAT(d) {
   // Call reasons analysis (separate section)
   renderCallReasons(d.call_reasons || [], d.total || 0);
 
+  // Operations intelligence section
+  renderOpsIntelligence(d);
+
   // Build prev period dist if compare is on
   let prevDist = [];
   let prevFrom = '', prevTo = '';
@@ -1997,6 +2055,84 @@ function renderCSAT(d) {
 
   // Keep the persistent top scope bar (status, clear button, calls table) in sync.
   _syncGlobalScopeBar();
+}
+
+function renderOpsIntelligence(d) {
+  const subEl = document.getElementById('opsSub');
+  const tableBody = document.getElementById('opsRepeatTableBody');
+  const trendCanvas = document.getElementById('opsTrendChart');
+  const consCanvas = document.getElementById('opsConsultantChart');
+  if (!subEl || !tableBody || !trendCanvas || !consCanvas) return;
+
+  const daily = (d.ops_daily || []).slice().sort((a,b) => a.date < b.date ? -1 : 1);
+  const cons = (d.consultants_by_volume || []).slice();
+  const scopeLabel = _csatScope?.type === 'member' ? 'consultant scope' : (_csatScope?.type === 'team' ? 'team scope' : 'all consultants');
+
+  const totalCalls = daily.reduce((s, x) => s + (x.calls || 0), 0);
+  const totalOpps = daily.reduce((s, x) => s + (x.unique_opps || 0), 0);
+  const ratio = totalOpps > 0 ? Math.round(totalCalls / totalOpps * 100) / 100 : null;
+  subEl.textContent = `${scopeLabel} · ${fmt(totalCalls)} calls · ${fmt(totalOpps)} unique opportunities · ${ratio ?? '—'} calls/opp`;
+
+  const topDays = daily
+    .filter(x => x.calls > 0)
+    .slice()
+    .sort((a,b) => ((b.calls_per_opp || 0) - (a.calls_per_opp || 0)))
+    .slice(0, 25);
+  tableBody.innerHTML = topDays.map(r => `<tr>
+    <td style="padding-left:10px">${r.date}</td>
+    <td class="mono r">${fmt(r.calls)}</td>
+    <td class="mono r">${fmt(r.unique_opps)}</td>
+    <td class="mono r" style="color:${(r.calls_per_opp || 0) >= 1.5 ? 'var(--red)' : (r.calls_per_opp || 0) >= 1.2 ? 'var(--amber)' : 'var(--green)'}">${r.calls_per_opp ?? '—'}</td>
+  </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No operational records in this scope</td></tr>';
+
+  if (charts.opsTrendChart) charts.opsTrendChart.destroy();
+  charts.opsTrendChart = new Chart(trendCanvas, {
+    type: 'line',
+    data: {
+      labels: daily.map(x => fmtBucketDate(x.date, 'day')),
+      datasets: [
+        { label: 'Calls', data: daily.map(x => x.calls), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.08)', pointRadius: 1.5, borderWidth: 2, tension: .25, yAxisID: 'y' },
+        { label: 'Unique opps', data: daily.map(x => x.unique_opps), borderColor: '#0d9488', backgroundColor: 'transparent', borderDash: [4,3], pointRadius: 1.5, borderWidth: 2, tension: .25, yAxisID: 'y' },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } } },
+      scales: {
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } }, grid: gridOpts },
+        y: { beginAtZero: true, ticks: { font: { size: 10 } }, grid: gridOpts },
+      },
+    },
+  });
+
+  if (charts.opsConsultantChart) charts.opsConsultantChart.destroy();
+  charts.opsConsultantChart = new Chart(consCanvas, {
+    type: 'bar',
+    data: {
+      labels: cons.map(c => (c.name || '').length > 20 ? (c.name || '').slice(0,20) + '…' : (c.name || '—')),
+      datasets: [{ label: 'Calls', data: cons.map(c => c.total || 0), backgroundColor: '#7c3aedcc', borderRadius: 4 }],
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151',
+          callbacks: {
+            title: ctx => cons[ctx[0]?.dataIndex || 0]?.name || 'Consultant',
+            afterBody: ctx => {
+              const item = cons[ctx[0]?.dataIndex || 0];
+              return item ? [`Team: ${item.team || '—'}`, `Calls: ${fmt(item.total)}`] : [];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { beginAtZero: true, ticks: { font: { size: 10 } }, grid: gridOpts },
+        y: { ticks: { font: { size: 10 } }, grid: { display: false } },
+      },
+    },
+  });
 }
 
 function renderCallReasons(reasons, totalSurveys) {
