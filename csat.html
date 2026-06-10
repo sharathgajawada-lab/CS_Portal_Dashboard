@@ -1492,6 +1492,7 @@ function _renderGlobalCalls() {
       const rc = barColors[c.rating] || 'var(--text2)';
       const callId = String(c.call_id || '');
       const reason = String(c.reason || 'Unspecified');
+      const reasonKey = 'reason_' + String(c.reason || '').replace(/[^a-z0-9]/gi,'_').slice(0, 120);
       let url = '#';
       try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
       const idCell = callId
@@ -1499,12 +1500,20 @@ function _renderGlobalCalls() {
         : '<span style="color:var(--text3)">—</span>';
       return `<tr>
         <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
-        <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${reason}">${reason}</td>
+        <td class="csat-reason-trigger" data-reason-key="${reasonKey}" style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted" title="${reason}">${reason}</td>
         <td style="font-size:12px;color:var(--text3)">${c.date || '—'}</td>
         <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating ?? '—'}★</span></td>
         <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
       </tr>`;
     }).join('') || '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+    
+    // Add click handler for reason cells
+    body.onclick = function(e) {
+      const td = e.target.closest('.csat-reason-trigger');
+      if (!td) return;
+      const key = td.dataset.reasonKey;
+      if (key && _csatDetailData[key]) openCsatDetail('reason', key);
+    };
   } catch (err) {
     console.error('[csat] _renderGlobalCalls error:', err);
     body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
