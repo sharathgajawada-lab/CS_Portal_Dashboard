@@ -306,10 +306,18 @@ def _build_csat_index(rows: list) -> dict:
         dm["rs"][reason]["d"][r["rating"]] = dm["rs"][reason]["d"].get(r["rating"], 0) + 1
         if summary and len(dm["rs"][reason]["sm"]) < 20:
             dm["rs"][reason]["sm"].append({
-                "dt": d,
+                "dt": r.get("datetime") or d,  # full datetime if available
                 "n": (name or "").strip(),
+                "cid": cid,  # consultant ID
+                "team": team.strip(),  # consultant team
                 "i": call_id_for_reason,
-                "t": summary[:1200],
+                "oid": opp_id,  # opportunity ID
+                "rid": r.get("response_id", "").strip(),  # response ID
+                "cby": r.get("created_by_id", "").strip(),  # created by ID
+                "own": r.get("owner_id", "").strip(),  # owner ID
+                "rat": r["rating"],  # rating
+                "sol": int(r["solved"]),  # solved
+                "t": summary[:1200],  # summary text
             })
         # True FCR counters (only the first call of each opportunity is evaluated)
         if r.get("_fcr_eval"):

@@ -3221,14 +3221,35 @@ function openCsatDetail(type, key) {
           ? `<a href="${ucjCallUrl(callId)}" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${_esc(callId)}</a>`
           : '<span style="font-size:10px;color:var(--text3)">—</span>';
         const name = _esc(s.n || 'Unknown');
+        const team = _esc(s.team || '');
+        const cid = _esc(s.cid || '');
         const date = _esc(s.dt || '');
+        const oid = _esc(s.oid || '');
+        const rid = _esc(s.rid || '');
+        const cby = _esc(s.cby || '');
+        const own = _esc(s.own || '');
+        const rat = s.rat || '—';
+        const sol = s.sol ? '✓ Solved' : '✗ Not solved';
         const txt = _esc(s.t || '');
-        return `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--surface2);display:flex;flex-direction:column;gap:8px">
+        const ratingColor = rat >= 4 ? '#059669' : rat >= 3 ? '#d97706' : '#dc2626';
+        return `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--surface2);display:flex;flex-direction:column;gap:10px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-            <div style="font-size:10px;font-weight:500;color:var(--text2)">${name}${date ? ' · ' + date : ''}</div>
+            <div>
+              <div style="font-size:10px;font-weight:600;color:var(--text1)">${name}</div>
+              <div style="font-size:9px;color:var(--text3)">${team}${cid ? ' · ' + cid : ''}</div>
+            </div>
             ${callLink}
           </div>
-          <div style="font-size:11px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word">${txt || 'No summary text'}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:9px;color:var(--text3)">
+            <div><span style="font-weight:500;color:var(--text2)">DateTime:</span> ${date}</div>
+            <div><span style="font-weight:500;color:var(--text2)">Rating:</span> <span style="color:${ratingColor};font-weight:600">${rat}★</span></div>
+            <div><span style="font-weight:500;color:var(--text2)">Opportunity:</span> ${oid || '—'}</div>
+            <div><span style="font-weight:500;color:var(--text2)">Status:</span> ${sol}</div>
+            ${rid ? `<div><span style="font-weight:500;color:var(--text2)">Response:</span> ${rid}</div>` : ''}
+            ${cby ? `<div><span style="font-weight:500;color:var(--text2)">Created By:</span> ${cby}</div>` : ''}
+            ${own ? `<div><span style="font-weight:500;color:var(--text2)">Owner:</span> ${own}</div>` : ''}
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:8px;font-size:10px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word">${txt || 'No summary text'}</div>
         </div>`;
       }).join('')}
         </div>
