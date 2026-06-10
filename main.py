@@ -525,7 +525,20 @@ def _parse_csv_text(text: str) -> list:
             date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
             # opportunity id (for true FCR) — tolerate a few likely column names.
             opp = _gv("OPPORTUNITY_ID", "OPPORTUNITYID", "OPPORTUNITY")
-            summary_raw = _gv("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "SUMMARY")
+            summary_raw = _gv("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "CALLSUMMARY", "SUMMARY")
+            if not str(summary_raw or "").strip():
+                call_reason_raw = str(_gv("CUSTOMERSCALLREASON", "CUSTOMER_CALL_REASON", "CALLREASON", "REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON")).strip()
+                call_summary_raw = str(_gv("CALLSUMMARY", "CALL_SUMMARY", "SUMMARY", "FULL_SUMMARY")).strip()
+                next_steps_raw = str(_gv("NEXTSTEPS", "NEXT_STEPS", "ACTIONITEMS", "ACTIONS")).strip()
+                if call_reason_raw or call_summary_raw or next_steps_raw:
+                    parts = []
+                    if call_reason_raw:
+                        parts.append("Customer Call Reason:\n" + call_reason_raw)
+                    if call_summary_raw:
+                        parts.append("Call Summary:\n" + call_summary_raw)
+                    if next_steps_raw:
+                        parts.append("Next Steps:\n" + next_steps_raw)
+                    summary_raw = "\n\n".join(parts)
             rows.append({
                 "rating": int(float(_gv("RATING"))),  # handles "5.0" and "5"
                 "cid":    str(_gv("CONSULTANT_ID")).strip(),
@@ -771,10 +784,38 @@ def _parse_excel_bytes(data: bytes) -> list:
                     break
             response_id = str(row[col["RESPONSE_ID"]] or "").strip() if "RESPONSE_ID" in col else ""
             summary_raw = ""
-            for _k in ("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "SUMMARY"):
+            for _k in ("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "CALLSUMMARY", "SUMMARY"):
                 if _k in col:
                     summary_raw = str(row[col[_k]] or "").strip()
                     break
+            if not summary_raw:
+                call_reason_raw = ""
+                for _k in ("CUSTOMERSCALLREASON", "CUSTOMER_CALL_REASON", "CALLREASON", "REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON"):
+                    if _k in col:
+                        call_reason_raw = str(row[col[_k]] or "").strip()
+                        if call_reason_raw:
+                            break
+                call_summary_raw = ""
+                for _k in ("CALLSUMMARY", "CALL_SUMMARY", "SUMMARY", "FULL_SUMMARY"):
+                    if _k in col:
+                        call_summary_raw = str(row[col[_k]] or "").strip()
+                        if call_summary_raw:
+                            break
+                next_steps_raw = ""
+                for _k in ("NEXTSTEPS", "NEXT_STEPS", "ACTIONITEMS", "ACTIONS"):
+                    if _k in col:
+                        next_steps_raw = str(row[col[_k]] or "").strip()
+                        if next_steps_raw:
+                            break
+                if call_reason_raw or call_summary_raw or next_steps_raw:
+                    parts = []
+                    if call_reason_raw:
+                        parts.append("Customer Call Reason:\n" + call_reason_raw)
+                    if call_summary_raw:
+                        parts.append("Call Summary:\n" + call_summary_raw)
+                    if next_steps_raw:
+                        parts.append("Next Steps:\n" + next_steps_raw)
+                    summary_raw = "\n\n".join(parts)
             if isinstance(dt_val, (_dt_mod.datetime, _dt_mod.date)):
                 date_str = dt_val.strftime("%Y-%m-%d")
                 dt_full  = dt_val.isoformat()
