@@ -2091,6 +2091,7 @@ function renderOpsIntelligence(d) {
   const consRange = getChartRange('opsConsultant');
   const opsGb = getChartGroupBy('opsTrend');
   const opsCompare = isChartCompare('opsTrend');
+  const consCompare = isChartCompare('opsConsultant');
 
   function buildDaily(fromIso, toIso) {
     const out = [];
@@ -2164,6 +2165,22 @@ function renderOpsIntelligence(d) {
     .sort((a,b) => (b.total || 0) - (a.total || 0))
     .slice(0, 12);
 
+  let consPrevByCid = {};
+  if (consCompare) {
+    const periodDays = Math.round((new Date(consRange.to) - new Date(consRange.from)) / 86400000) + 1;
+    const prevTo = subtractUnit(consRange.from, 1, 'days');
+    const prevFrom = subtractUnit(prevTo, periodDays - 1, 'days');
+    const prevAgg = {};
+    for (const [date, dm] of Object.entries(daysMap)) {
+      if (date < prevFrom || date > prevTo) continue;
+      for (const [cid, cv] of Object.entries(dm.cn || {})) {
+        if (!prevAgg[cid]) prevAgg[cid] = 0;
+        prevAgg[cid] += cv.t || 0;
+      }
+    }
+    consPrevByCid = prevAgg;
+  }
+
   const scopeLabel = _csatScope?.type === 'member' ? 'consultant scope' : (_csatScope?.type === 'team' ? 'team scope' : 'all consultants');
 
   const totalCalls = daily.reduce((s, x) => s + (x.calls || 0), 0);
@@ -2230,7 +2247,17 @@ function renderOpsIntelligence(d) {
     type: 'bar',
     data: {
       labels: cons.map(c => (c.name || '').length > 20 ? (c.name || '').slice(0,20) + '…' : (c.name || '—')),
-      datasets: [{ label: 'Calls', data: cons.map(c => c.total || 0), backgroundColor: '#7c3aedcc', borderRadius: 4 }],
+      datasets: [
+        { label: 'Calls', data: cons.map(c => c.total || 0), backgroundColor: '#7c3aedcc', borderRadius: 4 },
+        ...(consCompare ? [{
+          label: 'Calls (prev)',
+          data: cons.map(c => consPrevByCid[c.cid] || 0),
+          backgroundColor: '#7c3aed66',
+          borderColor: '#7c3aed',
+          borderWidth: 1,
+          borderRadius: 4,
+        }] : []),
+      ],
     },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
@@ -2265,6 +2292,7 @@ function renderCallReasons(reasons, totalSurveys) {
 
   const q = (filterInput?.value || '').trim().toLowerCase();
   const sortMode = sortSelect?.value || 'volume_desc';
+  const compare = isChartCompare('callReason');
 
   if (!reasons || !reasons.length) {
     subEl.textContent = 'No reason data in selected period';
@@ -2294,6 +2322,28 @@ function renderCallReasons(reasons, totalSurveys) {
     if (charts.callReasonChart) charts.callReasonChart.destroy();
     chartWrap.innerHTML = '<div class="empty" style="padding:20px"><span>📌</span>No reason distribution yet</div>';
     return;
+  }
+
+  let prevReasonMap = {};
+  if (compare) {
+    const daysMap = _csatScopedDays || _csatRaw?.days || {};
+    const r = getChartRange('callReason');
+    const periodDays = Math.round((new Date(r.to) - new Date(r.from)) / 86400000) + 1;
+    const prevTo = subtractUnit(r.from, 1, 'days');
+    const prevFrom = subtractUnit(prevTo, periodDays - 1, 'days');
+    let prevTotal = 0;
+    const agg = {};
+    for (const [date, dm] of Object.entries(daysMap)) {
+      if (date < prevFrom || date > prevTo) continue;
+      for (const [reason, rv] of Object.entries(dm.rs || {})) {
+        if (!agg[reason]) agg[reason] = { t: 0 };
+        agg[reason].t += rv.t || 0;
+        prevTotal += rv.t || 0;
+      }
+    }
+    for (const [reason, v] of Object.entries(agg)) {
+      prevReasonMap[reason] = prevTotal > 0 ? Math.round((v.t || 0) / prevTotal * 1000) / 10 : 0;
+    }
   }
   subEl.textContent = `${top.length} reasons shown · ${top[0].reason} is highest (${top[0].share_pct}% / ${fmt(top[0].total)} calls) · ${scopeLabel}`;
 
@@ -2328,6 +2378,15 @@ function renderCallReasons(reasons, totalSurveys) {
           borderRadius: 4,
           yAxisID: 'y',
         },
+        ...(compare ? [{
+          label: 'Survey share % (prev)',
+          data: top.map(r => prevReasonMap[r.reason] || 0),
+          backgroundColor: '#2563eb66',
+          borderColor: '#2563eb',
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: 'y',
+        }] : []),
         {
           type: 'line',
           label: 'Avg rating',
