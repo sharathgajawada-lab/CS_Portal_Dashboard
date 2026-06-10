@@ -3177,6 +3177,54 @@ function renderCSTeams(teamsData, teamDailyData) {
 
 // ── Consultant / Team detail panel ────────────────────────────────────────────
 const _csatDetailData = {};  // lookup map: id -> data object, avoids JSON in onclick attributes
+
+function formatCallSummaryText(rawValue) {
+  const raw = String(rawValue == null ? '' : rawValue).trim();
+  if (!raw) return '';
+
+  // Plain text summary: show as-is.
+  if (!(raw.startsWith('{') || raw.startsWith('['))) return raw;
+
+  try {
+    let payload = JSON.parse(raw);
+    if (typeof payload === 'string') {
+      const nested = payload.trim();
+      if (nested.startsWith('{') || nested.startsWith('[')) {
+        payload = JSON.parse(nested);
+      }
+    }
+
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const p = {};
+      Object.entries(payload).forEach(([k, v]) => { p[String(k).trim().toLowerCase()] = v; });
+
+      const asText = (v) => {
+        if (v == null) return '';
+        if (typeof v === 'string') return v.trim();
+        if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+        try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+      };
+
+      const callReason = asText(p.customerscallreason ?? p.customer_call_reason ?? p.callreason ?? p.reason);
+      const callSummary = asText(p.callsummary ?? p.call_summary ?? p.summary ?? p.full_summary ?? p.conversation_summary);
+      const nextSteps = asText(p.nextsteps ?? p.next_steps ?? p.actionitems ?? p.actions);
+
+      if (callReason || callSummary || nextSteps) {
+        const parts = [];
+        if (callReason) parts.push('Customer Call Reason:\n' + callReason);
+        if (callSummary) parts.push('Call Summary:\n' + callSummary);
+        if (nextSteps) parts.push('Next Steps:\n' + nextSteps);
+        return parts.join('\n\n');
+      }
+    }
+
+    // Unknown JSON shape: still render it instead of showing blank.
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return raw;
+  }
+}
+
 function openCsatDetail(type, key) {
   const data = _csatDetailData[key];
   if (!data) return;
@@ -3230,7 +3278,8 @@ function openCsatDetail(type, key) {
         const own = _esc(s.own || '');
         const rat = s.rat || '—';
         const sol = s.sol ? '✓ Solved' : '✗ Not solved';
-        const txt = _esc(s.t || '');
+        const txtRaw = formatCallSummaryText(s.t || s.raw || '');
+        const txt = _esc(txtRaw);
         const ratingColor = rat >= 4 ? '#059669' : rat >= 3 ? '#d97706' : '#dc2626';
         return `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--surface2);display:flex;flex-direction:column;gap:10px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
