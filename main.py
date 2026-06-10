@@ -435,9 +435,33 @@ def _parse_csv_text(text: str) -> list:
         if raw[:1] in ("{", "["):
             try:
                 payload = json.loads(raw)
+                # Some exports wrap JSON as an encoded string (JSON-in-JSON).
+                if isinstance(payload, str):
+                    p2 = payload.strip()
+                    if p2[:1] in ("{", "["):
+                        payload = json.loads(p2)
                 if isinstance(payload, dict):
-                    # Common Domo structure from AI call summaries.
-                    getv = lambda *ks: next((str(payload.get(k) or "").strip() for k in ks if str(payload.get(k) or "").strip()), "")
+                    # Common AI summary payloads can vary by key casing.
+                    p = {str(k).strip().lower(): v for k, v in payload.items()}
+
+                    def _as_text(v):
+                        if v is None:
+                            return ""
+                        if isinstance(v, str):
+                            return v.strip()
+                        if isinstance(v, (int, float, bool)):
+                            return str(v)
+                        if isinstance(v, (dict, list)):
+                            return json.dumps(v, ensure_ascii=False)
+                        return str(v).strip()
+
+                    def getv(*ks):
+                        for k in ks:
+                            val = _as_text(p.get(k.lower()))
+                            if val:
+                                return val
+                        return ""
+
                     call_summary = getv("callsummary", "call_summary", "summary", "full_summary", "conversation_summary")
                     call_reason  = getv("customerscallreason", "customer_call_reason", "callreason", "reason")
                     next_steps   = getv("nextsteps", "next_steps", "actionitems", "actions")
@@ -454,7 +478,8 @@ def _parse_csv_text(text: str) -> list:
 
                 keys = {
                     "summary", "call_summary", "callsummary", "full_summary", "short_summary",
-                    "conversation_summary", "text", "content", "overview",
+                    "conversation_summary", "customerscallreason", "nextsteps",
+                    "text", "content", "overview",
                 }
                 def _walk(obj):
                     if isinstance(obj, str):
@@ -650,8 +675,32 @@ def _parse_excel_bytes(data: bytes) -> list:
         if raw[:1] in ("{", "["):
             try:
                 payload = json.loads(raw)
+                # Some exports wrap JSON as an encoded string (JSON-in-JSON).
+                if isinstance(payload, str):
+                    p2 = payload.strip()
+                    if p2[:1] in ("{", "["):
+                        payload = json.loads(p2)
                 if isinstance(payload, dict):
-                    getv = lambda *ks: next((str(payload.get(k) or "").strip() for k in ks if str(payload.get(k) or "").strip()), "")
+                    p = {str(k).strip().lower(): v for k, v in payload.items()}
+
+                    def _as_text(v):
+                        if v is None:
+                            return ""
+                        if isinstance(v, str):
+                            return v.strip()
+                        if isinstance(v, (int, float, bool)):
+                            return str(v)
+                        if isinstance(v, (dict, list)):
+                            return json.dumps(v, ensure_ascii=False)
+                        return str(v).strip()
+
+                    def getv(*ks):
+                        for k in ks:
+                            val = _as_text(p.get(k.lower()))
+                            if val:
+                                return val
+                        return ""
+
                     call_summary = getv("callsummary", "call_summary", "summary", "full_summary", "conversation_summary")
                     call_reason  = getv("customerscallreason", "customer_call_reason", "callreason", "reason")
                     next_steps   = getv("nextsteps", "next_steps", "actionitems", "actions")
