@@ -515,6 +515,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <table>
           <thead><tr>
             <th style="padding-left:16px">Call ID</th>
+            <th>Reason</th>
             <th>Date</th>
             <th class="r">Rating</th>
             <th class="r">Solved</th>
@@ -654,8 +655,26 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div style="margin-bottom:16px">
       <div class="card" style="padding:0">
         <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
-          <div class="card-title">Call reasons analysis</div>
-          <div class="card-sub" id="callReasonSub">Most frequent call reasons and how they perform</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <div>
+              <div class="card-title">Call reasons analysis</div>
+              <div class="card-sub" id="callReasonSub">Most frequent call reasons and how they perform</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <input id="callReasonFilter" type="text" placeholder="Filter reasons..."
+                oninput="renderCallReasons(csatData?.call_reasons||[], csatData?.total||0)"
+                style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;width:180px;background:var(--surface2);color:var(--text1)">
+              <select id="callReasonSort" onchange="renderCallReasons(csatData?.call_reasons||[], csatData?.total||0)"
+                style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text1);outline:none;min-width:170px">
+                <option value="volume_desc" selected>Highest to lowest</option>
+                <option value="volume_asc">Lowest to highest</option>
+                <option value="rating_desc">Rating high to low</option>
+                <option value="rating_asc">Rating low to high</option>
+                <option value="low_desc">Low % high to low</option>
+                <option value="low_asc">Low % low to high</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div class="two-col" style="padding:12px 14px 14px;align-items:start">
           <div class="card" style="box-shadow:none;padding:12px">
@@ -1404,11 +1423,13 @@ function _renderGlobalCalls() {
       if (!c) return false;
       if (!q) return true;
       const cid = String(c.call_id || '').toLowerCase();
-      return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q);
+      const rsn = String(c.reason || '').toLowerCase();
+      return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q) || rsn.includes(q);
     });
     body.innerHTML = rows.map(c => {
       const rc = barColors[c.rating] || 'var(--text2)';
       const callId = String(c.call_id || '');
+      const reason = String(c.reason || 'Unspecified');
       let url = '#';
       try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
       const idCell = callId
@@ -1416,14 +1437,15 @@ function _renderGlobalCalls() {
         : '<span style="color:var(--text3)">—</span>';
       return `<tr>
         <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
+        <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${reason}">${reason}</td>
         <td style="font-size:12px;color:var(--text3)">${c.date || '—'}</td>
         <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating ?? '—'}★</span></td>
         <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
       </tr>`;
-    }).join('') || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
+    }).join('') || '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">No calls match this filter</td></tr>';
   } catch (err) {
     console.error('[csat] _renderGlobalCalls error:', err);
-    body.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
   }
 }
 
@@ -1520,7 +1542,13 @@ function _csatComputeAndRender(from, to) {
       // Per-call records: tag each with the day key so the table can show a date.
       if (Array.isArray(cv.c)) {
         for (const call of cv.c) {
-          cons[cid].calls.push({ call_id: call.i, rating: call.r, solved: !!call.s, date: d });
+          cons[cid].calls.push({
+            call_id: call.i,
+            rating: call.r,
+            solved: !!call.s,
+            reason: call.rs || call.reason || '',
+            date: d,
+          });
         }
       }
     }
@@ -1975,7 +2003,12 @@ function renderCallReasons(reasons, totalSurveys) {
   const subEl = document.getElementById('callReasonSub');
   const body = document.getElementById('callReasonTableBody');
   const chartWrap = document.getElementById('callReasonChartWrap');
+  const filterInput = document.getElementById('callReasonFilter');
+  const sortSelect = document.getElementById('callReasonSort');
   if (!subEl || !body || !chartWrap) return;
+
+  const q = (filterInput?.value || '').trim().toLowerCase();
+  const sortMode = sortSelect?.value || 'volume_desc';
 
   if (!reasons || !reasons.length) {
     subEl.textContent = 'No reason data in selected period';
@@ -1985,10 +2018,30 @@ function renderCallReasons(reasons, totalSurveys) {
     return;
   }
 
-  const top = reasons.slice(0, 10);
-  subEl.textContent = `${top.length} reasons shown · ${top[0].reason} is highest (${top[0].share_pct}% / ${fmt(top[0].total)} calls)`;
+  let rows = reasons.filter(r => !q || String(r.reason || '').toLowerCase().includes(q));
+  rows.sort((a, b) => {
+    if (sortMode === 'volume_asc') return (a.total || 0) - (b.total || 0);
+    if (sortMode === 'rating_desc') return (b.avg_rating || 0) - (a.avg_rating || 0);
+    if (sortMode === 'rating_asc') return (a.avg_rating || 0) - (b.avg_rating || 0);
+    if (sortMode === 'low_desc') return (b.low_pct || 0) - (a.low_pct || 0);
+    if (sortMode === 'low_asc') return (a.low_pct || 0) - (b.low_pct || 0);
+    return (b.total || 0) - (a.total || 0);
+  });
 
-  body.innerHTML = reasons.slice(0, 25).map(r => {
+  const top = rows.slice(0, 10);
+  const scopeLabel = _csatScope?.type === 'member'
+    ? 'consultant scope'
+    : (_csatScope?.type === 'team' ? 'team scope' : 'all consultants');
+  if (!top.length) {
+    subEl.textContent = `No call reasons match this filter (${scopeLabel})`;
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">No reasons match the current filter</td></tr>';
+    if (charts.callReasonChart) charts.callReasonChart.destroy();
+    chartWrap.innerHTML = '<div class="empty" style="padding:20px"><span>📌</span>No reason distribution yet</div>';
+    return;
+  }
+  subEl.textContent = `${top.length} reasons shown · ${top[0].reason} is highest (${top[0].share_pct}% / ${fmt(top[0].total)} calls) · ${scopeLabel}`;
+
+  body.innerHTML = rows.slice(0, 25).map(r => {
     const ratingColor = r.avg_rating >= 4.5 ? 'var(--green)' : r.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
     const solvedColor = r.solved_pct >= 74 ? 'var(--green)' : r.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)';
     const lowPill = r.low_pct > 20 ? 'red' : r.low_pct > 10 ? 'amber' : 'green';
