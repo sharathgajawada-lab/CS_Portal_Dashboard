@@ -287,7 +287,7 @@ def _build_csat_index(rows: list) -> dict:
             day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"rs":{},"ft":0,"fr":0}
         dm = day_map[d]
         reason = (r.get("reason") or "").strip() or "Unspecified"
-        summary = (r.get("summary") or "").strip()
+        summary = (r.get("summary") or r.get("summary_raw") or "").strip()
         call_id_for_reason = (r.get("call_id") or "").strip()
         opp_id = (r.get("opp_id") or "").strip()
         if opp_id:
@@ -511,31 +511,37 @@ def _parse_csv_text(text: str) -> list:
     rows = []
     for row in csv.DictReader(io.StringIO(text)):
         try:
-            raw_date = row.get("DATE") or row.get("DATETIME") or ""
+            # Normalize CSV headers to uppercase so mixed-case exports still parse.
+            row_u = {str(k or "").strip().upper(): v for k, v in row.items()}
+
+            def _gv(*keys):
+                for k in keys:
+                    v = row_u.get(str(k).strip().upper())
+                    if v is not None and str(v).strip() != "":
+                        return v
+                return ""
+
+            raw_date = _gv("DATE", "DATETIME") or ""
             date_str = raw_date[:10]  # take just YYYY-MM-DD from datetime
             # opportunity id (for true FCR) — tolerate a few likely column names.
-            opp = (row.get("OPPORTUNITY_ID") or row.get("OPPORTUNITYID")
-                   or row.get("OpportunityId") or row.get("opportunityId")
-                   or row.get("OPPORTUNITY") or "")
+            opp = _gv("OPPORTUNITY_ID", "OPPORTUNITYID", "OPPORTUNITY")
+            summary_raw = _gv("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "SUMMARY")
             rows.append({
-                "rating": int(float(row["RATING"])),  # handles "5.0" and "5"
-                "cid":    row["CONSULTANT_ID"],
-                "name":   row["CONSULTANT_NAME"],
-                "team":   row["CONSULTANT_TEAM"].strip(),
+                "rating": int(float(_gv("RATING"))),  # handles "5.0" and "5"
+                "cid":    str(_gv("CONSULTANT_ID")).strip(),
+                "name":   str(_gv("CONSULTANT_NAME")).strip(),
+                "team":   str(_gv("CONSULTANT_TEAM")).strip(),
                 "date":   date_str,
                 "datetime": str(raw_date).strip(),  # full timestamp for FCR ordering
-                "solved": str(row["SOLVED"]).strip().lower() == "true",
-                "call_id": (row.get("CALL_ID") or "").strip(),
+                "solved": str(_gv("SOLVED")).strip().lower() == "true",
+                "call_id": str(_gv("CALL_ID")).strip(),
                 "opp_id": str(opp).strip(),
-                "reason": (row.get("REASON_FOR_CALL__C") or row.get("REASON_FOR_CALL")
-                           or row.get("CALL_REASON") or row.get("REASON") or "").strip(),
-                "summary": _normalize_summary(
-                    row.get("FULL_SUMMARY_JSON__C") or row.get("FULL_SUMMARY_JSON")
-                    or row.get("CALL_SUMMARY") or row.get("SUMMARY") or ""
-                ),
-                "owner_id": (row.get("OWNER_ID") or "").strip(),
-                "created_by_id": (row.get("CREATEDBYID") or row.get("CREATED_BY_ID") or "").strip(),
-                "response_id": (row.get("RESPONSE_ID") or "").strip(),
+                "reason": str(_gv("REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON")).strip(),
+                "summary": _normalize_summary(summary_raw),
+                "summary_raw": str(summary_raw or "").strip(),
+                "owner_id": str(_gv("OWNER_ID")).strip(),
+                "created_by_id": str(_gv("CREATEDBYID", "CREATED_BY_ID")).strip(),
+                "response_id": str(_gv("RESPONSE_ID")).strip(),
             })
         except (ValueError, KeyError):
             continue
@@ -785,6 +791,7 @@ def _parse_excel_bytes(data: bytes) -> list:
                          "team":team,"date":date_str,"datetime":dt_full,"solved":solved,
                          "call_id":call_id,"opp_id":opp_id,"reason":reason,
                          "summary":_normalize_summary(summary_raw),
+                         "summary_raw":str(summary_raw or "").strip(),
                          "owner_id":owner_id,"created_by_id":created_by_id,"response_id":response_id})
         except (TypeError, ValueError):
             continue
