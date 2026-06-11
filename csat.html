@@ -3279,7 +3279,6 @@ function openCsatDetail(type, key) {
         const rat = s.rat || '—';
         const sol = s.sol ? '✓ Solved' : '✗ Not solved';
         const txtRaw = formatCallSummaryText(s.t || s.raw || '');
-        const txt = _esc(txtRaw);
         const ratingColor = rat >= 4 ? '#059669' : rat >= 3 ? '#d97706' : '#dc2626';
         return `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--surface2);display:flex;flex-direction:column;gap:10px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -3298,7 +3297,9 @@ function openCsatDetail(type, key) {
             ${cby ? `<div><span style="font-weight:500;color:var(--text2)">Created By:</span> ${cby}</div>` : ''}
             ${own ? `<div><span style="font-weight:500;color:var(--text2)">Owner:</span> ${own}</div>` : ''}
           </div>
-          <div style="border-top:1px solid var(--border);padding-top:8px;font-size:10px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word">${txt || 'No summary text'}</div>
+          <div style="border-top:1px solid var(--border);padding-top:8px;font-size:9px;color:var(--text2);background:var(--surface3);border-radius:4px;padding:8px;overflow-x:auto;max-height:200px;overflow-y:auto">
+            <pre style="margin:0;font-family:'JetBrains Mono',monospace;font-size:9px;white-space:pre-wrap;word-break:break-word">${_esc(txtRaw || 'No summary text')}</pre>
+          </div>
         </div>`;
       }).join('')}
         </div>

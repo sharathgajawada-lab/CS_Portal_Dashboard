@@ -304,7 +304,9 @@ def _build_csat_index(rows: list) -> dict:
         dm["rs"][reason]["s"] += int(r["solved"])
         dm["rs"][reason]["l"] += int(r["rating"] <= 2)
         dm["rs"][reason]["d"][r["rating"]] = dm["rs"][reason]["d"].get(r["rating"], 0) + 1
-        if summary and len(dm["rs"][reason]["sm"]) < 20:
+        # Store summary if either formatted or raw text exists
+        display_summary = summary or r.get("summary_raw", "")[:1200]
+        if display_summary and len(dm["rs"][reason]["sm"]) < 20:
             dm["rs"][reason]["sm"].append({
                 "dt": r.get("datetime") or d,  # full datetime if available
                 "n": (name or "").strip(),
@@ -317,7 +319,7 @@ def _build_csat_index(rows: list) -> dict:
                 "own": r.get("owner_id", "").strip(),  # owner ID
                 "rat": r["rating"],  # rating
                 "sol": int(r["solved"]),  # solved
-                "t": summary[:1200],  # summary text
+                "t": display_summary,  # summary text (formatted or raw JSON)
             })
         # True FCR counters (only the first call of each opportunity is evaluated)
         if r.get("_fcr_eval"):
