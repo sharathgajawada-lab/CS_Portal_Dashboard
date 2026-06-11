@@ -1513,42 +1513,33 @@ function _renderGlobalCalls() {
       return cid.includes(q) || String(c.rating).includes(q) || String(c.date || '').includes(q) || rsn.includes(q);
     });
 
-    const reasonLookup = {};
-    if (csatData && csatData.call_reasons) {
-      csatData.call_reasons.forEach(r => {
-        reasonLookup[String(r.reason || 'Unspecified')] = r;
-      });
-    }
-    
     body.innerHTML = rows.map(c => {
       const rc = barColors[c.rating] || 'var(--text2)';
       const callId = String(c.call_id || '');
       const reason = String(c.reason || 'Unspecified');
       const reasonKey = 'reason_' + String(reason || '').replace(/[^a-z0-9]/gi,'_').slice(0, 120) + '_' + String(callId || '').replace(/[^a-z0-9]/gi,'_').slice(0, 80);
-      const reasonData = reasonLookup[reason];
-      if (reasonData) {
-        const summaries = Array.isArray(reasonData.summaries) ? reasonData.summaries : [];
-        const matched = summaries.filter(s => String(s?.i || '').trim() === callId);
-        _csatDetailData[reasonKey] = {
-          ...reasonData,
-          show_summaries: true,
-          selected_call_id: callId,
-          summaries: matched.length ? [matched[0]] : [],
-        };
-      } else {
-        _csatDetailData[reasonKey] = {
-          reason,
-          total: 1,
-          share_pct: '—',
-          avg_rating: c.rating ?? '—',
-          solved_pct: c.solved ? 100 : 0,
-          low_pct: (c.rating || 0) <= 2 ? 100 : 0,
-          dist: [],
-          show_summaries: true,
-          selected_call_id: callId,
-          summaries: [],
-        };
-      }
+      const rowSummary = String(c.summary || '').trim();
+      _csatDetailData[reasonKey] = {
+        reason,
+        total: 1,
+        share_pct: '—',
+        avg_rating: c.rating ?? '—',
+        solved_pct: c.solved ? 100 : 0,
+        low_pct: (c.rating || 0) <= 2 ? 100 : 0,
+        dist: [1,2,3,4,5].map(r => ({ r, count: (c.rating === r ? 1 : 0), pct: (c.rating === r ? 100 : 0) })),
+        show_summaries: true,
+        selected_call_id: callId,
+        summaries: rowSummary ? [{
+          i: callId,
+          dt: c.datetime || c.date || '',
+          n: c.name || '',
+          team: c.team || '',
+          cid: c.cid || '',
+          rat: c.rating,
+          sol: c.solved ? 1 : 0,
+          t: rowSummary,
+        }] : [],
+      };
       let url = '#';
       try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
       const idCell = callId
@@ -1686,6 +1677,11 @@ function _csatComputeAndRender(from, to) {
             solved: !!call.s,
             reason: call.rs || call.reason || '',
             date: d,
+            datetime: call.dt || d,
+            summary: call.t || call.summary || call.raw || '',
+            cid,
+            name: cv.n || '',
+            team: cv.tm || '',
           });
         }
       }
@@ -2165,11 +2161,8 @@ function renderOpsIntelligence(d) {
 
   function buildDaily(fromIso, toIso) {
     const out = [];
-    const d0 = new Date(fromIso + 'T00:00:00');
-    const d1 = new Date(toIso + 'T00:00:00');
-    while (d0 <= d1) {
-      const iso = d0.toISOString().slice(0,10);
-      const dm = daysMap[iso] || {};
+    for (const [iso, dm] of Object.entries(daysMap)) {
+      if (iso < fromIso || iso > toIso) continue;
       const calls = dm.t || 0;
       const opps = dm.uo || 0;
       out.push({
@@ -2178,29 +2171,16 @@ function renderOpsIntelligence(d) {
         unique_opps: opps,
         calls_per_opp: opps > 0 ? Math.round(calls / opps * 100) / 100 : null,
       });
-      d0.setDate(d0.getDate() + 1);
     }
-    return out;
+    return out.sort((a, b) => (a.date < b.date ? -1 : 1));
   }
 
-  function aggregateOps(series, gb) {
-    if (!gb || gb === 'day') return series;
+  function aggregateOps(points, groupBy) {
+    if (!Array.isArray(points) || !points.length) return [];
+    if (groupBy === 'day') return points;
     const buckets = {};
-    for (const p of series) {
-      const d = new Date((p.date) + 'T00:00:00');
-      let key = p.date;
-      if (gb === 'week') {
-        const day = d.getDay() || 7;
-        const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
-        key = mon.toISOString().slice(0,10);
-      } else if (gb === 'month') {
-        key = p.date.slice(0,7) + '-01';
-      } else if (gb === 'quarter') {
-        const q = Math.floor(d.getMonth() / 3);
-        key = `${d.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`;
-      } else if (gb === 'year') {
-        key = `${d.getFullYear()}-01-01`;
-      }
+    for (const p of points) {
+      const key = fmtBucketDate(p.date, groupBy);
       if (!buckets[key]) buckets[key] = { date: key, calls: 0, unique_opps: 0, calls_per_opp: null };
       buckets[key].calls += p.calls || 0;
       buckets[key].unique_opps += p.unique_opps || 0;

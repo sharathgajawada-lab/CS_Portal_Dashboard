@@ -380,6 +380,8 @@ def _build_csat_index(rows: list) -> dict:
                     "r": r["rating"],
                     "s": int(r["solved"]),
                     "rs": reason,
+                    "dt": r.get("datetime") or d,
+                    "t": display_summary,
                 })
 
         if not bad_name:
