@@ -1305,10 +1305,34 @@ function _csatScopeDays(rawDays) {
       cn = { [_csatScope.value]: src };
       tm = { [src.tm || '—']: src };
     }
+
+    // Keep reason summaries in scoped mode by filtering day-level summary cards.
+    // Team/member aggregates (src.rs) contain counts but typically no `sm` payload.
+    const scopedRs = {};
+    for (const [reason, rv] of Object.entries(src.rs || {})) {
+      const fullReason = (dm.rs || {})[reason] || {};
+      const fullSm = Array.isArray(fullReason.sm) ? fullReason.sm : [];
+      const filteredSm = fullSm.filter((s) => {
+        if (!s) return false;
+        if (_csatScope.type === 'team') {
+          return String(s.team || '').trim() === _csatScope.value;
+        }
+        return String(s.cid || '').trim() === _csatScope.value;
+      });
+      scopedRs[reason] = {
+        t: rv.t || 0,
+        sr: rv.sr || 0,
+        s: rv.s || 0,
+        l: rv.l || 0,
+        d: Object.assign({}, rv.d || {}),
+        sm: filteredSm.slice(0, 40),
+      };
+    }
+
     out[d] = {
       t: src.t || 0, sr: src.sr || 0, s: src.s || 0, l: src.l || 0,
       d: Object.assign({}, src.d || {}),
-      rs: Object.assign({}, src.rs || {}),
+      rs: scopedRs,
       uo: src.uo || 0,
       ft: src.ft || 0, fr: src.fr || 0,   // carry true-FCR counters into scoped view
       tm, cn,
