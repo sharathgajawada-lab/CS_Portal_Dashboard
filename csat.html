@@ -1531,6 +1531,7 @@ function _renderGlobalCalls() {
         const matched = summaries.filter(s => String(s?.i || '').trim() === callId);
         _csatDetailData[reasonKey] = {
           ...reasonData,
+          selected_call_id: callId,
           summaries: matched.length ? [matched[0]] : [],
         };
       }
@@ -3276,7 +3277,14 @@ function openCsatDetail(type, key) {
   const barLabels = {1:'1★ Very bad',2:'2★ Bad',3:'3★ OK',4:'4★ Good',5:'5★ Excellent'};
   const dist = data.dist || [];
   const maxCount = Math.max(...dist.map(d => d.count), 1);
-  const summaries = Array.isArray(data.summaries) ? data.summaries : [];
+  const summariesRaw = Array.isArray(data.summaries) ? data.summaries : [];
+  let summaries = summariesRaw;
+  if (data.selected_call_id) {
+    const callId = String(data.selected_call_id).trim();
+    summaries = summariesRaw.filter(s => String(s?.i || '').trim() === callId);
+  }
+  // Always render at most one summary card for row-level drilldown.
+  if (summaries.length > 1) summaries = [summaries[0]];
   
   console.log('[openCsatDetail] type:', type, 'key:', key, 'summaries:', summaries);
   
