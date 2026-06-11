@@ -1531,8 +1531,22 @@ function _renderGlobalCalls() {
         const matched = summaries.filter(s => String(s?.i || '').trim() === callId);
         _csatDetailData[reasonKey] = {
           ...reasonData,
+          show_summaries: true,
           selected_call_id: callId,
           summaries: matched.length ? [matched[0]] : [],
+        };
+      } else {
+        _csatDetailData[reasonKey] = {
+          reason,
+          total: 1,
+          share_pct: '—',
+          avg_rating: c.rating ?? '—',
+          solved_pct: c.solved ? 100 : 0,
+          low_pct: (c.rating || 0) <= 2 ? 100 : 0,
+          dist: [],
+          show_summaries: true,
+          selected_call_id: callId,
+          summaries: [],
         };
       }
       let url = '#';
@@ -2405,7 +2419,7 @@ function renderCallReasons(reasons, totalSurveys) {
 
   body.innerHTML = rows.slice(0, 25).map(r => {
     const reasonKey = 'reason_' + String(r.reason || '').replace(/[^a-z0-9]/gi,'_').slice(0, 120);
-    _csatDetailData[reasonKey] = r;
+    _csatDetailData[reasonKey] = { ...r, show_summaries: false, summaries: [] };
     const ratingColor = r.avg_rating >= 4.5 ? 'var(--green)' : r.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
     const solvedColor = r.solved_pct >= 74 ? 'var(--green)' : r.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)';
     const lowPill = r.low_pct > 20 ? 'red' : r.low_pct > 10 ? 'amber' : 'green';
@@ -3288,7 +3302,8 @@ function openCsatDetail(type, key) {
   
   console.log('[openCsatDetail] type:', type, 'key:', key, 'summaries:', summaries);
   
-  const summariesHtml = type === 'reason' ? `
+  const canShowSummaries = type === 'reason' && !!data.show_summaries;
+  const summariesHtml = canShowSummaries ? `
     <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text1);margin-bottom:16px;display:flex;align-items:center;gap:6px">
         <span>📞 Call Summaries</span>
