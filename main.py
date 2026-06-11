@@ -433,6 +433,9 @@ _last_raw_sample = {}   # Global to store first raw row for inspection
 def _parse_csv_text(text: str) -> list:
     """Parse CSAT CSV text (from disk or Domo export) into survey rows."""
     global _last_csv_columns
+    def _canon_key(value) -> str:
+        return "".join(ch for ch in str(value or "") if ch.isalnum()).upper()
+
     def _normalize_summary(raw_value) -> str:
         raw = str(raw_value or "").strip()
         if not raw:
@@ -525,12 +528,15 @@ def _parse_csv_text(text: str) -> list:
             print(f"[parse_csv] first row raw data: {dict(list(row.items())[:7])}", flush=True)
             first_row = False
         try:
-            # Normalize CSV headers to uppercase so mixed-case exports still parse.
+            # Canonicalize headers to tolerate spaces, punctuation, and case changes.
             row_u = {str(k or "").strip().upper(): v for k, v in row.items()}
+            row_canon = {_canon_key(k): v for k, v in row.items()}
 
             def _gv(*keys):
                 for k in keys:
                     v = row_u.get(str(k).strip().upper())
+                    if v is None or str(v).strip() == "":
+                        v = row_canon.get(_canon_key(k))
                     if v is not None and str(v).strip() != "":
                         return v
                 return ""
@@ -540,6 +546,34 @@ def _parse_csv_text(text: str) -> list:
             # opportunity id (for true FCR) — tolerate a few likely column names.
             opp = _gv("OPPORTUNITY_ID", "OPPORTUNITYID", "OPPORTUNITY")
             summary_raw = _gv("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "CALLSUMMARY", "SUMMARY")
+            if not str(summary_raw or "").strip():
+                # Last-resort scan in case Domo renamed summary headers unexpectedly.
+                summary_candidates = []
+                for k, v in row_canon.items():
+                    if v is None or str(v).strip() == "":
+                        continue
+                    if any(tok in k for tok in ("FULLSUMMARY", "CALLSUMMARY", "SUMMARYJSON", "SUMMARYTEXT", "TRANSCRIPT", "NOTES")):
+                        summary_candidates.append(str(v).strip())
+                if summary_candidates:
+                    summary_raw = max(summary_candidates, key=len)
+            if not str(summary_raw or "").strip():
+                # Heuristic fallback: pick the longest narrative-looking text cell.
+                skip_tokens = {
+                    "RATING", "CONSULTANTID", "CONSULTANTNAME", "CONSULTANTTEAM", "DATE", "DATETIME",
+                    "SOLVED", "CALLID", "OPPORTUNITYID", "OWNERID", "CREATEDBYID", "RESPONSEID", "REASONFORCALL",
+                }
+                for k, v in row_canon.items():
+                    if not v:
+                        continue
+                    txt = str(v).strip()
+                    if len(txt) < 80:
+                        continue
+                    if _canon_key(k) in skip_tokens:
+                        continue
+                    # Prefer JSON-ish payloads and multi-sentence text.
+                    if txt[:1] in ("{", "[") or txt.count(" ") >= 12:
+                        summary_raw = txt
+                        break
             if not str(summary_raw or "").strip():
                 call_reason_raw = str(_gv("CUSTOMERSCALLREASON", "CUSTOMER_CALL_REASON", "CALLREASON", "REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON")).strip()
                 call_summary_raw = str(_gv("CALLSUMMARY", "CALL_SUMMARY", "SUMMARY", "FULL_SUMMARY")).strip()
@@ -701,6 +735,9 @@ def _parse_excel_bytes(data: bytes) -> list:
     """Parse Excel file bytes into survey rows. Returns list of row dicts."""
     import datetime as _dt_mod
 
+    def _canon_key(value) -> str:
+        return "".join(ch for ch in str(value or "") if ch.isalnum()).upper()
+
     def _normalize_summary(raw_value) -> str:
         raw = str(raw_value or "").strip()
         if not raw:
@@ -763,64 +800,95 @@ def _parse_excel_bytes(data: bytes) -> list:
     if not raw_rows:
         raise ValueError("Empty workbook")
 
-    headers = [str(h).strip().upper() if h else "" for h in raw_rows[0]]
+    headers_raw = [str(h).strip() if h else "" for h in raw_rows[0]]
+    headers = [h.upper() for h in headers_raw]
     col     = {name: i for i, name in enumerate(headers)}
+    col_canon = {_canon_key(name): i for i, name in enumerate(headers_raw)}
+
+    def _cell_value(row_data, *keys):
+        for k in keys:
+            idx = col.get(str(k).strip().upper())
+            if idx is None:
+                idx = col_canon.get(_canon_key(k))
+            if idx is None or idx >= len(row_data):
+                continue
+            val = row_data[idx]
+            if val is not None and str(val).strip() != "":
+                return val
+        return ""
+
     required = {"RATING", "CONSULTANT_ID", "CONSULTANT_NAME", "CONSULTANT_TEAM", "DATETIME", "SOLVED"}
-    missing  = required - set(col.keys())
+    required_ok = set(col.keys()) | set(col_canon.keys())
+    missing  = {k for k in required if _canon_key(k) not in required_ok and k not in required_ok}
     if missing:
         raise ValueError(f"Missing columns: {missing}")
 
     rows = []
     for row in raw_rows[1:]:
         try:
-            rating  = int(row[col["RATING"]])
-            cid     = str(row[col["CONSULTANT_ID"]] or "").strip()
-            name    = str(row[col["CONSULTANT_NAME"]] or "").strip()
-            team    = str(row[col["CONSULTANT_TEAM"]] or "").strip()
-            dt_val  = row[col["DATETIME"]]
-            solved  = str(row[col["SOLVED"]] or "").strip().lower() == "true"
-            call_id = str(row[col["CALL_ID"]] or "").strip() if "CALL_ID" in col else ""
-            opp_id  = ""
-            for _k in ("OPPORTUNITY_ID", "OPPORTUNITYID", "OPPORTUNITY"):
-                if _k in col:
-                    opp_id = str(row[col[_k]] or "").strip()
-                    break
-            reason = ""
-            for _k in ("REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON"):
-                if _k in col:
-                    reason = str(row[col[_k]] or "").strip()
-                    break
-            owner_id = str(row[col["OWNER_ID"]] or "").strip() if "OWNER_ID" in col else ""
-            created_by_id = ""
-            for _k in ("CREATEDBYID", "CREATED_BY_ID"):
-                if _k in col:
-                    created_by_id = str(row[col[_k]] or "").strip()
-                    break
-            response_id = str(row[col["RESPONSE_ID"]] or "").strip() if "RESPONSE_ID" in col else ""
-            summary_raw = ""
-            for _k in ("FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "CALLSUMMARY", "SUMMARY"):
-                if _k in col:
-                    summary_raw = str(row[col[_k]] or "").strip()
-                    break
+            rating  = int(float(_cell_value(row, "RATING") or 0))
+            cid     = str(_cell_value(row, "CONSULTANT_ID") or "").strip()
+            name    = str(_cell_value(row, "CONSULTANT_NAME") or "").strip()
+            team    = str(_cell_value(row, "CONSULTANT_TEAM") or "").strip()
+            dt_val  = _cell_value(row, "DATETIME", "DATE")
+            solved  = str(_cell_value(row, "SOLVED") or "").strip().lower() == "true"
+            call_id = str(_cell_value(row, "CALL_ID") or "").strip()
+            opp_id  = str(_cell_value(row, "OPPORTUNITY_ID", "OPPORTUNITYID", "OPPORTUNITY") or "").strip()
+            reason = str(_cell_value(row, "REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON") or "").strip()
+            owner_id = str(_cell_value(row, "OWNER_ID") or "").strip()
+            created_by_id = str(_cell_value(row, "CREATEDBYID", "CREATED_BY_ID") or "").strip()
+            response_id = str(_cell_value(row, "RESPONSE_ID") or "").strip()
+            summary_raw = str(_cell_value(row, "FULL_SUMMARY_JSON__C", "FULL_SUMMARY_JSON", "CALL_SUMMARY", "CALLSUMMARY", "SUMMARY") or "").strip()
+
+            if not summary_raw:
+                summary_candidates = []
+                for header_name, idx in col_canon.items():
+                    if idx >= len(row):
+                        continue
+                    val = row[idx]
+                    if val is None or str(val).strip() == "":
+                        continue
+                    if any(tok in header_name for tok in ("FULLSUMMARY", "CALLSUMMARY", "SUMMARYJSON", "SUMMARYTEXT", "TRANSCRIPT", "NOTES")):
+                        summary_candidates.append(str(val).strip())
+                if summary_candidates:
+                    summary_raw = max(summary_candidates, key=len)
+
+            if not summary_raw:
+                skip_tokens = {
+                    "RATING", "CONSULTANTID", "CONSULTANTNAME", "CONSULTANTTEAM", "DATE", "DATETIME",
+                    "SOLVED", "CALLID", "OPPORTUNITYID", "OWNERID", "CREATEDBYID", "RESPONSEID", "REASONFORCALL",
+                }
+                for header_name, idx in col_canon.items():
+                    if idx >= len(row):
+                        continue
+                    val = row[idx]
+                    if val is None:
+                        continue
+                    txt = str(val).strip()
+                    if len(txt) < 80:
+                        continue
+                    if header_name in skip_tokens:
+                        continue
+                    if txt[:1] in ("{", "[") or txt.count(" ") >= 12:
+                        summary_raw = txt
+                        break
+
             if not summary_raw:
                 call_reason_raw = ""
                 for _k in ("CUSTOMERSCALLREASON", "CUSTOMER_CALL_REASON", "CALLREASON", "REASON_FOR_CALL__C", "REASON_FOR_CALL", "CALL_REASON", "REASON"):
-                    if _k in col:
-                        call_reason_raw = str(row[col[_k]] or "").strip()
-                        if call_reason_raw:
-                            break
+                    call_reason_raw = str(_cell_value(row, _k) or "").strip()
+                    if call_reason_raw:
+                        break
                 call_summary_raw = ""
                 for _k in ("CALLSUMMARY", "CALL_SUMMARY", "SUMMARY", "FULL_SUMMARY"):
-                    if _k in col:
-                        call_summary_raw = str(row[col[_k]] or "").strip()
-                        if call_summary_raw:
-                            break
+                    call_summary_raw = str(_cell_value(row, _k) or "").strip()
+                    if call_summary_raw:
+                        break
                 next_steps_raw = ""
                 for _k in ("NEXTSTEPS", "NEXT_STEPS", "ACTIONITEMS", "ACTIONS"):
-                    if _k in col:
-                        next_steps_raw = str(row[col[_k]] or "").strip()
-                        if next_steps_raw:
-                            break
+                    next_steps_raw = str(_cell_value(row, _k) or "").strip()
+                    if next_steps_raw:
+                        break
                 if call_reason_raw or call_summary_raw or next_steps_raw:
                     parts = []
                     if call_reason_raw:
