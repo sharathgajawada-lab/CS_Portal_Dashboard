@@ -427,8 +427,12 @@ def _build_csat_index(rows: list) -> dict:
     print(f"[csat] index built: {len(rows):,} rows · {len(day_map)} days · {len(week_cons)} weeks", flush=True)
     return index_data
 
+_last_csv_columns = []  # Global to track columns for debugging
+_last_raw_sample = {}   # Global to store first raw row for inspection
+
 def _parse_csv_text(text: str) -> list:
     """Parse CSAT CSV text (from disk or Domo export) into survey rows."""
+    global _last_csv_columns
     def _normalize_summary(raw_value) -> str:
         raw = str(raw_value or "").strip()
         if not raw:
@@ -511,7 +515,15 @@ def _parse_csv_text(text: str) -> list:
         return raw[:2200]
 
     rows = []
+    first_row = True
     for row in csv.DictReader(io.StringIO(text)):
+        if first_row:
+            global _last_raw_sample
+            _last_csv_columns = list(row.keys())
+            _last_raw_sample = dict(row)  # Store first raw row for inspection
+            print(f"[parse_csv] columns detected ({len(_last_csv_columns)}): {_last_csv_columns}", flush=True)
+            print(f"[parse_csv] first row raw data: {dict(list(row.items())[:7])}", flush=True)
+            first_row = False
         try:
             # Normalize CSV headers to uppercase so mixed-case exports still parse.
             row_u = {str(k or "").strip().upper(): v for k, v in row.items()}
@@ -1752,6 +1764,8 @@ async def debug_csat():
         "cwd": os.getcwd(),
         "paths_checked": {p: os.path.exists(p) for p in paths},
         "sample": _csat_rows[:2] if _csat_rows else [],
+        "columns_detected": _last_csv_columns,
+        "raw_sample_row": _last_raw_sample,
         "domo": {
             "configured": _domo_configured(),
             "client_id_set": bool(DOMO_CLIENT_ID),
