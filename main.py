@@ -320,6 +320,8 @@ def _build_csat_index(rows: list) -> dict:
                 "rat": r["rating"],  # rating
                 "sol": int(r["solved"]),  # solved
                 "t": display_summary,  # summary text (formatted or raw JSON)
+                "summary": display_summary,  # compatibility alias for frontend consumers
+                "raw": str(r.get("summary_raw") or "").strip(),  # preserve raw payload when present
             })
         # True FCR counters (only the first call of each opportunity is evaluated)
         if r.get("_fcr_eval"):
@@ -1818,6 +1820,10 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
 @app.get("/debug/csat")
 async def debug_csat():
     """Check whether call_quality.csv was loaded successfully."""
+    summary_nonempty = [
+        r for r in _csat_rows
+        if str(r.get("summary") or "").strip() or str(r.get("summary_raw") or "").strip()
+    ]
     paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "call_quality.csv"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "call_quality.csv"),
@@ -1832,6 +1838,8 @@ async def debug_csat():
         "cwd": os.getcwd(),
         "paths_checked": {p: os.path.exists(p) for p in paths},
         "sample": _csat_rows[:2] if _csat_rows else [],
+        "summary_rows_nonempty": len(summary_nonempty),
+        "summary_sample": summary_nonempty[:2] if summary_nonempty else [],
         "columns_detected": _last_csv_columns,
         "raw_sample_row": _last_raw_sample,
         "domo": {

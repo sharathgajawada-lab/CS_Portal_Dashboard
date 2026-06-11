@@ -3278,7 +3278,7 @@ function openCsatDetail(type, key) {
         const own = _esc(s.own || '');
         const rat = s.rat || '—';
         const sol = s.sol ? '✓ Solved' : '✗ Not solved';
-        const txtRaw = formatCallSummaryText(s.t || s.raw || '');
+        const txtRaw = formatCallSummaryText(s.t || s.summary || s.summary_raw || s.raw || s.text || '');
         const ratingColor = rat >= 4 ? '#059669' : rat >= 3 ? '#d97706' : '#dc2626';
         return `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--surface2);display:flex;flex-direction:column;gap:10px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
