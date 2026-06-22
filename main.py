@@ -1001,7 +1001,11 @@ def get_client():
         _client = httpx.AsyncClient(
             timeout=20,
             limits=httpx.Limits(max_connections=3, max_keepalive_connections=2),
-            headers={"api-key": API_KEY, "Accept": "application/json"},
+            headers={
+                "api-key": API_KEY,
+                "x-api-key": API_KEY,
+                "Accept": "application/json",
+            },
         )
     return _client
 
@@ -1026,7 +1030,8 @@ async def _get(url, params, retries=3):
                 await asyncio.sleep(wait)
                 continue
             if r.status_code != 200:
-                print(f"[CMS] {r.status_code} {url}", flush=True)
+                body_preview = (r.text or "").strip().replace("\n", " ")[:180]
+                print(f"[CMS] {r.status_code} {url} :: {body_preview}", flush=True)
                 return None
             text = r.text.strip()
             return json.loads(text) if text else None
@@ -1100,15 +1105,25 @@ async def full_refresh():
         return
     async with lock:
         print(f"[refresh] starting at {datetime.utcnow().isoformat()}", flush=True)
+        old_batch, _ = cache_get("batch:all")
+        old_intel, _ = cache_get("intel:all")
         batch  = {}
         intel  = {}
+        batch_non_empty_events = 0
 
         # ── Calls 1-9: time-series for KPIs ──────────────────────────────────
         for ev in EVENTS:
             series = await _timeseries(ev["project"], ev["key"])
+            if series:
+                batch_non_empty_events += 1
             batch[ev["key"]] = {"series": series}
 
-        cache_set("batch:all", batch)
+        if batch_non_empty_events == 0 and old_batch:
+            # Protect against upstream outages returning empty responses for all KPIs.
+            batch = old_batch
+            print("[refresh] CMS returned empty KPI batch — keeping previous cache", flush=True)
+        else:
+            cache_set("batch:all", batch)
         print(f"[refresh] batch done — {sum(len(v['series']) for v in batch.values())} points", flush=True)
 
         # ── Call 10: top articles ─────────────────────────────────────────────
@@ -1522,7 +1537,19 @@ async def full_refresh():
                 "computed_at":        datetime.utcnow().isoformat(),
             },
         }
-        cache_set("intel:all", intel)
+        has_intel_payload = any([
+            len(articles) > 0,
+            len(video_counter) > 0,
+            search_total > 0,
+            n_sess > 0,
+            len(cat_rows) > 0,
+        ])
+        if not has_intel_payload and old_intel:
+            # Keep the last known-good snapshot if CMS/timeline calls failed upstream.
+            intel = old_intel
+            print("[refresh] CMS returned empty intel payload — keeping previous cache", flush=True)
+        else:
+            cache_set("intel:all", intel)
         print(f"[refresh] complete — {len(articles)} articles, {len(video_counter)} videos, {search_total} searches", flush=True)
 
 # ── Background loop — one refresh every 2 hours ────────────────────────────────
