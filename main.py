@@ -162,11 +162,13 @@ async def _sb_store_events(user_id: str, project: str, events: list):
     }])
     print(f"[supabase] stored {len(rows)} events for {user_id[:16]}", flush=True)
 
-async def _sb_get_all_events(date_from: str = "", date_to: str = "") -> list:
-    """Fetch all stored timeline events from Supabase, optionally filtered by date."""
+async def _sb_get_all_events(date_from: str = "", date_to: str = "", project: str = "cs-portal-content-events") -> list:
+    """Fetch stored timeline events from Supabase, optionally filtered by date/project."""
     if not _sb_enabled:
         return []
-    path = "/cs_user_timelines?select=user_id,event_type,item_id,session_id,ts,event_date,properties&project=eq.cs-portal-content-events"
+    path = "/cs_user_timelines?select=user_id,event_type,item_id,session_id,ts,event_date,properties"
+    if project:
+        path += f"&project=eq.{project}"
     if date_from:
         path += f"&event_date=gte.{date_from}"
     if date_to:
@@ -1093,6 +1095,297 @@ def _props(e):
     p = e.get("properties")
     return p if isinstance(p, dict) else {}
 
+def _dense_series_from_day_counts(day_counts: dict) -> list:
+    """Convert sparse per-day counts into dense daily series."""
+    if not day_counts:
+        return []
+    from datetime import date as _date, timedelta as _td
+    d_min = _date.fromisoformat(min(day_counts))
+    d_max = _date.fromisoformat(max(day_counts))
+    out = []
+    cur = d_min
+    while cur <= d_max:
+        iso = cur.isoformat()
+        out.append({"date": iso, "count": int(day_counts.get(iso, 0) or 0)})
+        cur += _td(days=1)
+    return out
+
+def _label_from_slug(slug: str) -> str:
+    s = (slug or "").strip()
+    if not s:
+        return "Unknown"
+    return s.replace("-", " ").replace("_", " ").title()
+
+def _build_sessions_from_events(events: list) -> dict:
+    """Compute compact sessions summary from stored timeline events."""
+    if not events:
+        return {
+            "total_sessions": 0,
+            "avg_seconds": 0,
+            "median_seconds": 0,
+            "p90_seconds": 0,
+            "pct_with_logout": 0,
+            "depth_distribution": {},
+            "activity_breakdown": [],
+            "daily_avg": [],
+            "hour_distribution": {},
+            "note": "No session data available in Supabase yet",
+        }
+
+    sessions_map = defaultdict(list)
+    for ev in events:
+        uid = ev.get("user_id") or ""
+        sid = ev.get("session_id") or "nosession"
+        ts = int(ev.get("ts") or 0)
+        if not ts:
+            continue
+        sessions_map[f"{uid}::{sid}"].append(ev)
+
+    durations = []
+    session_depths = []
+    daily_map = defaultdict(list)
+    hour_map = defaultdict(int)
+    event_type_times = defaultdict(list)
+    labels = {
+        "article.viewed": "Reading",
+        "search.performed": "Searching",
+        "video.watched": "Watching",
+        "category.viewed": "Browsing",
+    }
+
+    for _, evs in sessions_map.items():
+        evs_s = sorted(evs, key=lambda e: int(e.get("ts") or 0))
+        ts_vals = [int(e.get("ts") or 0) for e in evs_s if int(e.get("ts") or 0)]
+        if len(ts_vals) < 2:
+            continue
+
+        dur = min((ts_vals[-1] - ts_vals[0]) / 1000, 28800)
+        if dur < 5:
+            continue
+        durations.append(dur)
+        session_depths.append(len(evs_s))
+
+        d = datetime.utcfromtimestamp(ts_vals[0] / 1000).strftime("%Y-%m-%d")
+        daily_map[d].append(round(dur))
+        h = datetime.utcfromtimestamp(ts_vals[0] / 1000).hour
+        hour_map[h] += 1
+
+        for i, ev in enumerate(evs_s[:-1]):
+            t0 = int(ev.get("ts") or 0)
+            t1 = int(evs_s[i+1].get("ts") or 0)
+            gap = (t1 - t0) / 1000
+            if 2 <= gap <= 600:
+                event_type_times[_etype(ev)].append(gap)
+
+    n = len(durations)
+    if n == 0:
+        return {
+            "total_sessions": 0,
+            "avg_seconds": 0,
+            "median_seconds": 0,
+            "p90_seconds": 0,
+            "pct_with_logout": 0,
+            "depth_distribution": {},
+            "activity_breakdown": [],
+            "daily_avg": [],
+            "hour_distribution": {},
+            "note": "No qualifying sessions found in Supabase",
+        }
+
+    ds = sorted(durations)
+    depth_dist = Counter("bounce" if d <= 2 else "normal" if d <= 9 else "deep" for d in session_depths)
+    daily_avg = sorted(
+        [{"date": d, "avg_seconds": round(sum(v) / len(v))} for d, v in daily_map.items()],
+        key=lambda x: x["date"],
+    )
+    total_act = sum(sum(v) for k, v in event_type_times.items() if k in labels and v)
+    activity_breakdown = []
+    for k, lab in labels.items():
+        vals = event_type_times.get(k, [])
+        if not vals:
+            continue
+        activity_breakdown.append({
+            "label": lab,
+            "avg_seconds": round(sum(vals) / len(vals)),
+            "pct_time": round(sum(vals) / max(total_act, 1) * 100),
+        })
+    activity_breakdown.sort(key=lambda x: -x["avg_seconds"])
+
+    return {
+        "total_sessions": n,
+        "avg_seconds": round(sum(ds) / n),
+        "median_seconds": ds[n // 2],
+        "p90_seconds": ds[int(n * 0.9)],
+        "pct_with_logout": 0,
+        "depth_distribution": dict(depth_dist),
+        "activity_breakdown": activity_breakdown,
+        "daily_avg": daily_avg,
+        "hour_distribution": {str(h): c for h, c in sorted(hour_map.items())},
+        "note": f"Recovered from Supabase timeline cache ({n} sessions)",
+    }
+
+async def _build_fallback_from_supabase() -> tuple:
+    """Build best-effort batch and intel payloads from stored Supabase events."""
+    empty_batch = {ev["key"]: {"series": []} for ev in EVENTS}
+    empty_intel = {
+        "articles": {"articles": [], "total_views": 0, "priority": [], "computed_at": datetime.utcnow().isoformat(), "note": "No CMS data"},
+        "search": {"top_queries": [], "zero_result": [], "content_gaps": [], "total_searches": 0, "conversion_rate": 0, "frustration_index": 0, "computed_at": datetime.utcnow().isoformat(), "note": "No CMS data"},
+        "categories": {"categories": [], "computed_at": datetime.utcnow().isoformat()},
+        "videos": {"videos": [], "computed_at": datetime.utcnow().isoformat(), "note": "No CMS data"},
+        "sessions": {"total_sessions": 0, "avg_seconds": 0, "median_seconds": 0, "p90_seconds": 0, "pct_with_logout": 0, "depth_distribution": {}, "activity_breakdown": [], "daily_avg": [], "note": "No CMS data"},
+        "insights": {"consumption_ratio": 0, "frustration_index": 0, "engagement_velocity": 0, "self_service_rate": 0, "hour_distribution": {}, "weekly_digest": "CMS unavailable — using Supabase fallback", "computed_at": datetime.utcnow().isoformat()},
+    }
+    if not _sb_enabled:
+        return empty_batch, empty_intel, 0, 0
+
+    content_events = await _sb_get_all_events(project="cs-portal-content-events")
+    feedback_events = await _sb_get_all_events(project="cs-portal-feedback-events")
+    if not content_events and not feedback_events:
+        return empty_batch, empty_intel, 0, 0
+
+    # Build batch series for content events available in Supabase.
+    day_by_event = defaultdict(lambda: defaultdict(int))
+    for ev in content_events:
+        et = ev.get("event_type") or ""
+        day = ev.get("event_date") or ""
+        if not day:
+            continue
+        if et in ("article.viewed", "search.performed", "video.watched", "category.viewed"):
+            day_by_event[et][day] += 1
+
+    batch = {ev["key"]: {"series": []} for ev in EVENTS}
+    for key, counts in day_by_event.items():
+        batch[key] = {"series": _dense_series_from_day_counts(counts)}
+
+    # Build intel snapshots from Supabase counters.
+    article_views = Counter()
+    category_views = Counter()
+    video_views = Counter()
+    queries = Counter()
+    for ev in content_events:
+        et = ev.get("event_type") or ""
+        props = _props(ev)
+        item = (ev.get("item_id") or "").strip()
+        if et == "article.viewed" and item:
+            article_views[item] += 1
+        elif et == "category.viewed":
+            key = item or (props.get("category") or "")
+            if key:
+                category_views[key] += 1
+        elif et == "video.watched":
+            title = (props.get("videoTitle") or item or "").strip()
+            if title:
+                video_views[title] += 1
+        elif et == "search.performed":
+            q = (props.get("query") or "").strip().lower()
+            if q:
+                queries[q] += 1
+
+    helpful = Counter()
+    not_helpful = Counter()
+    for ev in feedback_events:
+        if (ev.get("event_type") or "") != "article.feedback":
+            continue
+        props = _props(ev)
+        aid = (ev.get("item_id") or props.get("articleKey") or "").strip()
+        if not aid:
+            continue
+        v = str(props.get("value") or "").strip().lower()
+        if v == "helpful":
+            helpful[aid] += 1
+        elif v == "not_helpful":
+            not_helpful[aid] += 1
+
+    total_views = sum(article_views.values())
+    articles = []
+    for aid, views in article_views.most_common(20):
+        hp = helpful.get(aid, 0)
+        nh = not_helpful.get(aid, 0)
+        fb_total = hp + nh
+        hp_pct = round(hp / fb_total * 100, 1) if fb_total else None
+        score_f = 10 if fb_total == 0 else min(30, fb_total * 5)
+        if hp_pct is not None and hp_pct >= 80:
+            score_f = min(30, score_f + 5)
+        if hp_pct is not None and hp_pct < 40:
+            score_f = max(0, score_f - 10)
+        health = min(100, min(40, round(views / max(total_views, 1) * 400)) + 10 + score_f)
+        articles.append({
+            "id": aid,
+            "label": _label_from_slug(aid),
+            "views": int(views),
+            "share_pct": round(views / max(total_views, 1) * 100, 1),
+            "helpful": int(hp),
+            "not_helpful": int(nh),
+            "helpful_pct": hp_pct,
+            "total_feedback": int(fb_total),
+            "avg_seconds": None,
+            "min_seconds": None,
+            "max_seconds": None,
+            "bounce_rate": None,
+            "revisits": 0,
+            "time_sample": 0,
+            "health_score": int(health),
+            "needs_attention": bool(views > 50 and (fb_total == 0 or (hp_pct is not None and hp_pct < 50))),
+            "is_dead_end": False,
+            "next_articles": [],
+        })
+
+    sessions = _build_sessions_from_events(content_events)
+    search_total = sum(queries.values())
+    auth_series = batch.get("auth.login", {}).get("series", [])
+    login_total = sum(p.get("count", 0) for p in auth_series)
+    article_total = sum(p.get("count", 0) for p in batch.get("article.viewed", {}).get("series", []))
+    search_total_series = sum(p.get("count", 0) for p in batch.get("search.performed", {}).get("series", []))
+    insights_hour = sessions.get("hour_distribution", {})
+
+    intel = {
+        "articles": {
+            "articles": articles,
+            "total_views": total_views,
+            "priority": [{"id": a["id"], "label": a["label"], "views": a["views"], "issue": "No feedback despite views", "health_score": a["health_score"]}
+                         for a in articles if a["needs_attention"]][:10],
+            "computed_at": datetime.utcnow().isoformat(),
+            "note": "Recovered from Supabase timeline cache while CMS is unavailable",
+        },
+        "search": {
+            "top_queries": [{"query": q, "count": c} for q, c in queries.most_common(20)],
+            "zero_result": [],
+            "content_gaps": [],
+            "total_searches": int(search_total),
+            "conversion_rate": 0,
+            "frustration_index": round(search_total_series / max(login_total, 1) * 100) / 100 if login_total else 0,
+            "computed_at": datetime.utcnow().isoformat(),
+            "note": "Recovered from Supabase timeline cache",
+        },
+        "categories": {
+            "categories": [{"path": k, "label": _label_from_slug(k.replace("/category/", "")), "count": int(v)}
+                           for k, v in category_views.most_common(20)],
+            "computed_at": datetime.utcnow().isoformat(),
+        },
+        "videos": {
+            "videos": [{"title": t, "count": int(c), "url": ""} for t, c in video_views.most_common(20)],
+            "computed_at": datetime.utcnow().isoformat(),
+            "note": "Recovered from Supabase timeline cache",
+        },
+        "sessions": {
+            **sessions,
+            "computed_at": datetime.utcnow().isoformat(),
+        },
+        "insights": {
+            "consumption_ratio": round(article_total / max(login_total, 1) * 100) / 100 if login_total else 0,
+            "frustration_index": round(search_total_series / max(login_total, 1) * 100) / 100 if login_total else 0,
+            "engagement_velocity": 0,
+            "self_service_rate": 0,
+            "hour_distribution": insights_hour,
+            "weekly_digest": "CMS unavailable — showing data rebuilt from Supabase timeline cache",
+            "computed_at": datetime.utcnow().isoformat(),
+        },
+    }
+
+    batch_points = sum(len(v.get("series", [])) for v in batch.values())
+    intel_rows = len(articles) + len(video_views) + len(queries) + len(category_views)
+    return batch, intel, batch_points, intel_rows
+
 # ── FULL REFRESH — sequential CMS calls with 1s gap each ─────────────────────
 async def full_refresh():
     """
@@ -1122,6 +1415,15 @@ async def full_refresh():
             # Protect against upstream outages returning empty responses for all KPIs.
             batch = old_batch
             print("[refresh] CMS returned empty KPI batch — keeping previous cache", flush=True)
+        elif batch_non_empty_events == 0 and _sb_enabled:
+            # Fresh deploy + CMS outage: recover what we can from already stored timelines.
+            sb_batch, _, sb_points, _ = await _build_fallback_from_supabase()
+            if sb_points > 0:
+                batch = sb_batch
+                print(f"[refresh] CMS KPI batch empty — recovered {sb_points} points from Supabase", flush=True)
+                cache_set("batch:all", batch)
+            else:
+                cache_set("batch:all", batch)
         else:
             cache_set("batch:all", batch)
         print(f"[refresh] batch done — {sum(len(v['series']) for v in batch.values())} points", flush=True)
@@ -1548,6 +1850,15 @@ async def full_refresh():
             # Keep the last known-good snapshot if CMS/timeline calls failed upstream.
             intel = old_intel
             print("[refresh] CMS returned empty intel payload — keeping previous cache", flush=True)
+        elif not has_intel_payload and _sb_enabled:
+            # Fresh deploy + CMS outage: build a best-effort intel payload from Supabase.
+            _, sb_intel, _, sb_rows = await _build_fallback_from_supabase()
+            if sb_rows > 0:
+                intel = sb_intel
+                print(f"[refresh] CMS intel payload empty — recovered fallback intel from Supabase ({sb_rows} rows)", flush=True)
+                cache_set("intel:all", intel)
+            else:
+                cache_set("intel:all", intel)
         else:
             cache_set("intel:all", intel)
         print(f"[refresh] complete — {len(articles)} articles, {len(video_counter)} videos, {search_total} searches", flush=True)
