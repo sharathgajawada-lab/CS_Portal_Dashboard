@@ -1944,7 +1944,7 @@ async def health():
 @app.get("/api/refresh")
 async def api_refresh():
     """Manually trigger a full data refresh.
-    Same as /cache/clear but with a clean, memorable URL.
+    Safer default than /cache/clear because it never drops cached data.
     Safe to call any time — protected by lock so only one runs at a time.
     """
     lock = get_lock()
@@ -1977,17 +1977,28 @@ async def api_refresh_csat():
     )
 
 @app.get("/cache/clear")
-async def clear_cache():
+async def clear_cache(force: bool = False):
+    """Reset HTTP client and optionally clear cache before queueing refresh.
+
+    Default behaviour keeps last-good cache to avoid blank dashboards during
+    upstream outages. Use force=true only when you intentionally want to drop
+    cached data immediately.
+    """
     global _client
     if _client and not _client.is_closed:
         await _client.aclose()
     _client = None
-    _cache.clear()
+    if force:
+        _cache.clear()
     lock = get_lock()
     if not lock.locked():
         asyncio.create_task(full_refresh())
-        return {"status": "cleared — 1 refresh queued (up to 27 sequential calls, ~30-60s)"}
-    return {"status": "cleared — refresh already running, will complete shortly"}
+        if force:
+            return {"status": "cache cleared + refresh queued", "note": "Cache dropped immediately; refresh takes ~30-60s."}
+        return {"status": "cache retained + refresh queued", "note": "Safe refresh started without dropping last-good data."}
+    if force:
+        return {"status": "cache cleared — refresh already running", "note": "Dashboard may look empty until refresh succeeds."}
+    return {"status": "cache retained — refresh already running", "note": "Last-good data preserved while refresh runs."}
 
 @app.get("/debug/cms")
 async def debug_cms():
