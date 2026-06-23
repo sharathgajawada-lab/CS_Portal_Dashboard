@@ -194,6 +194,9 @@ CMS_BASE      = "https://cms.audibene.net/api/metrics"
 API_KEY       = os.environ.get("CMS_API_KEY", "")
 DATA_START    = "2026-04-24"
 
+# ── Starter Guide Service ───────────────────────────────────────────────────────
+SG_BASE       = os.environ.get("STARTER_GUIDE_BASE_URL", "https://starter-guide-service.audibene.net")
+
 # ── CSAT Survey Data ────────────────────────────────────────────────────────────
 # Loaded once at startup from call_quality.csv
 # Also rebuilt on-demand via POST /upload/csat
@@ -2366,6 +2369,104 @@ async def debug_video_topn():
     except Exception as e:
         results["by_userId"] = {"error": str(e)}
     return results
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Starter Guide Service — transparent proxy endpoints
+# All calls forwarded to SG_BASE with no auth headers required.
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _sg_get(path: str, params: dict = None) -> dict | list | None:
+    """Forward one GET request to the Starter Guide Service."""
+    url = f"{SG_BASE}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(url, params=params or {})
+            if r.status_code == 200:
+                return r.json()
+            print(f"[sg] {path} → {r.status_code}: {r.text[:200]}", flush=True)
+            return None
+    except Exception as ex:
+        print(f"[sg] {path} error: {ex}", flush=True)
+        return None
+
+
+@app.get("/api/sg/journeys/{customer_gid}")
+async def sg_journeys(
+    customer_gid: str,
+    journeyId: str = "",
+    from_date: str = "",
+    to_date:   str = "",
+    limit: int = 20,
+    skip:  int = 0,
+):
+    """Proxy: GET /api/v1/journeys/:customerGid"""
+    params: dict = {"limit": limit, "skip": skip}
+    if journeyId:   params["journeyId"]  = journeyId
+    if from_date:   params["from"]       = from_date
+    if to_date:     params["to"]         = to_date
+    data = await _sg_get(f"/api/v1/journeys/{customer_gid}", params)
+    if data is None:
+        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
+    return data
+
+
+@app.get("/api/sg/journeys/{journey_id}/answers")
+async def sg_journey_answers(journey_id: str):
+    """Proxy: GET /api/v1/journeys/:journeyId/answers"""
+    data = await _sg_get(f"/api/v1/journeys/{journey_id}/answers")
+    if data is None:
+        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
+    return data
+
+
+@app.get("/api/sg/journeys/{journey_id}/starter-guides")
+async def sg_journey_guides(journey_id: str, limit: int = 50, skip: int = 0):
+    """Proxy: GET /api/v1/journeys/:journeyId/starter-guides"""
+    data = await _sg_get(f"/api/v1/journeys/{journey_id}/starter-guides",
+                         {"limit": limit, "skip": skip})
+    if data is None:
+        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
+    return data
+
+
+@app.get("/api/sg/starter-guides/{guide_id}")
+async def sg_guide_detail(guide_id: str):
+    """Proxy: GET /api/v1/starter-guides/:id"""
+    data = await _sg_get(f"/api/v1/starter-guides/{guide_id}")
+    if data is None:
+        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
+    return data
+
+
+# ── CMS metrics for Starter Guides ───────────────────────────────────────────
+
+SG_PROJECT = "cs-portal-starter-guide-events"
+
+@app.get("/api/sg/metrics/timeseries")
+async def sg_metrics_timeseries(event: str = "starter_guide.opened", bucket: str = "day"):
+    """Time-series from CMS metrics for starter guide events."""
+    series = await _timeseries(SG_PROJECT, event)
+    return {"event": event, "series": series}
+
+
+@app.get("/api/sg/metrics/topn")
+async def sg_metrics_topn(event: str = "starter_guide.slide_viewed",
+                           group_by: str = "itemId", n: int = 20):
+    """Top-N from CMS metrics for starter guide events."""
+    rows = await _topn(SG_PROJECT, event, group_by=group_by, n=n)
+    return {"event": event, "groupBy": group_by, "top": rows}
+
+
+# ── Starter Guides page ───────────────────────────────────────────────────────
+
+@app.get("/starter-guides", response_class=HTMLResponse)
+async def starter_guides_page():
+    """Starter Guides tab — served from starter_guides.html."""
+    with open("starter_guides.html") as f: html = f.read()
+    return HTMLResponse(content=html,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                 "Pragma": "no-cache"})
+
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():

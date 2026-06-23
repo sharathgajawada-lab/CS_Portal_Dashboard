@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CS Portal · Starter Guides</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:        #f4f5f7;
+  --surface:   #ffffff;
+  --surface2:  #f0f2f6;
+  --surface3:  #e4e7ef;
+  --border:    #dde1ec;
+  --border2:   #c8cedd;
+  --text1:     #111827;
+  --text2:     #374151;
+  --text3:     #6b7280;
+  --blue:      #2563eb;
+  --blue-dim:  #dbeafe;
+  --green:     #059669;
+  --green-dim: #d1fae5;
+  --amber:     #d97706;
+  --amber-dim: #fef3c7;
+  --red:       #dc2626;
+  --red-dim:   #fee2e2;
+  --purple:    #7c3aed;
+  --teal:      #0d9488;
+  --r:         10px;
+  --r-sm:      6px;
+  --shadow:    0 1px 8px rgba(0,0,0,.07);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
+
+html, body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text1);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* ── Loading ── */
+#loading {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 20px; z-index: 1000;
+}
+.loading-brand { margin-bottom: 4px }
+#loading .bar-wrap { width: 220px; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden }
+#loading .bar { height: 100%; width: 0; background: #2563eb; border-radius: 2px; transition: width .4s ease }
+#loading p { font-size: 13px; color: var(--text2); letter-spacing: .02em; margin: 0 }
+
+/* ── App wrapper ── */
+.app {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px 48px;
+  overflow-x: hidden;
+}
+
+/* ── Header ── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(244,245,247,.96); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px; margin: 0 -20px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  width: calc(100% + 40px);
+}
+.header-brand { display: flex; flex-direction: column; gap: 1px; min-width: 140px; flex-shrink: 0 }
+.header-brand .subtitle { font-size: 10px; color: var(--text3); letter-spacing: .04em }
+.header-right { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; flex-wrap: wrap }
+
+/* ── Page navigation tabs ── */
+.page-nav {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--surface2); border-radius: var(--r-sm);
+  padding: 3px; border: 1px solid var(--border); flex-shrink: 0;
+}
+.page-nav a {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 14px; border-radius: 5px;
+  font-size: 12px; font-weight: 500; text-decoration: none;
+  color: var(--text2); transition: all .15s; white-space: nowrap;
+}
+.page-nav a:hover { color: var(--text1); background: var(--surface); }
+.page-nav a.active {
+  background: var(--surface); color: var(--blue);
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+/* ── Sub-nav tabs ── */
+.sub-nav {
+  display: flex; align-items: center; gap: 2px;
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0 0; margin-bottom: 20px;
+}
+.sub-nav button {
+  padding: 7px 16px; border: none; background: none; cursor: pointer;
+  font-size: 13px; font-weight: 500; color: var(--text3);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: all .15s; white-space: nowrap; display: flex; align-items: center; gap: 6px;
+}
+.sub-nav button:hover { color: var(--text1) }
+.sub-nav button.active { color: var(--blue); border-bottom-color: var(--blue) }
+
+/* ── Breadcrumb ── */
+.breadcrumb {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text3); margin-bottom: 16px; flex-wrap: wrap;
+}
+.breadcrumb .crumb { cursor: pointer; color: var(--blue); text-decoration: underline; text-underline-offset: 2px }
+.breadcrumb .sep { color: var(--text3) }
+.breadcrumb .current { color: var(--text2); font-weight: 500 }
+
+/* ── KPI row ── */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.kpi {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px 16px;
+  transition: all .2s; position: relative; overflow: hidden; min-width: 0;
+}
+.kpi::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--kpi-accent, var(--blue));
+}
+.kpi-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 6px }
+.kpi-value { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 600; color: var(--text1); line-height: 1; margin-bottom: 4px }
+.kpi-sub   { font-size: 11px; color: var(--text3) }
+
+/* ── Sections ── */
+.section { margin-bottom: 24px }
+.section-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap }
+.section-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 700; color: var(--text1) }
+.section-sub { font-size: 12px; color: var(--text3) }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 16px; box-shadow: var(--shadow);
+  min-width: 0; overflow: hidden;
+}
+.card-title { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; color: var(--text1); margin-bottom: 3px }
+.card-sub   { font-size: 11px; color: var(--text3); margin-bottom: 12px }
+
+/* ── Grid layouts ── */
+.two-col   { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px }
+
+/* ── Chart ── */
+.chart-wrap { position: relative; width: 100%; min-width: 0 }
+.chart-wrap canvas { width: 100% !important; max-width: 100% }
+
+/* ── Tables ── */
+.table-wrap { overflow-x: auto; border-radius: var(--r-sm); max-width: 100% }
+table { width: 100%; border-collapse: collapse; table-layout: auto }
+th {
+  text-align: left; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--text3);
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+  white-space: nowrap; background: var(--surface);
+  position: sticky; top: 0; z-index: 1;
+}
+th.r { text-align: right }
+td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text2); max-width: 240px; overflow: hidden; text-overflow: ellipsis }
+td.r { text-align: right }
+td.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text1) }
+tr:hover td { background: var(--surface2) }
+tr:last-child td { border-bottom: none }
+tr.clickable { cursor: pointer }
+tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  white-space: nowrap;
+}
+.badge-green  { background: var(--green-dim);  color: var(--green) }
+.badge-amber  { background: var(--amber-dim);  color: var(--amber) }
+.badge-red    { background: var(--red-dim);    color: var(--red) }
+.badge-blue   { background: var(--blue-dim);   color: var(--blue) }
+.badge-gray   { background: var(--surface3);   color: var(--text3) }
+.badge-purple { background: rgba(124,58,237,.1); color: var(--purple) }
+
+/* ── Progress bar ── */
+.progress-bar-wrap {
+  height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden;
+  width: 100%; min-width: 60px;
+}
+.progress-bar-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--blue) 0%, #38bdf8 100%);
+  transition: width .4s ease;
+}
+
+/* ── Search input ── */
+.search-wrap {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;
+}
+.search-input {
+  flex: 1; min-width: 220px; max-width: 400px;
+  height: 34px; padding: 0 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface2);
+  font-size: 13px; color: var(--text1); outline: none;
+}
+.search-input:focus { border-color: var(--blue); background: var(--surface) }
+.search-btn {
+  height: 34px; padding: 0 16px; border-radius: var(--r-sm);
+  border: none; background: var(--blue); color: #fff;
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s;
+}
+.search-btn:hover { opacity: .85 }
+.search-btn:disabled { opacity: .4; cursor: not-allowed }
+
+/* ── Journey cards ── */
+.journey-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.journey-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px 16px; box-shadow: var(--shadow);
+  cursor: pointer; transition: all .2s;
+}
+.journey-card:hover { border-color: var(--blue); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(37,99,235,.1) }
+.journey-card-title { font-weight: 600; font-size: 13px; color: var(--text1); margin-bottom: 2px }
+.journey-card-sub { font-size: 11px; color: var(--text3); margin-bottom: 10px }
+.journey-card-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px }
+.journey-card-progress { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text3) }
+
+/* ── Info card ── */
+.info-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;
+  margin-bottom: 16px;
+}
+.info-item { display: flex; flex-direction: column; gap: 2px }
+.info-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text3) }
+.info-value { font-size: 13px; color: var(--text1) }
+.info-value.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px }
+
+/* ── Slide inspector ── */
+.slide-list { display: flex; flex-direction: column; gap: 6px }
+.slide-item {
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface2); overflow: hidden;
+}
+.slide-header {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  cursor: pointer; user-select: none;
+}
+.slide-header:hover { background: var(--surface3) }
+.slide-idx { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text3); min-width: 24px }
+.slide-type-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; text-transform: uppercase }
+.slide-type-STANDARD { background: var(--blue-dim);   color: var(--blue) }
+.slide-type-HUB      { background: var(--green-dim);  color: var(--green) }
+.slide-type-ADVANCED { background: var(--amber-dim);  color: var(--amber) }
+.slide-question-key  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text2); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.slide-chevron { font-size: 10px; color: var(--text3); transition: transform .2s; margin-left: auto }
+.slide-chevron.open { transform: rotate(90deg) }
+.slide-body { padding: 8px 12px 10px 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text2) }
+.slide-body pre { font-family: 'JetBrains Mono', monospace; font-size: 10px; background: var(--surface3); padding: 6px 8px; border-radius: 4px; overflow-x: auto; max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-all }
+
+/* ── Skeleton loader ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface3) 25%, var(--surface2) 50%, var(--surface3) 75%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 4px;
+}
+@keyframes shimmer { 0%{background-position:100% 50%} 100%{background-position:0% 50%} }
+.skeleton-kpi { height: 80px; border-radius: var(--r) }
+.skeleton-card { height: 120px; border-radius: var(--r) }
+.skeleton-row  { height: 36px; border-radius: 4px; margin-bottom: 4px }
+.skeleton-chart{ height: 220px; border-radius: var(--r) }
+
+/* ── Error state ── */
+.error-state {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 32px 16px; text-align: center;
+}
+.error-state .err-icon { font-size: 28px }
+.error-state .err-msg  { font-size: 13px; color: var(--text2) }
+.error-state .err-sub  { font-size: 11px; color: var(--text3) }
+
+/* ── Empty state ── */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 40px 16px; text-align: center;
+}
+.empty-state .em-icon { font-size: 32px }
+.empty-state .em-msg  { font-size: 13px; color: var(--text2) }
+.empty-state .em-sub  { font-size: 11px; color: var(--text3) }
+
+/* ── Pagination ── */
+.pagination {
+  display: flex; align-items: center; gap: 8px; margin-top: 12px; justify-content: center;
+}
+.pagination button {
+  height: 28px; padding: 0 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--text2); font-size: 12px; cursor: pointer;
+}
+.pagination button:hover:not(:disabled) { border-color: var(--blue); color: var(--blue) }
+.pagination button:disabled { opacity: .4; cursor: not-allowed }
+.pagination .page-info { font-size: 11px; color: var(--text3) }
+
+/* ── Filter toolbar for metrics ── */
+.metrics-filters {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; background: var(--surface2); border-radius: var(--r-sm);
+  border: 1px solid var(--border); margin-bottom: 16px;
+}
+.metrics-filters label { font-size: 11px; color: var(--text3) }
+.metrics-filters input, .metrics-filters select {
+  height: 28px; padding: 0 8px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface);
+  font-size: 12px; color: var(--text1); outline: none;
+}
+.metrics-filters input[type=date] { max-width: 130px; color-scheme: light }
+.metrics-filters .apply-btn {
+  height: 28px; padding: 0 12px; border-radius: var(--r-sm);
+  border: none; background: var(--blue); color: #fff;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+
+/* ── Export btn ── */
+.export-btn {
+  height: 28px; padding: 0 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--text2); font-size: 11px; font-weight: 500; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.export-btn:hover { border-color: var(--border2); color: var(--text1) }
+
+/* ── Hub links panel ── */
+.hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px }
+.hub-link-card {
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 8px 10px; background: var(--surface2);
+}
+.hub-link-title { font-size: 11px; font-weight: 600; color: var(--text1); margin-bottom: 4px; font-family: 'JetBrains Mono', monospace }
+.hub-link-sub   { font-size: 10px; color: var(--text3) }
+
+/* ── Video progress bars ── */
+.video-progress-list { display: flex; flex-direction: column; gap: 6px }
+.video-progress-item { display: flex; align-items: center; gap: 10px }
+.video-progress-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text2); min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.video-progress-bar-wrap { flex: 1; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden }
+.video-progress-bar-fill { height: 100%; background: var(--teal); border-radius: 3px }
+.video-progress-pct { font-size: 10px; color: var(--text3); min-width: 32px; text-align: right }
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+  .two-col, .three-col { grid-template-columns: 1fr }
+  .journey-grid { grid-template-columns: 1fr }
+}
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="loading-brand">
+    <svg width="120" height="30" viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15 3C8.373 3 3 8.373 3 15s5.373 12 12 12c2.9 0 5.56-1.05 7.6-2.78" stroke="#4a7fc1" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/>
+      <path d="M15 7.5c-4.142 0-7.5 3.358-7.5 7.5s3.358 7.5 7.5 7.5c1.9 0 3.63-.71 4.95-1.87" stroke="#2e5f9e" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+      <path d="M15 12c-1.657 0-3 1.343-3 3s1.343 3 3 3c.8 0 1.53-.31 2.07-.83" stroke="#1a3f6f" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+      <text x="34" y="22" font-family="Inter,sans-serif" font-weight="700" font-size="18" fill="#1a2e4a">hear<tspan font-weight="400">.com</tspan></text>
+    </svg>
+  </div>
+  <div class="bar-wrap"><div class="bar" id="loadBar"></div></div>
+  <p id="loadText">Loading Starter Guides…</p>
+</div>
+
+<div class="app" style="display:none" id="appRoot">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-brand">
+      <a href="https://hear.com" target="_blank" style="display:flex;align-items:center;gap:0px;text-decoration:none">
+        <svg width="130" height="36" viewBox="0 0 130 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M18 4C10.268 4 4 10.268 4 18C4 25.732 10.268 32 18 32C21.5 32 24.7 30.7 27.2 28.5" stroke="#4a7fc1" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+          <path d="M18 9C13.029 9 9 13.029 9 18C9 22.971 13.029 27 18 27C20.4 27 22.6 26.1 24.3 24.6" stroke="#2e5f9e" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.75"/>
+          <path d="M18 14C15.791 14 14 15.791 14 18C14 20.209 15.791 22 18 22C19.2 22 20.3 21.5 21.1 20.7" stroke="#1a3f6f" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+          <text x="36" y="24" font-family="'Inter','Helvetica Neue',sans-serif" font-weight="700" font-size="17" fill="#1a2e4a" letter-spacing="-0.3">hear</text>
+          <text x="72" y="24" font-family="'Inter','Helvetica Neue',sans-serif" font-weight="400" font-size="17" fill="#1a2e4a" letter-spacing="-0.3">.com</text>
+        </svg>
+      </a>
+      <div class="subtitle" style="margin-left:2px">CS Portal Intelligence</div>
+    </div>
+    <nav class="page-nav">
+      <a href="/">📊 Portal Activity</a>
+      <a href="/csat">📞 Call Quality</a>
+      <a href="/starter-guides" class="active">🗺️ Starter Guides</a>
+    </nav>
+    <div class="header-right">
+      <div style="width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)"></div>
+    </div>
+  </div>
+
+  <div style="height:16px"></div>
+
+  <!-- Sub-nav -->
+  <nav class="sub-nav" id="subNav">
+    <button class="active" onclick="showSection('s1',this)">🗺️ Journey Overview</button>
+    <button onclick="showSection('s2',this)">📋 Journey Detail</button>
+    <button onclick="showSection('s3',this)">📖 Guide Detail</button>
+    <button onclick="showSection('s4',this)">📊 Metrics</button>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 1 — Journey Overview                                           -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="s1">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Journey Overview</div>
+        <div class="section-sub">Search journeys by customer Global ID</div>
+      </div>
+    </div>
+
+    <!-- Search bar -->
+    <div class="search-wrap">
+      <input class="search-input" type="text" id="customerGidInput"
+        placeholder="Enter Customer GID (e.g. gid://…)" autocomplete="off"
+        onkeydown="if(event.key==='Enter')searchJourneys()">
+      <input type="date" id="journeyFrom" style="height:34px;padding:0 8px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface2);font-size:12px;color-scheme:light">
+      <span style="font-size:12px;color:var(--text3)">→</span>
+      <input type="date" id="journeyTo"   style="height:34px;padding:0 8px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface2);font-size:12px;color-scheme:light">
+      <button class="search-btn" id="journeySearchBtn" onclick="searchJourneys()">Search</button>
+    </div>
+
+    <!-- Results -->
+    <div id="journeyResults"></div>
+    <div class="pagination" id="journeyPagination" style="display:none">
+      <button id="journeyPrevBtn" onclick="journeyPage(-1)" disabled>← Prev</button>
+      <span class="page-info" id="journeyPageInfo"></span>
+      <button id="journeyNextBtn" onclick="journeyPage(1)">Next →</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 2 — Journey Detail                                             -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="s2" style="display:none">
+    <!-- Breadcrumb -->
+    <div class="breadcrumb" id="s2Breadcrumb"></div>
+    <div id="s2Content"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 3 — Guide Detail                                               -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="s3" style="display:none">
+    <div class="breadcrumb" id="s3Breadcrumb"></div>
+    <div id="s3Content"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- SECTION 4 — Metrics Dashboard                                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="s4" style="display:none">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Metrics Dashboard</div>
+        <div class="section-sub">Aggregated Starter Guide analytics</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="metrics-filters">
+      <label>From</label>
+      <input type="date" id="mFrom" style="color-scheme:light">
+      <label>To</label>
+      <input type="date" id="mTo" style="color-scheme:light">
+      <label>Journey ID</label>
+      <input type="text" id="mJourneyId" placeholder="optional" style="width:200px">
+      <button class="apply-btn" onclick="loadMetrics()">Apply</button>
+    </div>
+
+    <!-- KPI skeletons / values -->
+    <div class="kpi-row" id="metricsKpiRow">
+      <div class="skeleton skeleton-kpi"></div>
+      <div class="skeleton skeleton-kpi"></div>
+      <div class="skeleton skeleton-kpi"></div>
+      <div class="skeleton skeleton-kpi"></div>
+      <div class="skeleton skeleton-kpi"></div>
+    </div>
+
+    <!-- Charts row 1 -->
+    <div class="two-col" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">Completion Funnel</div>
+        <div class="card-sub">Guides completed per journey — by status</div>
+        <div class="chart-wrap" style="height:220px">
+          <canvas id="funnelChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Completions Over Time</div>
+        <div class="card-sub">Completed guides grouped by week</div>
+        <div class="chart-wrap" style="height:220px">
+          <canvas id="completionsChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts row 2 -->
+    <div class="two-col" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">Top Question Keys</div>
+        <div class="card-sub">Most-answered questions across all journeys</div>
+        <div class="chart-wrap" style="height:280px">
+          <canvas id="topQuestionsChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Guide Opens Over Time</div>
+        <div class="card-sub" id="guidOpensSub">From CMS metrics · starter_guide.opened</div>
+        <div class="chart-wrap" style="height:280px">
+          <canvas id="opensChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts row 3 — slide drop-off -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Slide View Drop-off</div>
+      <div class="card-sub">slide_viewed events by slide identifier (CMS metrics)</div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="dropoffChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Answer submission rate -->
+    <div class="card">
+      <div class="card-title">Answer Submissions Over Time</div>
+      <div class="card-sub">starter_guide.answer_submitted events (CMS metrics)</div>
+      <div class="chart-wrap" style="height:180px">
+        <canvas id="answerRateChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+const state = {
+  currentGid: '',
+  journeySkip: 0,
+  journeyLimit: 12,
+  journeyTotal: 0,
+  journeys: [],
+  currentJourney: null,
+  currentGuide:   null,
+  charts: {},
+};
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  setLoadProgress(60);
+  setTimeout(() => {
+    setLoadProgress(100);
+    setTimeout(() => {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('appRoot').style.display = '';
+    }, 300);
+  }, 400);
+});
+
+function setLoadProgress(pct) {
+  const bar = document.getElementById('loadBar');
+  if (bar) bar.style.width = pct + '%';
+}
+
+// ── Sub-nav ────────────────────────────────────────────────────────────────────
+function showSection(id, btn) {
+  ['s1','s2','s3','s4'].forEach(s => {
+    document.getElementById(s).style.display = (s === id) ? '' : 'none';
+  });
+  document.querySelectorAll('.sub-nav button').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (id === 's4') loadMetrics();
+}
+
+function activateSubNavBtn(sectionId) {
+  const idx = {'s1':0,'s2':1,'s3':2,'s4':3}[sectionId];
+  const btns = document.querySelectorAll('.sub-nav button');
+  btns.forEach(b => b.classList.remove('active'));
+  if (btns[idx]) btns[idx].classList.add('active');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-GB', {
+      day:'2-digit', month:'short', year:'numeric',
+      hour:'2-digit', minute:'2-digit'
+    });
+  } catch { return iso }
+}
+
+function fmtDateShort(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'}) }
+  catch { return iso }
+}
+
+function statusBadge(st) {
+  const map = {
+    COMPLETE: 'badge-green', LOCKED: 'badge-gray', PARTIAL: 'badge-amber',
+    COMPLETED: 'badge-green', EXPIRED: 'badge-red', PENDING: 'badge-blue',
+  };
+  return `<span class="badge ${map[st] || 'badge-gray'}">${esc(st || '—')}</span>`;
+}
+
+function guideStatus(templateId, completedIds, expiredIds) {
+  if (!templateId) return 'PENDING';
+  if ((completedIds || []).includes(templateId)) return 'COMPLETED';
+  if ((expiredIds   || []).includes(templateId)) return 'EXPIRED';
+  return 'PENDING';
+}
+
+async function apiFetch(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+  return r.json();
+}
+
+// ── Section 1 — Journey Overview ───────────────────────────────────────────────
+async function searchJourneys(skip = 0) {
+  const gid = document.getElementById('customerGidInput').value.trim();
+  if (!gid) {
+    document.getElementById('journeyResults').innerHTML =
+      '<div class="card"><div class="empty-state"><div class="em-icon">🔍</div><div class="em-msg">Enter a Customer GID to search</div></div></div>';
+    return;
+  }
+  state.currentGid   = gid;
+  state.journeySkip  = skip;
+  const btn = document.getElementById('journeySearchBtn');
+  btn.disabled = true; btn.textContent = 'Searching…';
+
+  // Show skeletons
+  const res = document.getElementById('journeyResults');
+  res.innerHTML = `<div class="journey-grid">${[...Array(4)].map(() =>
+    '<div class="skeleton skeleton-card"></div>').join('')}</div>`;
+
+  try {
+    const fromVal = document.getElementById('journeyFrom').value;
+    const toVal   = document.getElementById('journeyTo').value;
+    let url = `/api/sg/journeys/${encodeURIComponent(gid)}?limit=${state.journeyLimit}&skip=${skip}`;
+    if (fromVal) url += `&from_date=${fromVal}`;
+    if (toVal)   url += `&to_date=${toVal}`;
+
+    const data = await apiFetch(url);
+    const journeys = data.data || [];
+    state.journeys = journeys;
+    state.journeyTotal = (data.meta || {}).total || journeys.length;
+
+    renderJourneyGrid(journeys);
+  } catch(e) {
+    res.innerHTML = `<div class="card"><div class="error-state">
+      <div class="err-icon">⚠️</div>
+      <div class="err-msg">Failed to load journeys</div>
+      <div class="err-sub">${esc(e.message)}</div>
+    </div></div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Search';
+  }
+}
+
+function renderJourneyGrid(journeys) {
+  const res = document.getElementById('journeyResults');
+  const pag = document.getElementById('journeyPagination');
+
+  if (!journeys.length) {
+    res.innerHTML = `<div class="card"><div class="empty-state">
+      <div class="em-icon">📭</div>
+      <div class="em-msg">No journeys found for this customer</div>
+      <div class="em-sub">Try adjusting the date range or verifying the GID</div>
+    </div></div>`;
+    pag.style.display = 'none';
+    return;
+  }
+
+  res.innerHTML = `<div class="journey-grid">${journeys.map((j, i) => {
+    const pct = j.progress ? j.progress.percentage || Math.round((j.progress.completed / Math.max(j.progress.total, 1)) * 100) : 0;
+    const completed = j.progress ? j.progress.completed : 0;
+    const total     = j.progress ? j.progress.total : 0;
+    return `<div class="journey-card" onclick="openJourneyDetail('${esc(j.journeyId || j.id || i)}')">
+      <div class="journey-card-title">${esc(j.journeyTitle || j.title || 'Untitled Journey')}</div>
+      <div class="journey-card-sub">${esc(j.journeySubtitle || j.subtitle || '')}</div>
+      <div class="journey-card-meta">
+        ${j.locale ? `<span class="badge badge-blue">${esc(j.locale)}</span>` : ''}
+        <span style="font-size:11px;color:var(--text3)">Started ${fmtDateShort(j.startedOn)}</span>
+      </div>
+      <div class="journey-card-progress">
+        <div class="progress-bar-wrap" style="max-width:180px">
+          <div class="progress-bar-fill" style="width:${pct}%"></div>
+        </div>
+        <span>${completed}/${total} (${pct}%)</span>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+
+  // Pagination
+  const totalPages = Math.ceil(state.journeyTotal / state.journeyLimit);
+  const curPage    = Math.floor(state.journeySkip / state.journeyLimit) + 1;
+  if (totalPages > 1) {
+    pag.style.display = 'flex';
+    document.getElementById('journeyPageInfo').textContent = `Page ${curPage} of ${totalPages} (${state.journeyTotal} total)`;
+    document.getElementById('journeyPrevBtn').disabled = (curPage <= 1);
+    document.getElementById('journeyNextBtn').disabled = (curPage >= totalPages);
+  } else {
+    pag.style.display = 'none';
+  }
+}
+
+function journeyPage(dir) {
+  const newSkip = state.journeySkip + dir * state.journeyLimit;
+  if (newSkip < 0) return;
+  searchJourneys(newSkip);
+}
+
+// ── Section 2 — Journey Detail ─────────────────────────────────────────────────
+async function openJourneyDetail(journeyId) {
+  // Switch to s2
+  showSection('s2', null);
+  activateSubNavBtn('s2');
+
+  const crumb = document.getElementById('s2Breadcrumb');
+  const cont  = document.getElementById('s2Content');
+  crumb.innerHTML = `
+    <span class="crumb" onclick="showSection('s1',document.querySelectorAll('.sub-nav button')[0])">Journey Overview</span>
+    <span class="sep">›</span>
+    <span class="current">${esc(journeyId)}</span>`;
+
+  cont.innerHTML = `<div class="card"><div class="skeleton skeleton-card"></div></div>`;
+
+  try {
+    // Find journey data in state or refetch
+    let jd = state.journeys.find(j => (j.journeyId || j.id) === journeyId) || null;
+    state.currentJourney = jd;
+
+    // Fetch answers and guide instances in parallel
+    const [answersData, guidesData] = await Promise.all([
+      apiFetch(`/api/sg/journeys/${encodeURIComponent(journeyId)}/answers`).catch(() => null),
+      apiFetch(`/api/sg/journeys/${encodeURIComponent(journeyId)}/starter-guides?limit=50&skip=0`).catch(() => null),
+    ]);
+
+    const answers  = (answersData  || {}).answers  || {};
+    const guides   = (guidesData   || {}).data     || [];
+    const completedIds = (jd || {}).completedIds || [];
+    const expiredIds   = (jd || {}).expiredIds   || [];
+    const expectedGuides = (jd || {}).expectedGuides || [];
+
+    // Header info
+    const headerHtml = jd ? `
+      <div class="info-grid" style="margin-bottom:16px">
+        <div class="info-item"><div class="info-label">Journey ID</div><div class="info-value mono">${esc(journeyId)}</div></div>
+        <div class="info-item"><div class="info-label">Title</div><div class="info-value">${esc(jd.journeyTitle || jd.title || '—')}</div></div>
+        <div class="info-item"><div class="info-label">Subtitle</div><div class="info-value">${esc(jd.journeySubtitle || jd.subtitle || '—')}</div></div>
+        <div class="info-item"><div class="info-label">Locale</div><div class="info-value">${esc(jd.locale || '—')}</div></div>
+        <div class="info-item"><div class="info-label">Started On</div><div class="info-value">${fmtDate(jd.startedOn)}</div></div>
+        <div class="info-item"><div class="info-label">Customer GID</div><div class="info-value mono">${esc(jd.customerGid || state.currentGid || '—')}</div></div>
+      </div>` : '';
+
+    // Progress indicator
+    const progressHtml = jd && jd.progress ? (() => {
+      const pct = jd.progress.percentage || Math.round((jd.progress.completed / Math.max(jd.progress.total,1))*100);
+      return `<div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:600;color:var(--text2)">Progress</span>
+          <span style="font-size:12px;color:var(--text3)">${jd.progress.completed}/${jd.progress.total} guides completed (${pct}%)</span>
+        </div>
+        <div class="progress-bar-wrap" style="max-width:400px;height:10px">
+          <div class="progress-bar-fill" style="width:${pct}%"></div>
+        </div>
+      </div>`;
+    })() : '';
+
+    // Expected guides table
+    const expectedHtml = expectedGuides.length ? `
+      <div class="section">
+        <div class="section-header"><div class="section-title" style="font-size:14px">Expected Guides</div></div>
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Title</th><th>Subtitle</th><th>Template ID</th><th>Status</th>
+              </tr></thead>
+              <tbody>${expectedGuides.map(eg => {
+                const st = guideStatus(eg.templateId || eg.id, completedIds, expiredIds);
+                return `<tr>
+                  <td>${esc(eg.title || '—')}</td>
+                  <td>${esc(eg.subtitle || '—')}</td>
+                  <td class="mono">${esc(eg.templateId || '—')}</td>
+                  <td>${statusBadge(st)}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>` : '';
+
+    // Merged answers panel
+    const answerKeys = Object.keys(answers);
+    const answersHtml = answerKeys.length ? `
+      <div class="section">
+        <div class="section-header"><div class="section-title" style="font-size:14px">Merged Answers</div>
+          <span style="font-size:11px;color:var(--text3)">${(answersData||{}).guideCount || ''} guide(s)</span>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="table-wrap" style="max-height:280px;overflow-y:auto">
+            <table>
+              <thead><tr><th>Question Key</th><th>Title</th><th>Value</th></tr></thead>
+              <tbody>${answerKeys.map(k => {
+                const a = answers[k] || {};
+                const val = typeof a.value === 'object' ? JSON.stringify(a.value) : String(a.value ?? '—');
+                return `<tr>
+                  <td class="mono">${esc(k)}</td>
+                  <td>${esc(a.title || '—')}</td>
+                  <td style="max-width:320px;white-space:pre-wrap;word-break:break-word">${esc(val)}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>` : `<div class="section"><div class="card"><div class="empty-state"><div class="em-icon">💬</div><div class="em-msg">No merged answers yet</div></div></div></div>`;
+
+    // Guide instances table
+    const guidesHtml = `
+      <div class="section">
+        <div class="section-header"><div class="section-title" style="font-size:14px">Guide Instances</div>
+          <span style="font-size:11px;color:var(--text3)">${guides.length} instance(s)</span>
+        </div>
+        ${guides.length ? `<div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Template ID</th><th>Status</th><th>Created</th><th>Expires</th><th>Completed</th>
+              </tr></thead>
+              <tbody>${guides.map(g => `
+                <tr class="clickable" onclick="openGuideDetail('${esc(g.id)}')">
+                  <td class="mono">${esc(g.templateId || '—')}</td>
+                  <td>${statusBadge(g.answerStatus)}</td>
+                  <td>${fmtDateShort(g.createdAt)}</td>
+                  <td>${fmtDateShort(g.expiresAt)}</td>
+                  <td>${fmtDateShort(g.completedAt)}</td>
+                </tr>`).join('')}</tbody>
+            </table>
+          </div>
+        </div>` : `<div class="card"><div class="empty-state"><div class="em-icon">📭</div><div class="em-msg">No guide instances found</div></div></div>`}
+      </div>`;
+
+    cont.innerHTML = `
+      <div class="card" style="margin-bottom:16px">
+        ${headerHtml}
+        ${progressHtml}
+      </div>
+      ${expectedHtml}
+      ${answersHtml}
+      ${guidesHtml}`;
+
+  } catch(e) {
+    cont.innerHTML = `<div class="card"><div class="error-state">
+      <div class="err-icon">⚠️</div>
+      <div class="err-msg">Failed to load journey detail</div>
+      <div class="err-sub">${esc(e.message)}</div>
+    </div></div>`;
+  }
+}
+
+// ── Section 3 — Guide Detail ──────────────────────────────────────────────────
+async function openGuideDetail(guideId) {
+  showSection('s3', null);
+  activateSubNavBtn('s3');
+
+  const crumb = document.getElementById('s3Breadcrumb');
+  const cont  = document.getElementById('s3Content');
+
+  crumb.innerHTML = `
+    <span class="crumb" onclick="showSection('s1',document.querySelectorAll('.sub-nav button')[0])">Journey Overview</span>
+    <span class="sep">›</span>
+    <span class="crumb" onclick="backToJourneyDetail()">Journey Detail</span>
+    <span class="sep">›</span>
+    <span class="current">Guide ${esc(guideId.slice(-8))}</span>`;
+
+  cont.innerHTML = `<div class="card"><div class="skeleton skeleton-card"></div></div>`;
+
+  try {
+    const g = await apiFetch(`/api/sg/starter-guides/${encodeURIComponent(guideId)}`);
+    state.currentGuide = g;
+
+    // Info card
+    const infoHtml = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="info-grid">
+          <div class="info-item"><div class="info-label">Guide ID</div><div class="info-value mono">${esc(g.id)}</div></div>
+          <div class="info-item"><div class="info-label">Template ID</div><div class="info-value mono">${esc(g.templateId || '—')}</div></div>
+          <div class="info-item"><div class="info-label">Customer GID</div><div class="info-value mono">${esc(g.customerGid || '—')}</div></div>
+          <div class="info-item"><div class="info-label">Answer Status</div><div class="info-value">${statusBadge(g.answerStatus)}</div></div>
+          <div class="info-item"><div class="info-label">Created</div><div class="info-value">${fmtDate(g.createdAt)}</div></div>
+          <div class="info-item"><div class="info-label">Expires</div><div class="info-value">${fmtDate(g.expiresAt)}</div></div>
+          ${g.expiredAt ? `<div class="info-item"><div class="info-label">Expired</div><div class="info-value">${fmtDate(g.expiredAt)}</div></div>` : ''}
+          ${g.completedAt ? `<div class="info-item"><div class="info-label">Completed</div><div class="info-value">${fmtDate(g.completedAt)}</div></div>` : ''}
+        </div>
+      </div>`;
+
+    // Slide inspector
+    const slides = g.lockedSlides || [];
+    const slideHtml = `
+      <div class="section">
+        <div class="section-header">
+          <div class="section-title" style="font-size:14px">Slide Inspector</div>
+          <span style="font-size:11px;color:var(--text3)">${slides.length} slide(s)</span>
+        </div>
+        ${slides.length ? `
+        <div class="slide-list">${slides.map((sl, i) => {
+          const qKey = sl.question ? sl.question.key : null;
+          const qType = sl.question ? sl.question.type : null;
+          const condStr = sl.condition ? JSON.stringify(sl.condition, null, 2) : null;
+          const bodyHtml = `
+            ${qKey  ? `<div style="margin-bottom:4px"><span class="info-label">Q Key:</span> <span class="mono" style="font-size:11px">${esc(qKey)}</span></div>` : ''}
+            ${qType ? `<div style="margin-bottom:4px"><span class="info-label">Q Type:</span> <span class="badge badge-purple">${esc(qType)}</span></div>` : ''}
+            ${condStr ? `<div><span class="info-label">Condition:</span><pre>${esc(condStr)}</pre></div>` : ''}
+            ${!qKey && !qType && !condStr ? '<span style="color:var(--text3);font-size:11px">No question or condition</span>' : ''}
+          `;
+          return `<div class="slide-item">
+            <div class="slide-header" onclick="toggleSlide(this)">
+              <span class="slide-idx">#${i+1}</span>
+              <span class="slide-type-badge slide-type-${esc(sl.type || 'STANDARD')}">${esc(sl.type || 'STANDARD')}</span>
+              ${qKey ? `<span class="slide-question-key">${esc(qKey)}</span>` : '<span class="slide-question-key" style="color:var(--text3)">—</span>'}
+              <span class="slide-chevron">▶</span>
+            </div>
+            <div class="slide-body" style="display:none">${bodyHtml}</div>
+          </div>`;
+        }).join('')}</div>` : '<div class="card"><div class="empty-state"><div class="em-icon">📄</div><div class="em-msg">No slides</div></div></div>'}
+      </div>`;
+
+    // Answers table
+    const answers = g.answers || {};
+    const answerKeys = Object.keys(answers);
+    const answersHtml = `
+      <div class="section">
+        <div class="section-header">
+          <div class="section-title" style="font-size:14px">Answers</div>
+          <button class="export-btn" onclick="exportGuideAnswersCSV()">⬇ Export CSV</button>
+        </div>
+        ${answerKeys.length ? `
+        <div class="card" style="padding:0">
+          <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+            <table>
+              <thead><tr><th>Question Key</th><th>Title</th><th>Value</th><th>Status</th></tr></thead>
+              <tbody>${answerKeys.map(k => {
+                const a = answers[k] || {};
+                const val = typeof a.value === 'object' ? JSON.stringify(a.value) : String(a.value ?? '—');
+                const st  = a.status || (g.answerStatus);
+                return `<tr>
+                  <td class="mono">${esc(k)}</td>
+                  <td>${esc(a.title || '—')}</td>
+                  <td style="max-width:300px;white-space:pre-wrap;word-break:break-word">${esc(val)}</td>
+                  <td>${statusBadge(st)}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
+        </div>` : '<div class="card"><div class="empty-state"><div class="em-icon">💬</div><div class="em-msg">No answers recorded</div></div></div>'}
+      </div>`;
+
+    // Progress panel
+    const prog = g.progress || {};
+    const hubLinks = prog.hubLinks || {};
+    const videoProg = prog.videoProgress || {};
+    const hubHtml = Object.keys(hubLinks).length ? `
+      <div style="margin-bottom:12px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:8px">Hub Links</div>
+        <div class="hub-grid">${Object.entries(hubLinks).map(([key, hl]) => `
+          <div class="hub-link-card">
+            <div class="hub-link-title">${esc(key)}</div>
+            <div class="hub-link-sub">Slide ${hl.currentSlide ?? '—'} · ${hl.completed ? '✅ Completed' : '⏳ In progress'}</div>
+          </div>`).join('')}</div>
+      </div>` : '';
+    const videoHtml = Object.keys(videoProg).length ? `
+      <div>
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:8px">Video Progress</div>
+        <div class="video-progress-list">${Object.entries(videoProg).map(([vid, pct]) => `
+          <div class="video-progress-item">
+            <div class="video-progress-label">${esc(vid)}</div>
+            <div class="video-progress-bar-wrap">
+              <div class="video-progress-bar-fill" style="width:${Math.min(100, Math.round(Number(pct)*100))}%"></div>
+            </div>
+            <div class="video-progress-pct">${Math.round(Number(pct)*100)}%</div>
+          </div>`).join('')}</div>
+      </div>` : '';
+
+    const progressPanelHtml = `
+      <div class="section">
+        <div class="section-header"><div class="section-title" style="font-size:14px">Progress Panel</div></div>
+        <div class="card">
+          <div style="margin-bottom:10px">
+            <span class="info-label">Current Slide</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:13px;margin-left:8px">${prog.currentSlide ?? '—'}</span>
+          </div>
+          ${hubHtml}
+          ${videoHtml}
+          ${!hubHtml && !videoHtml ? '<span style="color:var(--text3);font-size:12px">No detailed progress data</span>' : ''}
+        </div>
+      </div>`;
+
+    cont.innerHTML = infoHtml + slideHtml + answersHtml + progressPanelHtml;
+
+  } catch(e) {
+    cont.innerHTML = `<div class="card"><div class="error-state">
+      <div class="err-icon">⚠️</div>
+      <div class="err-msg">Failed to load guide detail</div>
+      <div class="err-sub">${esc(e.message)}</div>
+    </div></div>`;
+  }
+}
+
+function toggleSlide(header) {
+  const body    = header.nextElementSibling;
+  const chevron = header.querySelector('.slide-chevron');
+  const open    = body.style.display !== 'none';
+  body.style.display    = open ? 'none' : '';
+  chevron.classList.toggle('open', !open);
+}
+
+function backToJourneyDetail() {
+  if (state.currentJourney) {
+    const jid = state.currentJourney.journeyId || state.currentJourney.id;
+    if (jid) { openJourneyDetail(jid); return; }
+  }
+  showSection('s2', document.querySelectorAll('.sub-nav button')[1]);
+}
+
+// ── Export Guide Answers CSV ──────────────────────────────────────────────────
+function exportGuideAnswersCSV() {
+  const g = state.currentGuide;
+  if (!g) return;
+  const answers = g.answers || {};
+  const rows = [['questionKey','title','value','status']];
+  Object.entries(answers).forEach(([k, a]) => {
+    const val = typeof a.value === 'object' ? JSON.stringify(a.value) : String(a.value ?? '');
+    rows.push([k, a.title || '', val, a.status || g.answerStatus || '']);
+  });
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `guide_answers_${g.id}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Section 4 — Metrics ───────────────────────────────────────────────────────
+let _metricsLoaded = false;
+
+async function loadMetrics() {
+  const kpiRow = document.getElementById('metricsKpiRow');
+  kpiRow.innerHTML = [...Array(5)].map(() =>
+    '<div class="skeleton skeleton-kpi"></div>').join('');
+
+  // Destroy existing charts
+  Object.values(state.charts).forEach(c => { try { c.destroy() } catch {} });
+  state.charts = {};
+
+  // Fetch CMS time-series in parallel
+  const [opensData, slidesData, answersData] = await Promise.allSettled([
+    apiFetch('/api/sg/metrics/timeseries?event=starter_guide.opened'),
+    apiFetch('/api/sg/metrics/topn?event=starter_guide.slide_viewed&group_by=itemId&n=20'),
+    apiFetch('/api/sg/metrics/timeseries?event=starter_guide.answer_submitted'),
+  ]);
+
+  const opensSeries   = opensData.status   === 'fulfilled' ? (opensData.value.series   || []) : [];
+  const slideTop      = slidesData.status  === 'fulfilled' ? (slidesData.value.top      || []) : [];
+  const answerSeries  = answersData.status === 'fulfilled' ? (answersData.value.series  || []) : [];
+
+  const totalOpens   = opensSeries.reduce((s, p) => s + (p.count || 0), 0);
+  const totalAnswers = answerSeries.reduce((s, p) => s + (p.count || 0), 0);
+
+  // KPI row — populate what we know from CMS; REST-side aggregates shown as N/A
+  // (detailed guide counts require iterating over journeys which is not cached)
+  kpiRow.innerHTML = [
+    { label: 'Guide Opens (CMS)', value: totalOpens.toLocaleString(), sub: 'starter_guide.opened events', color: '#2563eb' },
+    { label: 'Answer Submissions', value: totalAnswers.toLocaleString(), sub: 'answer_submitted events', color: '#059669' },
+    { label: 'Slide Variants Tracked', value: slideTop.length.toString(), sub: 'unique slide IDs in CMS', color: '#7c3aed' },
+    { label: 'Completion Rate', value: 'See funnel →', sub: 'load journeys for detail', color: '#d97706', small: true },
+    { label: 'Top Slide Views', value: slideTop[0] ? String(slideTop[0].count || '—') : '—', sub: slideTop[0] ? esc(slideTop[0].label || slideTop[0].id || '') : 'no data', color: '#0d9488' },
+  ].map(k => `
+    <div class="kpi" style="--kpi-accent:${k.color}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value" style="${k.small ? 'font-size:16px' : ''}">${k.value}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`).join('');
+
+  // ── Guide Opens chart ─────────────────────────────────────────────────────
+  renderLineChart('opensChart', opensSeries, 'Guide Opens', '#2563eb');
+
+  // ── Answer Submission Rate chart ──────────────────────────────────────────
+  renderLineChart('answerRateChart', answerSeries, 'Answer Submissions', '#059669');
+
+  // ── Slide drop-off (top-n horizontal bar) ─────────────────────────────────
+  if (slideTop.length) {
+    const labels = slideTop.slice(0,15).map(r => String(r.label || r.id || '?').slice(0,30));
+    const counts = slideTop.slice(0,15).map(r => r.count || 0);
+    const ctx = document.getElementById('dropoffChart').getContext('2d');
+    state.charts.dropoff = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: 'Slide Views', data: counts, backgroundColor: '#7c3aed88', borderColor: '#7c3aed', borderWidth: 1 }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#dde1ec' }, ticks: { font: { size: 10 } } },
+          y: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  } else {
+    showChartEmpty('dropoffChart', 'No slide view data in CMS');
+  }
+
+  // ── Completions over time (line) — placeholder from opensSeries bucketed by week ──
+  const weekBuckets = {};
+  opensSeries.forEach(p => {
+    const d = new Date(p.date);
+    const weekStart = new Date(d); weekStart.setDate(d.getDate() - d.getDay());
+    const key = weekStart.toISOString().slice(0,10);
+    weekBuckets[key] = (weekBuckets[key] || 0) + p.count;
+  });
+  const weekKeys   = Object.keys(weekBuckets).sort();
+  const weekCounts = weekKeys.map(k => weekBuckets[k]);
+  if (weekKeys.length) {
+    const ctx = document.getElementById('completionsChart').getContext('2d');
+    state.charts.completions = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: weekKeys,
+        datasets: [{ label: 'Opens/wk (CMS)', data: weekCounts, borderColor: '#0d9488', backgroundColor: '#0d948822', fill: true, tension: 0.3, pointRadius: 2 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#dde1ec' }, ticks: { font: { size: 10 }, maxTicksLimit: 8 } },
+          y: { grid: { color: '#dde1ec' }, ticks: { font: { size: 10 } }, beginAtZero: true },
+        },
+      },
+    });
+  } else {
+    showChartEmpty('completionsChart', 'No completions time-series data');
+  }
+
+  // ── Funnel chart — static placeholder (requires iterating journeys) ─────────
+  const funnelCtx = document.getElementById('funnelChart').getContext('2d');
+  state.charts.funnel = new Chart(funnelCtx, {
+    type: 'bar',
+    data: {
+      labels: ['0', '1', '2', '3', '4+'],
+      datasets: [
+        { label: 'PARTIAL', data: [0,0,0,0,0], backgroundColor: '#fef3c7', borderColor: '#d97706', borderWidth: 1 },
+        { label: 'COMPLETE', data: [0,0,0,0,0], backgroundColor: '#d1fae5', borderColor: '#059669', borderWidth: 1 },
+        { label: 'LOCKED',   data: [0,0,0,0,0], backgroundColor: '#f3f4f6', borderColor: '#9ca3af', borderWidth: 1 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 } } },
+        title: { display: true, text: 'Load a journey search to populate', color: '#9ca3af', font: { size: 10 } },
+      },
+      scales: {
+        x: { stacked: true, ticks: { font: { size: 10 } }, title: { display: true, text: '# Guides completed', font: { size: 10 } } },
+        y: { stacked: true, ticks: { font: { size: 10 } } },
+      },
+    },
+  });
+
+  // ── Top Questions chart — needs journey data, show empty ─────────────────
+  showChartEmpty('topQuestionsChart', 'Search journeys first, then revisit Metrics for question aggregates');
+
+  _metricsLoaded = true;
+}
+
+function renderLineChart(canvasId, series, label, color) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  if (!series.length) { showChartEmpty(canvasId, 'No data from CMS metrics'); return; }
+  state.charts[canvasId] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: series.map(p => p.date),
+      datasets: [{ label, data: series.map(p => p.count), borderColor: color, backgroundColor: color + '22', fill: true, tension: 0.3, pointRadius: 2 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#dde1ec' }, ticks: { font: { size: 10 }, maxTicksLimit: 10 } },
+        y: { grid: { color: '#dde1ec' }, ticks: { font: { size: 10 } }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function showChartEmpty(canvasId, msg) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
+  wrap.innerHTML = `<div class="empty-state" style="height:100%;min-height:100px;justify-content:center">
+    <div class="em-icon">📉</div>
+    <div class="em-msg" style="font-size:11px">${esc(msg)}</div>
+  </div>`;
+}
+</script>
+</body>
+</html>
