@@ -2575,71 +2575,112 @@ _KNOWN_CMS_PROJECTS = [
 
 @app.get("/debug/sg/discover")
 async def debug_sg_discover():
-    """Scan every known CMS project for events that look like starter-guide tracking.
-
-    This probes all known projects × all candidate event names (with 1s gap between
-    each call to respect the CMS rate limit). Takes ~30-60s to complete.
-    Returns a ranked list of (project, event, count) hits sorted by count descending.
+    """Scan every known CMS project for starter-guide events concurrently.
+    Completes in ~3-5s. Returns hits sorted by event count descending.
     Call this once to find the correct STARTER_GUIDE_CMS_PROJECT value.
     """
     client = get_client()
-    hits   = []
-    probed = 0
 
-    for project in _KNOWN_CMS_PROJECTS:
-        for event in _SG_CANDIDATE_EVENTS:
-            await asyncio.sleep(CALL_GAP)
-            try:
-                r = await client.get(
-                    f"{CMS_BASE}/{project}/query/time-series",
-                    params={"event": event, "bucket": "day"},
-                )
-                probed += 1
-                if r.status_code == 200:
-                    try:
-                        body = r.json()
-                        series = body.get("series", [])
-                        total  = sum(int(p.get("count", 0) or 0) for p in series)
-                        if total > 0:
-                            hits.append({
-                                "project": project,
-                                "event":   event,
-                                "total_events": total,
-                                "data_points":  len(series),
-                                "date_range":   f"{series[0]['date']} → {series[-1]['date']}" if series else "",
-                            })
-                            print(f"[discover] HIT {project}/{event} = {total} events", flush=True)
-                        else:
-                            print(f"[discover] empty {project}/{event}", flush=True)
-                    except Exception:
-                        pass
-                elif r.status_code != 404:
-                    print(f"[discover] {project}/{event} → {r.status_code}", flush=True)
-            except Exception as ex:
-                print(f"[discover] {project}/{event} error: {ex}", flush=True)
+    async def probe(project: str, event: str):
+        try:
+            r = await client.get(
+                f"{CMS_BASE}/{project}/query/time-series",
+                params={"event": event, "bucket": "day"},
+            )
+            if r.status_code == 200:
+                body   = r.json()
+                series = body.get("series", [])
+                total  = sum(int(p.get("count", 0) or 0) for p in series)
+                if total > 0:
+                    date_range = (
+                        f"{series[0]['date']} → {series[-1]['date']}" if series else ""
+                    )
+                    print(f"[discover] HIT {project}/{event} = {total}", flush=True)
+                    return {"project": project, "event": event,
+                            "total_events": total, "data_points": len(series),
+                            "date_range": date_range}
+        except Exception as ex:
+            print(f"[discover] {project}/{event} error: {ex}", flush=True)
+        return None
 
+    tasks = [
+        probe(project, event)
+        for project in _KNOWN_CMS_PROJECTS
+        for event in _SG_CANDIDATE_EVENTS
+    ]
+    results = await asyncio.gather(*tasks)
+    hits = [r for r in results if r is not None]
     hits.sort(key=lambda h: h["total_events"], reverse=True)
 
-    recommendation = None
     if hits:
         best = hits[0]
         recommendation = (
-            f"Set STARTER_GUIDE_CMS_PROJECT={best['project']} in your Render env vars. "
-            f"Found {best['total_events']} '{best['event']}' events there."
+            f"Set STARTER_GUIDE_CMS_PROJECT={best['project']} in your Render env vars "
+            f"(found {best['total_events']} '{best['event']}' events there). "
+            f"Then redeploy — no code change needed."
         )
     else:
         recommendation = (
             "No starter-guide events found in any known CMS project. "
-            "Either events haven't been tracked yet, or they use a project name not in the known list. "
-            "Check your CMS admin for project names and add the correct one via STARTER_GUIDE_CMS_PROJECT env var."
+            "Either events have not been tracked yet, or the project uses a name not in the known list. "
+            "Run /debug/sg/projects to see all accessible CMS projects."
         )
 
     return {
-        "probed_combinations": probed,
+        "probed_combinations": len(tasks),
+        "hits_found": len(hits),
         "hits": hits,
         "recommendation": recommendation,
         "current_sg_project": SG_PROJECT,
         "known_projects_scanned": _KNOWN_CMS_PROJECTS,
+        "events_probed": _SG_CANDIDATE_EVENTS,
+    }
+
+
+@app.get("/debug/sg/projects")
+async def debug_sg_projects():
+    """List all CMS projects accessible with the current API key.
+    Use this if /debug/sg/discover finds no hits — starter guide events
+    may live in a project not in the known list.
+    """
+    client = get_client()
+    results = {}
+
+    async def check_project(project: str):
+        try:
+            r = await client.get(
+                f"{CMS_BASE}/{project}/query/top-n",
+                params={"event": "article.viewed", "groupBy": "itemId", "n": 1},
+            )
+            return project, {"status": r.status_code, "accessible": r.status_code == 200}
+        except Exception as e:
+            return project, {"status": "error", "accessible": False, "error": str(e)}
+
+    project_results = await asyncio.gather(*[check_project(p) for p in _KNOWN_CMS_PROJECTS])
+    for p, info in project_results:
+        results[p] = info
+
+    # Attempt a project-list endpoint if the CMS exposes one
+    cms_list = None
+    for list_path in ["/api/metrics/projects", "/api/projects"]:
+        try:
+            base = CMS_BASE.replace("/api/metrics", "")
+            r = await client.get(f"{base}{list_path}")
+            if r.status_code == 200:
+                cms_list = r.json()
+                break
+        except Exception:
+            pass
+
+    return {
+        "cms_base": CMS_BASE,
+        "known_projects": results,
+        "cms_project_list_endpoint": cms_list,
+        "hint": (
+            "Projects with accessible=true are queryable. "
+            "If starter-guide events use a different project slug, "
+            "set STARTER_GUIDE_CMS_PROJECT=<that-slug> in Render env vars."
+        ),
     }
 
 
