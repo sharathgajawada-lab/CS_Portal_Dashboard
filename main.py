@@ -2534,7 +2534,8 @@ async def debug_sg():
                     "CMS project not found — set STARTER_GUIDE_CMS_PROJECT env var "
                     f"to the correct project name (current: '{SG_PROJECT}'). "
                     "Known-good projects: cs-portal-content-events, cs-portal-auth-events, "
-                    "cs-portal-feedback-events, cs-portal-items-events, cs-portal-scheduling-events"
+                    "cs-portal-feedback-events, cs-portal-items-events, cs-portal-scheduling-events. "
+                    "Run /debug/sg/discover to auto-scan all projects for starter-guide events."
                 )
             ),
         }
@@ -2542,6 +2543,104 @@ async def debug_sg():
         result["cms_sg_project"] = {"error": str(e)}
 
     return result
+
+
+# Known CMS candidate event names that could contain starter guide tracking
+_SG_CANDIDATE_EVENTS = [
+    "starter_guide.opened",
+    "starter_guide.viewed",
+    "starter_guide.started",
+    "starter_guide.completed",
+    "starter_guide.slide_viewed",
+    "starter_guide.answer_submitted",
+    "guide.opened",
+    "guide.viewed",
+    "guide.started",
+    "guide.completed",
+    "guide.slide_viewed",
+    "guide.answer_submitted",
+    "onboarding.started",
+    "onboarding.completed",
+    "onboarding.guide_opened",
+]
+
+_KNOWN_CMS_PROJECTS = [
+    "cs-portal-content-events",
+    "cs-portal-auth-events",
+    "cs-portal-feedback-events",
+    "cs-portal-items-events",
+    "cs-portal-scheduling-events",
+]
+
+
+@app.get("/debug/sg/discover")
+async def debug_sg_discover():
+    """Scan every known CMS project for events that look like starter-guide tracking.
+
+    This probes all known projects × all candidate event names (with 1s gap between
+    each call to respect the CMS rate limit). Takes ~30-60s to complete.
+    Returns a ranked list of (project, event, count) hits sorted by count descending.
+    Call this once to find the correct STARTER_GUIDE_CMS_PROJECT value.
+    """
+    client = get_client()
+    hits   = []
+    probed = 0
+
+    for project in _KNOWN_CMS_PROJECTS:
+        for event in _SG_CANDIDATE_EVENTS:
+            await asyncio.sleep(CALL_GAP)
+            try:
+                r = await client.get(
+                    f"{CMS_BASE}/{project}/query/time-series",
+                    params={"event": event, "bucket": "day"},
+                )
+                probed += 1
+                if r.status_code == 200:
+                    try:
+                        body = r.json()
+                        series = body.get("series", [])
+                        total  = sum(int(p.get("count", 0) or 0) for p in series)
+                        if total > 0:
+                            hits.append({
+                                "project": project,
+                                "event":   event,
+                                "total_events": total,
+                                "data_points":  len(series),
+                                "date_range":   f"{series[0]['date']} → {series[-1]['date']}" if series else "",
+                            })
+                            print(f"[discover] HIT {project}/{event} = {total} events", flush=True)
+                        else:
+                            print(f"[discover] empty {project}/{event}", flush=True)
+                    except Exception:
+                        pass
+                elif r.status_code != 404:
+                    print(f"[discover] {project}/{event} → {r.status_code}", flush=True)
+            except Exception as ex:
+                print(f"[discover] {project}/{event} error: {ex}", flush=True)
+
+    hits.sort(key=lambda h: h["total_events"], reverse=True)
+
+    recommendation = None
+    if hits:
+        best = hits[0]
+        recommendation = (
+            f"Set STARTER_GUIDE_CMS_PROJECT={best['project']} in your Render env vars. "
+            f"Found {best['total_events']} '{best['event']}' events there."
+        )
+    else:
+        recommendation = (
+            "No starter-guide events found in any known CMS project. "
+            "Either events haven't been tracked yet, or they use a project name not in the known list. "
+            "Check your CMS admin for project names and add the correct one via STARTER_GUIDE_CMS_PROJECT env var."
+        )
+
+    return {
+        "probed_combinations": probed,
+        "hits": hits,
+        "recommendation": recommendation,
+        "current_sg_project": SG_PROJECT,
+        "known_projects_scanned": _KNOWN_CMS_PROJECTS,
+    }
 
 
 # ── Starter Guides page ───────────────────────────────────────────────────────

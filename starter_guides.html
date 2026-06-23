@@ -492,7 +492,8 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
       <label>Journey ID</label>
       <input type="text" id="mJourneyId" placeholder="optional" style="width:200px">
       <button class="apply-btn" onclick="loadMetrics()">Apply</button>
-      <a href="/debug/sg" target="_blank" class="export-btn" style="text-decoration:none;margin-left:auto">🔍 Debug connectivity</a>
+      <a href="/debug/sg" target="_blank" class="export-btn" style="text-decoration:none;margin-left:auto">🔍 Debug</a>
+      <a href="/debug/sg/discover" target="_blank" class="export-btn" style="text-decoration:none;background:var(--amber-dim);color:var(--amber);border-color:var(--amber)" title="Scans all CMS projects for starter guide events (~30s)">🔭 Discover CMS events</a>
     </div>
 
     <!-- KPI skeletons / values -->
@@ -1250,7 +1251,9 @@ function showChartEmpty(canvasId, msg, showDebugLink = false) {
   wrap.innerHTML = `<div class="empty-state" style="height:100%;min-height:100px;justify-content:center">
     <div class="em-icon">📉</div>
     <div class="em-msg" style="font-size:11px">${esc(msg)}</div>
-    ${showDebugLink ? `<div class="em-sub"><a href="/debug/sg" target="_blank" style="color:var(--blue)">→ Run /debug/sg to check CMS project name</a></div>` : ''}
+    ${showDebugLink ? `<div class="em-sub" style="margin-top:4px">
+      <a href="/debug/sg/discover" target="_blank" style="color:var(--amber)">🔭 Discover which CMS project has your events</a>
+    </div>` : ''}
   </div>`;
 }
 </script>
