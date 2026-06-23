@@ -492,6 +492,7 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
       <label>Journey ID</label>
       <input type="text" id="mJourneyId" placeholder="optional" style="width:200px">
       <button class="apply-btn" onclick="loadMetrics()">Apply</button>
+      <a href="/debug/sg" target="_blank" class="export-btn" style="text-decoration:none;margin-left:auto">🔍 Debug connectivity</a>
     </div>
 
     <!-- KPI skeletons / values -->
@@ -645,7 +646,11 @@ function guideStatus(templateId, completedIds, expiredIds) {
 
 async function apiFetch(path) {
   const r = await fetch(path);
-  if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { const j = await r.json(); detail = j.detail || JSON.stringify(j); } catch {}
+    throw new Error(`HTTP ${r.status}: ${detail}`);
+  }
   return r.json();
 }
 
@@ -681,10 +686,15 @@ async function searchJourneys(skip = 0) {
 
     renderJourneyGrid(journeys);
   } catch(e) {
+    const is502 = e.message.includes('502') || e.message.includes('503');
     res.innerHTML = `<div class="card"><div class="error-state">
-      <div class="err-icon">⚠️</div>
-      <div class="err-msg">Failed to load journeys</div>
+      <div class="err-icon">${is502 ? '🔌' : '⚠️'}</div>
+      <div class="err-msg">${is502 ? 'Cannot reach Starter Guide Service' : 'Failed to load journeys'}</div>
       <div class="err-sub">${esc(e.message)}</div>
+      ${is502 ? `<div class="err-sub" style="margin-top:8px">
+        Check <a href="/debug/sg" target="_blank" style="color:var(--blue)">→ /debug/sg</a>
+        to diagnose connectivity
+      </div>` : ''}
     </div></div>`;
   } finally {
     btn.disabled = false; btn.textContent = 'Search';
@@ -1097,6 +1107,7 @@ async function loadMetrics() {
   const opensSeries   = opensData.status   === 'fulfilled' ? (opensData.value.series   || []) : [];
   const slideTop      = slidesData.status  === 'fulfilled' ? (slidesData.value.top      || []) : [];
   const answerSeries  = answersData.status === 'fulfilled' ? (answersData.value.series  || []) : [];
+  const cmsProject    = opensData.status   === 'fulfilled' ? (opensData.value.project   || 'unknown') : 'unknown';
 
   const totalOpens   = opensSeries.reduce((s, p) => s + (p.count || 0), 0);
   const totalAnswers = answerSeries.reduce((s, p) => s + (p.count || 0), 0);
@@ -1116,11 +1127,15 @@ async function loadMetrics() {
       <div class="kpi-sub">${k.sub}</div>
     </div>`).join('');
 
+  // Update chart subtitles to show which CMS project is being queried
+  const guidOpensSub = document.getElementById('guidOpensSub');
+  if (guidOpensSub) guidOpensSub.textContent = `CMS project: ${cmsProject} · starter_guide.opened`;
+
   // ── Guide Opens chart ─────────────────────────────────────────────────────
-  renderLineChart('opensChart', opensSeries, 'Guide Opens', '#2563eb');
+  renderLineChart('opensChart', opensSeries, 'Guide Opens', '#2563eb', true);
 
   // ── Answer Submission Rate chart ──────────────────────────────────────────
-  renderLineChart('answerRateChart', answerSeries, 'Answer Submissions', '#059669');
+  renderLineChart('answerRateChart', answerSeries, 'Answer Submissions', '#059669', true);
 
   // ── Slide drop-off (top-n horizontal bar) ─────────────────────────────────
   if (slideTop.length) {
@@ -1144,7 +1159,7 @@ async function loadMetrics() {
       },
     });
   } else {
-    showChartEmpty('dropoffChart', 'No slide view data in CMS');
+    showChartEmpty('dropoffChart', `No slide view data in CMS project "${cmsProject}"`, true);
   }
 
   // ── Completions over time (line) — placeholder from opensSeries bucketed by week ──
@@ -1175,7 +1190,7 @@ async function loadMetrics() {
       },
     });
   } else {
-    showChartEmpty('completionsChart', 'No completions time-series data');
+    showChartEmpty('completionsChart', `No time-series data in CMS project "${cmsProject}"`, true);
   }
 
   // ── Funnel chart — static placeholder (requires iterating journeys) ─────────
@@ -1205,13 +1220,12 @@ async function loadMetrics() {
 
   // ── Top Questions chart — needs journey data, show empty ─────────────────
   showChartEmpty('topQuestionsChart', 'Search journeys first, then revisit Metrics for question aggregates');
-
   _metricsLoaded = true;
 }
 
-function renderLineChart(canvasId, series, label, color) {
+function renderLineChart(canvasId, series, label, color, cmsHint = false) {
   const ctx = document.getElementById(canvasId).getContext('2d');
-  if (!series.length) { showChartEmpty(canvasId, 'No data from CMS metrics'); return; }
+  if (!series.length) { showChartEmpty(canvasId, `No data from CMS metrics (event: ${label})`, cmsHint); return; }
   state.charts[canvasId] = new Chart(ctx, {
     type: 'line',
     data: {
@@ -1229,13 +1243,14 @@ function renderLineChart(canvasId, series, label, color) {
   });
 }
 
-function showChartEmpty(canvasId, msg) {
+function showChartEmpty(canvasId, msg, showDebugLink = false) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
   wrap.innerHTML = `<div class="empty-state" style="height:100%;min-height:100px;justify-content:center">
     <div class="em-icon">📉</div>
     <div class="em-msg" style="font-size:11px">${esc(msg)}</div>
+    ${showDebugLink ? `<div class="em-sub"><a href="/debug/sg" target="_blank" style="color:var(--blue)">→ Run /debug/sg to check CMS project name</a></div>` : ''}
   </div>`;
 }
 </script>

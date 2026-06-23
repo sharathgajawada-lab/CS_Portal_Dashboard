@@ -2375,19 +2375,45 @@ async def debug_video_topn():
 # All calls forwarded to SG_BASE with no auth headers required.
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _sg_get(path: str, params: dict = None) -> dict | list | None:
-    """Forward one GET request to the Starter Guide Service."""
+class _SgResponse:
+    """Thin wrapper so callers can distinguish 404/empty from hard failures."""
+    def __init__(self, status: int, body):
+        self.status = status
+        self.body   = body
+    @property
+    def ok(self):   return self.status == 200
+    @property
+    def not_found(self): return self.status == 404
+    @property
+    def empty(self):
+        """True when the upstream returned 200 but the data list is empty."""
+        if not self.ok:
+            return False
+        b = self.body
+        if isinstance(b, dict):
+            d = b.get("data")
+            return isinstance(d, list) and len(d) == 0
+        return isinstance(b, list) and len(b) == 0
+
+
+async def _sg_get(path: str, params: dict = None) -> "_SgResponse":
+    """Forward one GET request to the Starter Guide Service.
+    Always returns an _SgResponse — never raises, never returns None.
+    Callers inspect .ok / .not_found / .body instead of None-checking.
+    """
     url = f"{SG_BASE}{path}"
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(url, params=params or {})
-            if r.status_code == 200:
-                return r.json()
-            print(f"[sg] {path} → {r.status_code}: {r.text[:200]}", flush=True)
-            return None
+            print(f"[sg] GET {path} → {r.status_code}", flush=True)
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw": r.text[:500]}
+            return _SgResponse(r.status_code, body)
     except Exception as ex:
-        print(f"[sg] {path} error: {ex}", flush=True)
-        return None
+        print(f"[sg] GET {path} connection error: {ex}", flush=True)
+        return _SgResponse(503, {"error": str(ex)})
 
 
 @app.get("/api/sg/journeys/{customer_gid}")
@@ -2404,49 +2430,63 @@ async def sg_journeys(
     if journeyId:   params["journeyId"]  = journeyId
     if from_date:   params["from"]       = from_date
     if to_date:     params["to"]         = to_date
-    data = await _sg_get(f"/api/v1/journeys/{customer_gid}", params)
-    if data is None:
-        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
-    return data
+    resp = await _sg_get(f"/api/v1/journeys/{customer_gid}", params)
+    if resp.ok or resp.not_found:
+        # 404 → treat as empty result set (customer has no journeys yet)
+        if resp.not_found:
+            return {"data": [], "meta": {"total": 0}}
+        return resp.body
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
 
 
 @app.get("/api/sg/journeys/{journey_id}/answers")
 async def sg_journey_answers(journey_id: str):
     """Proxy: GET /api/v1/journeys/:journeyId/answers"""
-    data = await _sg_get(f"/api/v1/journeys/{journey_id}/answers")
-    if data is None:
-        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
-    return data
+    resp = await _sg_get(f"/api/v1/journeys/{journey_id}/answers")
+    if resp.ok:
+        return resp.body
+    if resp.not_found:
+        return {"journeyId": journey_id, "answers": {}, "guideCount": 0}
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
 
 
 @app.get("/api/sg/journeys/{journey_id}/starter-guides")
 async def sg_journey_guides(journey_id: str, limit: int = 50, skip: int = 0):
     """Proxy: GET /api/v1/journeys/:journeyId/starter-guides"""
-    data = await _sg_get(f"/api/v1/journeys/{journey_id}/starter-guides",
+    resp = await _sg_get(f"/api/v1/journeys/{journey_id}/starter-guides",
                          {"limit": limit, "skip": skip})
-    if data is None:
-        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
-    return data
+    if resp.ok:
+        return resp.body
+    if resp.not_found:
+        return {"data": [], "meta": {"total": 0}}
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
 
 
 @app.get("/api/sg/starter-guides/{guide_id}")
 async def sg_guide_detail(guide_id: str):
     """Proxy: GET /api/v1/starter-guides/:id"""
-    data = await _sg_get(f"/api/v1/starter-guides/{guide_id}")
-    if data is None:
-        raise HTTPException(status_code=502, detail="Upstream starter-guide service unavailable")
-    return data
+    resp = await _sg_get(f"/api/v1/starter-guides/{guide_id}")
+    if resp.ok:
+        return resp.body
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
 
 
 # ── CMS metrics for Starter Guides ───────────────────────────────────────────
+# SG_CMS_PROJECT: set STARTER_GUIDE_CMS_PROJECT env var to match whatever project
+# name your CMS uses for starter guide events. The default mirrors the naming
+# convention used by the existing cs-portal-* projects in this dashboard.
+SG_PROJECT = os.environ.get("STARTER_GUIDE_CMS_PROJECT", "cs-portal-starter-guide-events")
 
-SG_PROJECT = "cs-portal-starter-guide-events"
 
 @app.get("/api/sg/metrics/timeseries")
 async def sg_metrics_timeseries(event: str = "starter_guide.opened", bucket: str = "day"):
     """Time-series from CMS metrics for starter guide events."""
     series = await _timeseries(SG_PROJECT, event)
-    return {"event": event, "series": series}
+    return {"event": event, "project": SG_PROJECT, "series": series}
 
 
 @app.get("/api/sg/metrics/topn")
@@ -2454,7 +2494,54 @@ async def sg_metrics_topn(event: str = "starter_guide.slide_viewed",
                            group_by: str = "itemId", n: int = 20):
     """Top-N from CMS metrics for starter guide events."""
     rows = await _topn(SG_PROJECT, event, group_by=group_by, n=n)
-    return {"event": event, "groupBy": group_by, "top": rows}
+    return {"event": event, "project": SG_PROJECT, "groupBy": group_by, "top": rows}
+
+
+@app.get("/debug/sg")
+async def debug_sg():
+    """One-shot health check for all Starter Guide layers.
+    Hit this URL to diagnose why the dashboard shows no data.
+    """
+    result: dict = {"sg_base_url": SG_BASE, "sg_cms_project": SG_PROJECT}
+
+    # 1. Upstream reachability — use a known-safe path; 404 is fine, timeout is not
+    probe = await _sg_get("/api/v1/journeys/debug-probe", {"limit": 1})
+    result["upstream"] = {
+        "reachable": probe.status not in (503,),
+        "status":    probe.status,
+        "body_preview": str(probe.body)[:200],
+        "hint": (
+            "Service is up (404 = customer not found, which is expected for a probe)"
+            if probe.status in (200, 404)
+            else "Service may be down or unreachable — check SG_BASE_URL and network egress"
+        ),
+    }
+
+    # 2. CMS metrics — try to pull the last 1 data point for the SG project
+    client = get_client()
+    try:
+        r = await client.get(
+            f"{CMS_BASE}/{SG_PROJECT}/query/time-series",
+            params={"event": "starter_guide.opened", "bucket": "day"},
+        )
+        result["cms_sg_project"] = {
+            "status": r.status_code,
+            "body_preview": r.text[:200],
+            "hint": (
+                "CMS project found and returning data"
+                if r.status_code == 200
+                else (
+                    "CMS project not found — set STARTER_GUIDE_CMS_PROJECT env var "
+                    f"to the correct project name (current: '{SG_PROJECT}'). "
+                    "Known-good projects: cs-portal-content-events, cs-portal-auth-events, "
+                    "cs-portal-feedback-events, cs-portal-items-events, cs-portal-scheduling-events"
+                )
+            ),
+        }
+    except Exception as e:
+        result["cms_sg_project"] = {"error": str(e)}
+
+    return result
 
 
 # ── Starter Guides page ───────────────────────────────────────────────────────
