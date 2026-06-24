@@ -402,8 +402,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 
-/* --- Design System Override --- */
-@import url('/portal-overrides.css');
 </style>
 </head>
 <body>
@@ -444,8 +442,9 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <!-- Page navigation -->
     <nav class="page-nav">
       <a href="/">📊 Portal Activity</a>
-      <a href="/csat" class="active">Call Quality</a>
+      <a href="/csat" class="active">📞 Call Quality</a>
       <a href="/starter-guides">🗺️ Starter Guides</a>
+      <a href="/ai-bots">🤖 AI Bots</a>
     </nav>
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
@@ -463,12 +462,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="header-right">
       <div class="live-dot"></div>
       <div class="last-updated" id="lastUpdated">—</div>
-      <button class="export-btn" id="domoRefreshBtn" onclick="refreshFromDomo()" title="Pull the latest CSAT data live from Domo" style="background:var(--blue);color:#fff;border-color:var(--blue);white-space:nowrap">
-        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-        </svg>
-        Sync from Domo
-      </button>
+      <button class="export-btn" id="domoRefreshBtn" onclick="refreshFromDomo()" title="Pull the latest CSAT data live from Domo" style="background:var(--blue);color:#fff;border-color:var(--blue)">↻ Refresh from Domo</button>
     </div>
   </div>
 
@@ -1458,10 +1452,6 @@ function clearGlobalConsultant() {
   const ts = document.getElementById('csatGlobalTeamFilter');  if (ts) ts.value = '';
   _csatComputeAndRender(state.from, state.to);
 }
-
-// DS aliases — required by portal-system.js
-window.setFocusConsultant = onGlobalConsultantChange;
-window.clearFocusConsultant = clearGlobalConsultant;
 
 // Reflect the current scope in the bar: status text, clear button, and the calls
 // table. Called from renderCSAT so it always matches the rendered data.
@@ -3733,7 +3723,5 @@ waitForChart(init);
 </div>
 
 
-<!-- Design System JS -->
-<script src="/portal-system.js"></script>
 </body>
 </html>

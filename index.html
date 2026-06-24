@@ -450,8 +450,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 
-/* --- Design System Override (add at end of <style>) --- */
-@import url('/portal-overrides.css');
 </style>
 </head>
 <body>
@@ -491,9 +489,10 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
     <!-- Page navigation -->
     <nav class="page-nav">
-      <a href="/" class="active">Portal Activity</a>
+      <a href="/" class="active">📊 Portal Activity</a>
       <a href="/csat">📞 Call Quality</a>
       <a href="/starter-guides">🗺️ Starter Guides</a>
+      <a href="/ai-bots">🤖 AI Bots</a>
     </nav>
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
@@ -750,15 +749,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <span class="section-status loading" id="articleStatus"><span class="spinner"></span> Loading…</span>
       </div>
       <div class="section-sub" id="articleSub">Views · time spent · feedback sentiment</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-left:auto">
-        <div class="DS-row-count">
-          <button class="DS-rc-btn active" onclick="setArtTopN(this,5)">5</button>
-          <button class="DS-rc-btn" onclick="setArtTopN(this,10)">10</button>
-          <button class="DS-rc-btn" onclick="setArtTopN(this,25)">25</button>
-          <button class="DS-rc-btn" onclick="setArtTopN(this,999)">All</button>
-        </div>
-        <button class="export-btn" onclick="exportArticleCSV()">⬇ Export</button>
-      </div>
+      <button class="export-btn" onclick="exportArticleCSV()" style="margin-left:auto">⬇ Export table</button>
     </div>
     <div class="card" style="padding:0">
       <div class="table-wrap">
@@ -798,7 +789,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           <span style="font-size:11px;color:var(--text3)" id="articleCountLabel"></span>
         </div>
       </div>
-      <div class="note" id="articleNote" style="margin:12px 20px 16px">Loading article data…</div>
+      <div class="note" id="articleNote" style="margin:12px 20px 16px">ℹ️ Loading article data…</div>
     </div>
   </div>
 
@@ -855,7 +846,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         </div>
       </div>
     </div>
-    <div class="note" id="sessionNote" style="margin-top:10px">Session data is sampled from top active users. Median is the most reliable metric.</div>
+    <div class="note" id="sessionNote" style="margin-top:10px">&#x2139;&#xFE0F; Session data is sampled from top active users. Median is the most reliable metric.</div>
   </div>
 
   <!-- Activity heatmap + Hour of day -->
@@ -2103,7 +2094,7 @@ function renderSessionSection() {
   document.getElementById('sAvg').textContent     = `avg ${fmtDur(d.avg_seconds)}${d.avg_seconds > d.median_seconds * 3 ? ' ⚠ outliers present' : ''}`;
   document.getElementById('sP90').textContent     = fmtDur(d.p90_seconds);
   document.getElementById('sPctLogout').textContent = `${d.pct_with_logout}% sessions end with explicit logout`;
-  document.getElementById('sessionNote').textContent = d.note;
+  document.getElementById('sessionNote').textContent = `ℹ️ ${d.note}`;
   document.getElementById('sessionSub').textContent =
     `${fmt(d.total_sessions)} sessions analysed · computed ${new Date(d.computed_at).toLocaleTimeString()}`;
 
@@ -2404,13 +2395,6 @@ function exportCSV() {
     rows.push([ev.label, getTotal(ev.key), getAvgPerDay(ev.key), getWoW(ev.key) ?? '']);
   });
   downloadCSV(rows, 'cs-portal-metrics.csv');
-}
-
-function setArtTopN(btn, n) {
-  document.querySelectorAll('.DS-rc-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  const sel = document.getElementById('artTopNSelect');
-  if (sel) { sel.value = n >= 999 ? 'all' : String(n); renderArticleTable(); }
 }
 
 function exportArticleCSV() {
@@ -3211,7 +3195,5 @@ waitForChart(init);
 </div>
 
 
-<!-- Design System JS -->
-<script src="/portal-system.js"></script>
 </body>
 </html>

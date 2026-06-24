@@ -2710,6 +2710,15 @@ async def csat_page():
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache"})
 
+@app.get("/ai-bots", response_class=HTMLResponse)
+async def ai_bots_page():
+    """AI Bot Intelligence page (ParkerAI & JamieAI) — served from ai-bots.html."""
+    with open("ai-bots.html") as f: html = f.read()
+    return HTMLResponse(content=html,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                 "Pragma": "no-cache"})
+
+
 @app.get("/sw.js")
 async def service_worker():
     with open("sw.js") as f: content = f.read()
