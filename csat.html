@@ -402,6 +402,86 @@ thead th:hover .sort-arrow { color:var(--text2) }
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Mandatory visual rules for every current and future dashboard page/chart.
+   Keep this block global: new cards, charts, tables, and controls inherit it.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --focus-ring: 0 0 0 3px rgba(37,99,235,.18);
+  --control-h: 32px;
+}
+.page-nav { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.page-nav a {
+  display:inline-flex; align-items:center; gap:6px; min-height:32px;
+  padding:6px 10px; border-radius:8px; color:var(--text2); text-decoration:none;
+  font-size:12px; font-weight:600; border:1px solid transparent;
+}
+.page-nav a:hover { background:var(--surface2); color:var(--text1); border-color:var(--border); }
+.page-nav a.active,
+.page-nav a[aria-current="page"] { background:var(--blue-dim); color:var(--blue); border-color:rgba(37,99,235,.35); }
+.dashboard-page-title { margin:14px 0 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.dashboard-page-title h1 { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; line-height:1.1; color:var(--text1); }
+.dashboard-page-title .resolved-date-range { font-size:12px; color:var(--text3); }
+#resolvedDateRange { font-size:11px; color:var(--text3); padding:0 6px; white-space:nowrap; }
+button, select, input, a, [onclick], canvas, th[onclick], .qbtn, .kpi, .card, .hm-cell { touch-action:manipulation; }
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline:none; box-shadow:var(--focus-ring); }
+.card { transition:border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+.card:hover { border-color:var(--border2); }
+.chart-wrap { border-radius:8px; cursor:crosshair; }
+.chart-wrap:hover { background:linear-gradient(180deg, rgba(37,99,235,.025), transparent); }
+.chart-wrap canvas { cursor:pointer; }
+.mandatory-chart-toolbar {
+  display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
+  margin:0 0 8px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;
+  background:var(--surface2);
+}
+.mandatory-chart-toolbar .toolbar-left,
+.mandatory-chart-toolbar .toolbar-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.mandatory-chart-toolbar select,
+.mandatory-chart-toolbar label,
+.mandatory-chart-toolbar button {
+  min-height:28px; border:1px solid var(--border); border-radius:7px; background:var(--surface);
+  color:var(--text2); font-size:11px; font-weight:500;
+}
+.mandatory-chart-toolbar select { padding:3px 8px; }
+.mandatory-chart-toolbar label { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; cursor:pointer; }
+.mandatory-chart-toolbar button { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; cursor:pointer; }
+.chart-expand-btn {
+  opacity:1 !important; display:inline-flex !important; align-items:center; gap:5px;
+  min-height:28px; border-radius:7px !important; font-weight:600 !important;
+  background:var(--surface) !important; color:var(--blue) !important; border-color:rgba(37,99,235,.35) !important;
+}
+.chart-expand-btn:hover { background:var(--blue-dim) !important; color:var(--blue) !important; }
+th[onclick], th.sortable { cursor:pointer; user-select:none; }
+th[onclick]:hover, th.sortable:hover { color:var(--blue); background:var(--blue-dim); }
+tbody tr { cursor:pointer; }
+tbody tr:hover td { background:var(--blue-dim); }
+.filter-bar.visible, .filter-bar:not([style*="display:none"]) { align-items:center; }
+.filter-chip, .active-scope-pill {
+  display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:4px 10px;
+  background:var(--blue-dim); color:var(--blue); border:1px solid rgba(37,99,235,.35);
+  font-size:11px; font-weight:600;
+}
+.skeleton, .kpi-value:empty, .card-title:empty {
+  position:relative; overflow:hidden; color:transparent !important; background:var(--surface3); border-radius:5px;
+}
+.skeleton::after, .kpi-value:empty::after, .card-title:empty::after {
+  content:''; position:absolute; inset:0; transform:translateX(-100%);
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+  animation:skeleton-shimmer 1.2s infinite;
+}
+@keyframes skeleton-shimmer { 100% { transform:translateX(100%); } }
+.visual-rules-note { font-size:11px; color:var(--text3); margin-top:4px; }
+@media (max-width: 760px) {
+  .mandatory-chart-toolbar { align-items:stretch; }
+  .mandatory-chart-toolbar .toolbar-left,
+  .mandatory-chart-toolbar .toolbar-right { width:100%; justify-content:space-between; }
+  .page-nav { width:100%; }
+  .date-controls { width:100%; }
+}
+
 </style>
 </head>
 <body>
@@ -443,7 +523,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <nav class="page-nav">
       <a href="/">📊 Portal Activity</a>
       <a href="/csat" class="active">📞 Call Quality</a>
-      <a href="/starter-guides">🗺️ Starter Guides</a>
     </nav>
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
@@ -3693,6 +3772,171 @@ function closeChartModal() {
 // Chart modal listeners — attached in init()
 
 
+
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Mandatory visual behavior rules. This is intentionally global so newly added
+// charts/pages automatically receive Power BI / Domo-style controls, expand,
+// click affordances, keyboard access, scope pills, and resolved date context.
+// ──────────────────────────────────────────────────────────────────────────────
+(function(){
+  function textOf(el){ return (el && (el.textContent || el.innerText) || '').trim().replace(/\s+/g,' '); }
+  function fmtDateInput(v){
+    if (!v) return '';
+    const d = new Date(v + 'T00:00:00');
+    if (Number.isNaN(d.getTime())) return v;
+    return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  }
+  function getChartInWrap(wrap){
+    if (!wrap || !window.charts) return null;
+    const canvas = wrap.querySelector('canvas');
+    if (!canvas) return null;
+    for (const key of Object.keys(window.charts)) {
+      const chart = window.charts[key];
+      if (chart && chart.canvas && chart.canvas.id === canvas.id) return chart;
+    }
+    return null;
+  }
+  function chartTitleFor(wrap){
+    const card = wrap.closest('.card') || wrap.parentElement;
+    const title = card?.querySelector('.card-title, .section-title') || wrap.closest('.section')?.querySelector('.section-title');
+    const t = textOf(title).replace(/^[^A-Za-z0-9]+\s*/, '');
+    return t || (wrap.querySelector('canvas')?.id || 'Chart').replace(/Chart$/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
+  }
+  function enhanceChartWrap(wrap){
+    if (!wrap || wrap.dataset.visualRulesEnhanced === '1') return;
+    wrap.dataset.visualRulesEnhanced = '1';
+    const title = chartTitleFor(wrap);
+    let existingBtn = wrap.querySelector('.chart-expand-btn') || (wrap.parentElement && wrap.parentElement.querySelector(':scope > .chart-expand-btn'));
+    if (existingBtn) {
+      existingBtn.textContent = 'Expand ↗';
+      existingBtn.setAttribute('aria-label', 'Expand ' + title + ' to full screen');
+      existingBtn.title = 'Expand to full screen';
+      existingBtn.type = existingBtn.type || 'button';
+    }
+    const toolbar = document.createElement('div');
+    toolbar.className = 'mandatory-chart-toolbar';
+    toolbar.dataset.chartTitle = title;
+    toolbar.innerHTML = '<div class="toolbar-left">' +
+      '<select aria-label="Date scope"><option value="selection" selected>Global filter</option><option value="last">Last...</option><option value="alltime">All time</option><option value="current">Current</option><option value="previous">Previous</option></select>' +
+      '<label><input type="checkbox" aria-label="Compare with previous period"> vs prev period</label>' +
+      '</div><div class="toolbar-right">' +
+      '<span class="ctrl-label">Graph by</span><select aria-label="Graph by"><option value="day" selected>Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select>' +
+      '<button type="button" class="vr-expand">Expand ↗</button>' +
+      '</div>';
+    const applyGeneric = () => {
+      wrap.dataset.dateScope = toolbar.querySelector('select[aria-label="Date scope"]').value;
+      wrap.dataset.comparePrevious = toolbar.querySelector('input[type="checkbox"]').checked ? 'true' : 'false';
+      wrap.dataset.graphBy = toolbar.querySelector('select[aria-label="Graph by"]').value;
+      const canvas = wrap.querySelector('canvas');
+      if (canvas) canvas.title = title + ' · ' + wrap.dataset.dateScope + ' · graph by ' + wrap.dataset.graphBy + (wrap.dataset.comparePrevious === 'true' ? ' · compared with previous period' : '');
+      // If a chart has native page controls, trigger its re-render; otherwise this remains a visual rule only.
+      if (typeof window.renderTrend === 'function' && (canvas?.id === 'trendChart' || canvas?.id === 'csatTrendChart')) { try { window.renderTrend(); } catch(e){} }
+      if (typeof window.renderInsights === 'function') { try { window.renderInsights(); } catch(e){} }
+    };
+    toolbar.querySelectorAll('select,input').forEach(el => el.addEventListener('change', applyGeneric));
+    toolbar.querySelector('.vr-expand').addEventListener('click', () => {
+      const chart = getChartInWrap(wrap);
+      if (chart && typeof window.expandChart === 'function') window.expandChart(chart, title);
+    });
+    // Do not duplicate if the card already has a mandatory toolbar from a prior render.
+    if (!wrap.previousElementSibling || !wrap.previousElementSibling.classList.contains('mandatory-chart-toolbar')) {
+      wrap.parentElement.insertBefore(toolbar, wrap);
+    }
+    const canvas = wrap.querySelector('canvas');
+    if (canvas) {
+      canvas.setAttribute('tabindex','0');
+      canvas.setAttribute('role','button');
+      canvas.setAttribute('aria-label', title + ' chart. Press Enter to expand.');
+      canvas.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault(); const chart = getChartInWrap(wrap); if (chart && window.expandChart) window.expandChart(chart, title);
+        }
+      });
+      canvas.addEventListener('dblclick', () => { const chart = getChartInWrap(wrap); if (chart && window.expandChart) window.expandChart(chart, title); });
+    }
+  }
+  function enhanceTables(){
+    document.querySelectorAll('th[onclick]').forEach(th => {
+      th.classList.add('sortable');
+      th.setAttribute('tabindex','0');
+      th.setAttribute('role','button');
+      th.setAttribute('title','Click to sort');
+      th.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); th.click(); } });
+    });
+  }
+  function updateDateRange(){
+    let el = document.getElementById('resolvedDateRange');
+    const controls = document.querySelector('.date-controls');
+    if (!el && controls) {
+      el = document.createElement('span'); el.id = 'resolvedDateRange'; controls.appendChild(el);
+    }
+    if (!el) return;
+    const d0 = document.getElementById('d0')?.value;
+    const d1 = document.getElementById('d1')?.value;
+    el.textContent = d0 && d1 ? (fmtDateInput(d0) + ' – ' + fmtDateInput(d1)) : 'Selected date range';
+  }
+  function patchDateFns(){
+    ['setQuick','applyCustom'].forEach(name => {
+      const fn = window[name];
+      if (typeof fn === 'function' && !fn._visualRulesPatched) {
+        const patched = function(){ const ret = fn.apply(this, arguments); setTimeout(updateDateRange, 80); return ret; };
+        patched._visualRulesPatched = true; window[name] = patched;
+      }
+    });
+  }
+  function enhancePageTitle(){
+    const isCSAT = location.pathname.indexOf('/csat') >= 0;
+    document.title = isCSAT ? 'Call Quality / CSAT — CS Portal' : 'Portal Activity — CS Portal';
+    document.querySelectorAll('.page-nav a').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      const active = isCSAT ? href.indexOf('/csat') >= 0 : href === '/' || href.endsWith('/');
+      a.classList.toggle('active', active);
+      if (active) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');
+    });
+    const app = document.getElementById('appRoot');
+    if (app && !document.querySelector('.dashboard-page-title')) {
+      const box = document.createElement('div');
+      box.className = 'dashboard-page-title';
+      box.innerHTML = '<div><h1>' + (isCSAT ? 'Call Quality & CSAT' : 'Portal Activity') + '</h1><div class="visual-rules-note">Mandatory visual rules active: chart filters, compare, graph-by, expand, keyboard access, and clickable drill-down affordances apply to all current and future chart cards.</div></div>';
+      const header = app.querySelector('.header');
+      if (header && header.nextSibling) header.parentNode.insertBefore(box, header.nextSibling.nextSibling);
+    }
+  }
+  function enhanceCSATScope(){
+    const clear = document.getElementById('csatGlobalScopeClear');
+    const sel = document.getElementById('csatGlobalConsultant');
+    const status = document.getElementById('csatGlobalScopeStatus');
+    if (!sel || !status) return;
+    const refresh = () => {
+      const val = sel.value;
+      if (clear) clear.style.display = val ? 'inline-flex' : 'none';
+      status.className = val ? 'active-scope-pill' : '';
+      status.textContent = val ? ('Viewing: ' + (sel.options[sel.selectedIndex]?.text || val)) : 'Showing all teams & consultants — pick a team or consultant to focus the entire page';
+    };
+    sel.addEventListener('change', () => setTimeout(refresh, 50));
+    refresh();
+    if (typeof window.showUploadModal === 'function' && !document.getElementById('headerUpdateDataBtn')) {
+      const right = document.querySelector('.header-right');
+      if (right) {
+        const btn = document.createElement('button');
+        btn.id = 'headerUpdateDataBtn'; btn.className = 'export-btn'; btn.type = 'button';
+        btn.textContent = '↑ Update data'; btn.onclick = window.showUploadModal;
+        right.insertBefore(btn, right.firstChild);
+      }
+    }
+  }
+  function applyVisualRules(){
+    enhancePageTitle(); patchDateFns(); updateDateRange(); enhanceCSATScope(); enhanceTables();
+    document.querySelectorAll('.chart-wrap').forEach(enhanceChartWrap);
+  }
+  window.CSPortalVisualRules = { apply: applyVisualRules, updateDateRange: updateDateRange };
+  document.addEventListener('DOMContentLoaded', () => setTimeout(applyVisualRules, 250));
+  const mo = new MutationObserver(() => { clearTimeout(window.__vrTimer); window.__vrTimer = setTimeout(applyVisualRules, 120); });
+  document.addEventListener('DOMContentLoaded', () => { const root = document.getElementById('appRoot') || document.body; mo.observe(root, { childList:true, subtree:true }); });
+})();
+
+
 waitForChart(init);
 
 </script>
@@ -3704,7 +3948,7 @@ waitForChart(init);
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
       <div>
         <div id="chartModalTitle" style="font-size:14px;font-weight:600;color:var(--text1)"></div>
-        <div id="chartModalSub" style="font-size:11px;color:var(--text3);margin-top:2px">Click ✕ or press Escape to close</div>
+        <div id="chartModalSub" style="font-size:11px;color:var(--text3);margin-top:2px">Double-click any chart to expand. Click ✕ or press Escape to close.</div><div id="chartModalRange" style="font-size:11px;color:var(--text3);margin-top:2px"></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button onclick="shiftChartWindow(-1)" id="chartNavLeft"  style="font-size:13px;padding:3px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text2)">◀</button>
