@@ -370,6 +370,8 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
   .two-col, .three-col { grid-template-columns: 1fr }
   .journey-grid { grid-template-columns: 1fr }
 }
+/* --- Design System Override --- */
+@import url('/portal-overrides.css');
 </style>
 </head>
 <body>
@@ -407,7 +409,7 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
     <nav class="page-nav">
       <a href="/">📊 Portal Activity</a>
       <a href="/csat">📞 Call Quality</a>
-      <a href="/starter-guides" class="active">🗺️ Starter Guides</a>
+      <a href="/starter-guides" class="active">Starter Guides</a>
     </nav>
     <div class="header-right">
       <div style="width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)"></div>
@@ -1258,5 +1260,7 @@ function showChartEmpty(canvasId, msg, showDebugLink = false) {
   </div>`;
 }
 </script>
+<!-- Design System JS -->
+<script src="/portal-system.js"></script>
 </body>
 </html>
