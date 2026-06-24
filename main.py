@@ -25,6 +25,16 @@ from datetime import datetime
 from collections import defaultdict, Counter
 import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
 
+# FastAPI (already uses StaticFiles? Just add these to the same static dir)
+# Flask:
+@app.route('/portal-overrides.css')
+def ds_css():
+    return send_file('portal-overrides.css', mimetype='text/css')
+
+@app.route('/portal-system.js')
+def ds_js():
+    return send_file('portal-system.js', mimetype='application/javascript')
+
 # ── Supabase client (lazy init) ───────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
