@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: cs-portal-dashboard
+    env: python
+    pythonVersion: "3.11.9"
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DASHBOARD_ADMIN_TOKEN
+        sync: false   # required for admin/debug/cache/break-glass endpoints; CSAT drilldowns are open unless CSAT_DRILLDOWNS_REQUIRE_TOKEN=true
+      - key: ALLOWED_ORIGINS
+        sync: false   # comma-separated browser origins; leave blank only for same-origin use
+      - key: CMS_API_KEY
+        sync: false
+      - key: CMS_BASE_URL
+        sync: false   # optional override for CMS metrics base URL
+      - key: DATA_START
+        value: "2026-04-24"
+      - key: SUPABASE_URL
+        sync: false   # e.g. https://xxxxxxxxxxxx.supabase.co
+      - key: SUPABASE_KEY
+        sync: false   # service_role JWT from Supabase project settings
+      - key: CSAT_TEAMS
+        sync: false   # optional comma-separated allow-list; blank means include all teams
+      - key: CSAT_INCLUDE_BOT_CONSULTANTS
+        value: "false"
+      - key: DOMO_CLIENT_ID
+        sync: false
+      - key: DOMO_CLIENT_SECRET
+        sync: false
+      - key: DOMO_DATASET_ID
+        sync: false

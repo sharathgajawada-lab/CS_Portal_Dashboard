@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "timezone": "America/New_York",
+  "updated": "2026-06-25",
+  "metrics": [
+    {
+      "metric_id": "portal.total_views",
+      "name": "Total views",
+      "business_definition": "Combined count of article.viewed, video.watched, and category.viewed events in the selected period.",
+      "grain": "event_day",
+      "source": "CMS metrics API",
+      "owner": "CS Operations",
+      "calculation": "sum(article.viewed.count + video.watched.count + category.viewed.count)",
+      "allowed_dimensions": ["date", "week", "month", "event_type"],
+      "caveats": ["Synthetic metric; not an upstream event type."]
+    },
+    {
+      "metric_id": "portal.article_views",
+      "name": "Article views",
+      "business_definition": "Count of article.viewed events in the selected period.",
+      "grain": "event_day",
+      "source": "CMS metrics API",
+      "owner": "CS Content",
+      "calculation": "sum(article.viewed.count)",
+      "allowed_dimensions": ["date", "week", "month", "article_id", "category"]
+    },
+    {
+      "metric_id": "portal.article_selected_period_estimate",
+      "name": "Selected-period article-level views estimate",
+      "business_definition": "Directional article-level selected-period estimate produced by scaling all-time article counts by the selected-period share of total daily article traffic.",
+      "grain": "article",
+      "source": "CMS top-n article totals plus CMS daily article.viewed series",
+      "owner": "CS Content",
+      "calculation": "article_all_time_views * selected_period_article_view_events / all_time_article_view_events",
+      "allowed_dimensions": ["article_id"],
+      "caveats": ["Not article-level exact for selected periods; use only for prioritization until article-day facts are available."]
+    },
+    {
+      "metric_id": "csat.avg_rating",
+      "name": "Average CSAT",
+      "business_definition": "Average survey rating for valid CSAT responses in the selected scope.",
+      "grain": "survey_response",
+      "source": "CSAT upload or Domo CSAT dataset",
+      "owner": "CS Operations",
+      "calculation": "sum(rating) / count(valid_rating)",
+      "allowed_dimensions": ["date", "week", "month", "team", "consultant", "call_reason"],
+      "minimum_sample_size": 30
+    },
+    {
+      "metric_id": "csat.solved_rate",
+      "name": "Solved rate",
+      "business_definition": "Share of CSAT survey responses where the survey solved flag is true.",
+      "grain": "survey_response",
+      "source": "CSAT upload or Domo CSAT dataset",
+      "owner": "CS Operations",
+      "calculation": "count(solved = true) / count(valid_solved_flag)",
+      "allowed_dimensions": ["date", "week", "month", "team", "consultant", "call_reason"],
+      "caveats": ["This is not true first-call resolution."]
+    },
+    {
+      "metric_id": "csat.true_fcr",
+      "name": "True first-call resolution",
+      "business_definition": "Share of opportunities with exactly one call in the selected scope. Requires opportunity IDs and call IDs.",
+      "grain": "opportunity",
+      "source": "CSAT upload or Domo CSAT dataset",
+      "owner": "CS Operations",
+      "calculation": "count(opportunities_with_one_call) / count(opportunities_with_at_least_one_call)",
+      "allowed_dimensions": ["date", "week", "month", "team", "consultant", "call_reason"],
+      "caveats": ["Incomplete when opportunity_id is missing."]
+    },
+    {
+      "metric_id": "csat.low_rating_rate",
+      "name": "Low rating rate",
+      "business_definition": "Share of CSAT responses with rating 1 or 2.",
+      "grain": "survey_response",
+      "source": "CSAT upload or Domo CSAT dataset",
+      "owner": "CS Operations",
+      "calculation": "count(rating in [1,2]) / count(valid_rating)",
+      "allowed_dimensions": ["date", "week", "month", "team", "consultant", "call_reason"]
+    },
+    {
+      "metric_id": "starter_guides.completion_rate",
+      "name": "Starter guide completion rate",
+      "business_definition": "Share of starter-guide instances completed in the selected period or journey scope.",
+      "grain": "guide_instance",
+      "source": "Starter Guide service",
+      "owner": "CS Operations",
+      "calculation": "count(answer_status in ['COMPLETE','COMPLETED']) / count(guide_instances)",
+      "allowed_dimensions": ["date", "guide_id", "template_id", "locale", "journey"]
+    }
+  ]
+}
