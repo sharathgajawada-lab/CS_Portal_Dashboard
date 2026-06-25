@@ -1,0 +1,23 @@
+:root{
+--primary:#2563eb;
+--success:#10b981;
+--warning:#f59e0b;
+--danger:#ef4444;
+--bg:#f5f7fb;
+--card:#fff;
+--border:#e5e7eb;
+--text:#111827;
+--muted:#6b7280;
+--radius:18px;
+--shadow:0 2px 8px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.06);
+--transition:.2s ease;
+}
+body{background:var(--bg);font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--text);}
+.dashboard-card,.kpi-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;}
+.dashboard-card:hover{transform:translateY(-2px);}
+.chart-toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px;}
+.chart-toolbar button{border:none;background:#eef2ff;padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:600;}
+.chart-toolbar button:hover{background:#dbeafe;}
+.kpi-value{font-size:34px;font-weight:700;}
+.kpi-label{color:var(--muted);}
+.fullscreen-chart{position:fixed;inset:0;background:#fff;z-index:99999;padding:30px;overflow:auto;}
