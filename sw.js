@@ -1,5 +1,5 @@
-// cs-portal-v9-clean-toolbar-team-only — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v9-clean-toolbar-team-only';
+// cs-portal-v10-frank-ai-axis-visible — bumped to force cache clear on all clients
+const CACHE_NAME = 'cs-portal-v10-frank-ai-axis-visible';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {

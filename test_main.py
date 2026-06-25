@@ -130,18 +130,22 @@ class TestBuildCsatIndex:
         assert dm["d"][5] == 1
         assert dm["d"][3] == 1
 
-    def test_bad_names_excluded_from_cn(self):
+    def test_bad_names_excluded_but_frank_ai_maps_to_voice_ai(self):
         rows = [
             {"rating": 4, "cid": "x1", "name": "None",     "team": "T", "date": "2026-05-01", "solved": True},
             {"rating": 4, "cid": "x2", "name": "frank ai", "team": "T", "date": "2026-05-01", "solved": True},
-            {"rating": 4, "cid": "x3", "name": "Frank AI Bot", "team": "T", "date": "2026-05-01", "solved": True},
+            {"rating": 4, "cid": "x3", "name": "Frank AI Bot", "team": "Team Amplifiers", "date": "2026-05-01", "solved": True},
             {"rating": 4, "cid": "x4", "name": "Alice",    "team": "T", "date": "2026-05-01", "solved": True},
         ]
         idx = _build_csat_index(rows)
-        cn = idx["days"]["2026-05-01"]["cn"]
+        day = idx["days"]["2026-05-01"]
+        cn = day["cn"]
         assert "x1" not in cn, "name='None' should be excluded"
-        assert "x2" not in cn, "name='frank ai' should be excluded"
-        assert "x3" not in cn, "name starting with 'frank ai' should be excluded"
+        assert "x2" in cn, "Frank AI consultants are valid Voice AI consultants"
+        assert "x3" in cn, "Frank AI Bot rows must remain visible"
+        assert cn["x2"]["tm"] == "Voice AI"
+        assert cn["x3"]["tm"] == "Voice AI"
+        assert day["tm"]["Voice AI"]["t"] == 2
         assert "x4" in cn, "valid name should be included"
 
     def test_bad_teams_excluded_from_tm(self):
@@ -359,6 +363,19 @@ class TestSecurityControls:
         ])
         day = m._csat_index["index_data"]["days"]["2026-05-05"]
         assert "Voice AI" in day["tm"]
+
+    def test_frank_ai_consultants_are_pulled_into_voice_ai_team(self):
+        import main as m
+        _build_csat_index([
+            {"rating": 5, "cid": "fa1", "name": "Frank Ai - Sales Assist", "team": "Team Amplifiers", "date": "2026-05-06", "solved": True, "call_id": "CALL-FA1"},
+            {"rating": 3, "cid": "fa2", "name": "FRANK-AI Intake", "team": "", "date": "2026-05-06", "solved": False, "call_id": "CALL-FA2"},
+            {"rating": 4, "cid": "regular", "name": "Regular Consultant", "team": "Team Amplifiers", "date": "2026-05-06", "solved": True, "call_id": "CALL-REG"},
+        ])
+        day = m._csat_index["index_data"]["days"]["2026-05-06"]
+        assert day["cn"]["fa1"]["tm"] == "Voice AI"
+        assert day["cn"]["fa2"]["tm"] == "Voice AI"
+        assert day["tm"]["Voice AI"]["t"] == 2
+        assert day["tm"]["Team Amplifiers"]["t"] == 1
 
     def test_csat_view_public_sanitizes_call_level_payloads(self):
         """Aggregate CSAT view should power charts without exposing raw call payloads."""

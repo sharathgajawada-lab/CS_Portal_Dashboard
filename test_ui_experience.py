@@ -114,7 +114,7 @@ def test_shared_assets_are_served_by_backend_with_expected_content_types():
     assert js.status_code == 200
     assert "javascript" in js.headers.get("content-type", "")
     assert "World-class dashboard UX engine" in js.text
-    assert "7.3.0-clean-flow-toolbar-no-theme-no-lens" in js.text
+    assert "7.4.0-frank-ai-axis-visible" in js.text
     assert legacy_css.status_code == 200
     assert legacy_js.status_code == 200
     assert missing.status_code == 404
@@ -140,3 +140,20 @@ def test_universal_chart_engine_generates_expand_for_every_chart():
     assert 'ux-expand-guarantee' in js
     chart_line = "const canvases = Array.from(document.querySelectorAll('canvas[id]')).filter(canvas => !canvas.id.startsWith('ux') && canvas.id !== 'chartModalCanvas');"
     assert chart_line in js
+
+
+def test_axis_safe_chart_layout_rules_present():
+    css = ROOT.joinpath("portal-overrides.css").read_text()
+    js = ROOT.joinpath("portal-system.js").read_text()
+    assert "v7.4 axis visibility" in css
+    assert "grid-template-rows: auto minmax(300px, 1fr)" in css
+    assert "polishChartLayout" in js
+    assert "scale.ticks.display = true" in js
+    assert "layout.padding" in js
+
+
+def test_frank_ai_frontend_mapping_present():
+    html = ROOT.joinpath("csat.html").read_text()
+    assert "_isFrankAiConsultant" in html
+    assert "frankai" in html.lower()
+    assert "Voice AI" in html

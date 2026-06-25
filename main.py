@@ -334,13 +334,27 @@ def _canonical_csat_team(team: str) -> str:
     return known.get(compact, raw)
 
 
+def _is_frank_ai_consultant(value: str) -> bool:
+    """Return True for consultants that belong to Voice AI by name/ID.
+
+    Product rule: every consultant whose name or ID says Frank AI is part of
+    the Voice AI team, even if Domo sends a stale/blank/different team value.
+    This catches variants like Frank Ai, Frank-AI, FrankAI, and Frank AI Bot.
+    """
+    compact = re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    return "frankai" in compact
+
+
 def _normalize_csat_rows(rows: list) -> list:
     out = []
     for row in rows or []:
         if not isinstance(row, dict):
             continue
         r = dict(row)
-        r["team"] = _canonical_csat_team(r.get("team"))
+        team = _canonical_csat_team(r.get("team"))
+        if _is_frank_ai_consultant(r.get("name")) or _is_frank_ai_consultant(r.get("cid")):
+            team = "Voice AI"
+        r["team"] = team
         out.append(r)
     return out
 
@@ -413,10 +427,13 @@ def _build_csat_index(rows: list) -> dict:
         name = r["name"]
         bad_team = not team or team.strip().lower() in BAD_NAMES
         name_lc = (name or "").strip().lower()
+        is_frank_ai = _is_frank_ai_consultant(name) or _is_frank_ai_consultant(cid)
+        if is_frank_ai and _canonical_csat_team(team) != "Voice AI":
+            team = "Voice AI"
+            r["team"] = "Voice AI"
         bad_name = (
             not name
             or name_lc in BAD_NAMES
-            or (not CSAT_INCLUDE_BOT_CONSULTANTS and name_lc.startswith("frank ai"))
         )
 
         if d not in day_map:
@@ -564,6 +581,7 @@ def _build_csat_index(rows: list) -> dict:
             "allow_list": CSAT_TEAMS_ALLOW,
         },
         "bot_consultants_included": CSAT_INCLUDE_BOT_CONSULTANTS,
+        "frank_ai_consultants_mapped_to_voice_ai": True,
     }
     index_data = {
         "available":  True,

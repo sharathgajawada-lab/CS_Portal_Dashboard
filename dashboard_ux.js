@@ -6,7 +6,7 @@
   'use strict';
   if (window.DashboardUX && window.DashboardUX.version) return;
 
-  const UX = window.DashboardUX = { version: '7.3.0-clean-flow-toolbar-no-theme-no-lens' };
+  const UX = window.DashboardUX = { version: '7.4.0-frank-ai-axis-visible' };
   document.documentElement.dataset.dashboardUx = 'root-ready';
   let studioChart = null;
   let observerQueued = false;
@@ -142,6 +142,55 @@
     const canvases = Array.from(document.querySelectorAll('canvas[id]'));
     return canvases.map(c => Chart.getChart(c)).filter(Boolean);
   }
+  function polishChartLayout(chart) {
+    if (!chart || !chart.options) return;
+    const canvas = chart.canvas;
+    const wrap = canvas && (canvas.closest('.chart-wrap') || canvas.parentElement);
+    if (wrap) {
+      wrap.classList.add('ux-axis-safe-chart');
+      const id = String(canvas.id || '').toLowerCase();
+      const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant') || id.includes('category');
+      wrap.style.minHeight = dense ? '430px' : '380px';
+      if (!wrap.style.height || /^(1[0-9]{2}|2[0-9]{2})px$/.test(wrap.style.height)) {
+        wrap.style.height = dense ? 'clamp(430px, 52vh, 620px)' : 'clamp(380px, 46vh, 560px)';
+      }
+    }
+    chart.options.responsive = true;
+    chart.options.maintainAspectRatio = false;
+    chart.options.layout = chart.options.layout || {};
+    const oldPadding = typeof chart.options.layout.padding === 'object' ? chart.options.layout.padding : {};
+    chart.options.layout.padding = Object.assign({ top: 10, right: 14, bottom: 34, left: 8 }, oldPadding, {
+      bottom: Math.max(Number(oldPadding.bottom || 0), 34)
+    });
+    const scales = chart.options.scales || {};
+    Object.entries(scales).forEach(([id, scale]) => {
+      if (!scale || typeof scale !== 'object') return;
+      scale.ticks = scale.ticks || {};
+      scale.ticks.display = true;
+      scale.ticks.color = scale.ticks.color || (cssVar('--text3') || '#64748b');
+      scale.ticks.font = Object.assign({ size: 11, weight: '600' }, scale.ticks.font || {});
+      scale.ticks.padding = Math.max(Number(scale.ticks.padding || 0), 8);
+      if (String(id).startsWith('x')) {
+        scale.display = scale.display !== false;
+        scale.ticks.autoSkip = true;
+        scale.ticks.maxTicksLimit = scale.ticks.maxTicksLimit || 8;
+        scale.ticks.minRotation = 0;
+        scale.ticks.maxRotation = Math.max(Number(scale.ticks.maxRotation || 0), 28);
+      }
+      if (String(id).startsWith('y')) {
+        scale.ticks.autoSkip = scale.ticks.autoSkip ?? false;
+        scale.ticks.maxTicksLimit = scale.ticks.maxTicksLimit || 10;
+      }
+    });
+  }
+
+  function polishAllChartLayouts() {
+    if (!window.Chart) return;
+    chartInstances().forEach(chart => {
+      try { polishChartLayout(chart); chart.resize(); chart.update('none'); } catch (_) {}
+    });
+  }
+
   function recolorAllCharts() {
     if (!window.Chart) return;
     const text = cssVar('--text3') || '#64748b';
@@ -151,6 +200,7 @@
     Chart.defaults.borderColor = grid;
     chartInstances().forEach(chart => {
       try {
+        polishChartLayout(chart);
         if (chart.options?.scales) {
           Object.values(chart.options.scales).forEach(scale => {
             if (scale.grid) scale.grid.color = grid;
@@ -299,7 +349,10 @@
       wrap.insertBefore(toolbar, wrap.firstChild);
       wrap.insertAdjacentElement('afterend', panel);
       installCanvasInspector(canvas);
+      const chart = getChartById(canvas.id);
+      if (chart) { try { polishChartLayout(chart); chart.resize(); chart.update('none'); } catch (_) {} }
     });
+    polishAllChartLayouts();
     updateHeroStats();
   }
 
@@ -653,12 +706,13 @@
       requestAnimationFrame(() => {
         observerQueued = false;
         enhanceCharts();
+        polishAllChartLayouts();
         forceEveryChartExpandable();
         ensureVoiceAiInTeamDropdowns();
       });
     });
     observer.observe(target, { childList: true, subtree: true });
-    setInterval(() => { enhanceCharts(); recolorAllCharts(); }, 3500);
+    setInterval(() => { enhanceCharts(); polishAllChartLayouts(); recolorAllCharts(); }, 3500);
   }
 
 
@@ -754,12 +808,13 @@
     buildPageMap();
     installGlobalHandlers();
     enhanceCharts();
+    polishAllChartLayouts();
     forceEveryChartExpandable();
     ensureVoiceAiInTeamDropdowns();
     observeDom();
-    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 800);
-    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
-    setInterval(() => { ensureVoiceAiInTeamDropdowns(); forceEveryChartExpandable(); }, 1800);
+    setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 800);
+    setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
+    setInterval(() => { ensureVoiceAiInTeamDropdowns(); polishAllChartLayouts(); forceEveryChartExpandable(); }, 1800);
     console.info('[DashboardUX] World-class UX engine active', UX.version);
   }
 

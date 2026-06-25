@@ -1389,3 +1389,47 @@ body.pro-dashboard .ux-chart-wrap {
     padding-inline: 9px !important;
   }
 }
+
+
+/* ========================================================================== */
+/* v7.4 axis visibility and Voice AI team cleanup                              */
+/* Gives Chart.js enough room so x-axis labels are not clipped by toolbar/canvas */
+/* ========================================================================== */
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart {
+  display: grid !important;
+  grid-template-rows: auto minmax(300px, 1fr) !important;
+  align-content: stretch !important;
+  min-height: 380px !important;
+  height: clamp(380px, 46vh, 560px) !important;
+  overflow: visible !important;
+  padding: 14px 14px 24px !important;
+}
+body.pro-dashboard .chart-wrap canvas,
+body.pro-dashboard .ux-chart-wrap canvas,
+body.pro-dashboard .ux-axis-safe-chart canvas {
+  align-self: stretch !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 300px !important;
+  max-height: none !important;
+}
+body.pro-dashboard #callReasonChartWrap,
+body.pro-dashboard #opsConsultantWrap,
+body.pro-dashboard #csTeamTrendWrap,
+body.pro-dashboard #csTeamSolvedWrap,
+body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="reason" i]),
+body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="consultant" i]),
+body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="question" i]) {
+  min-height: 430px !important;
+  height: clamp(430px, 52vh, 640px) !important;
+  grid-template-rows: auto minmax(350px, 1fr) !important;
+}
+body.pro-dashboard .card:has(.chart-wrap),
+body.pro-dashboard .card:has(.ux-chart-wrap) {
+  min-height: auto !important;
+  overflow: visible !important;
+}
+body.pro-dashboard .ux-chart-toolbar { flex: 0 0 auto !important; }
+body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }

@@ -484,7 +484,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 
 
 </style>
-<link rel="stylesheet" href="portal-overrides.css?v=2026-06-25-v9-clean-toolbar">
+<link rel="stylesheet" href="portal-overrides.css?v=2026-06-25-v10-frank-ai-axis">
 </head>
 <body data-dashboard-page="/csat">
 
@@ -1461,7 +1461,7 @@ function _csatScopeDays(rawDays) {
       tm = { [_csatScope.value]: src };
       // keep only consultants belonging to this team
       for (const [cid, cv] of Object.entries(dm.cn || {})) {
-        if ((cv.tm || '').trim() === _csatScope.value) cn[cid] = cv;
+        if (_normalizedCsfTeam(cv.tm, cv.n, cid) === _csatScope.value) cn[cid] = cv;
       }
     } else { // member
       src = (dm.cn || {})[_csatScope.value];
@@ -1479,7 +1479,7 @@ function _csatScopeDays(rawDays) {
       const filteredSm = fullSm.filter((s) => {
         if (!s) return false;
         if (_csatScope.type === 'team') {
-          return String(s.team || '').trim() === _csatScope.value;
+          return _normalizedCsfTeam(s.team, s.n, s.cid) === _csatScope.value;
         }
         return String(s.cid || '').trim() === _csatScope.value;
       });
@@ -1505,21 +1505,84 @@ function _csatScopeDays(rawDays) {
   return out;
 }
 
+function _compactVoiceAiName(value) {
+  return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+// Frank AI consultants belong to the Voice AI team.
+function _isFrankAiConsultant(value) {
+  return _compactVoiceAiName(value).includes('frankai');
+}
+function _normalizedCsfTeam(team, name, cid) {
+  if (_isFrankAiConsultant(name) || _isFrankAiConsultant(cid)) return 'Voice AI';
+  const compact = _compactVoiceAiName(team);
+  if (compact === 'voiceai' || compact === 'teamvoiceai') return 'Voice AI';
+  return String(team || '').trim();
+}
+function _emptyCsatAgg() {
+  return {t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0},rs:{},ft:0,fr:0,uo:0};
+}
+function _addCsatAgg(target, src) {
+  if (!src) return target;
+  target.t += src.t || 0;
+  target.sr += src.sr || 0;
+  target.s += src.s || 0;
+  target.l += src.l || 0;
+  target.ft += src.ft || 0;
+  target.fr += src.fr || 0;
+  target.uo += src.uo || 0;
+  for (let r=1; r<=5; r++) target.d[r] = (target.d[r] || 0) + ((src.d || {})[r] || 0);
+  for (const [reason, rv] of Object.entries(src.rs || {})) {
+    if (!target.rs[reason]) target.rs[reason] = {t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
+    _addCsatAgg(target.rs[reason], rv);
+  }
+  return target;
+}
+function _ensureFrankAiIndexMapping() {
+  if (!_csatRaw || _csatRaw.__frankAiMapped) return;
+  for (const dm of Object.values(_csatRaw.days || {})) {
+    const voice = _emptyCsatAgg();
+    let hasVoiceAiConsultants = false;
+    for (const [cid, cv] of Object.entries(dm.cn || {})) {
+      const team = _normalizedCsfTeam(cv?.tm, cv?.n, cid);
+      if (team === 'Voice AI') {
+        cv.tm = 'Voice AI';
+        hasVoiceAiConsultants = true;
+        _addCsatAgg(voice, cv);
+      }
+    }
+    if (hasVoiceAiConsultants) {
+      dm.tm = dm.tm || {};
+      dm.tm['Voice AI'] = voice;
+    }
+    for (const rv of Object.values(dm.rs || {})) {
+      if (Array.isArray(rv.sm)) {
+        rv.sm.forEach(sm => {
+          if (_isFrankAiConsultant(sm?.n) || _isFrankAiConsultant(sm?.cid)) sm.team = 'Voice AI';
+        });
+      }
+    }
+  }
+  _csatRaw.__frankAiMapped = true;
+}
+
 // Build team list + per-team daily series from the FULL (unscoped) day map for a
 // date range. Used by the CS Teams comparison section so it always shows every team.
 function _csatUnscopedTeams(fromIso, toIso) {
+  _ensureFrankAiIndexMapping();
   const raw = _csatRaw?.days || {};
   const lo = fromIso || _csatRaw?.date_min, hi = toIso || _csatRaw?.date_max;
   const teams = {}, teamDaily = {};
   for (const [d, dm] of Object.entries(raw)) {
     if (d < lo || d > hi) continue;
     for (const [t, tv] of Object.entries(dm.tm || {})) {
-      if (!teams[t]) teams[t] = {t:0,sr:0,s:0,l:0,d:{1:0,2:0,3:0,4:0,5:0}};
-      teams[t].t+=tv.t; teams[t].sr+=tv.sr; teams[t].s+=tv.s; teams[t].l+=tv.l;
-      if (tv.d) for (let r=1;r<=5;r++) teams[t].d[r]=(teams[t].d[r]||0)+(tv.d[r]||0);
-      if (!teamDaily[t]) teamDaily[t] = {};
-      if (!teamDaily[t][d]) teamDaily[t][d] = {t:0,sr:0,s:0};
-      teamDaily[t][d].t+=tv.t; teamDaily[t][d].sr+=tv.sr; teamDaily[t][d].s+=tv.s||0;
+      const teamName = _normalizedCsfTeam(t);
+      if (!teams[teamName]) teams[teamName] = _emptyCsatAgg();
+      _addCsatAgg(teams[teamName], tv);
+      if (!teamDaily[teamName]) teamDaily[teamName] = {};
+      if (!teamDaily[teamName][d]) teamDaily[teamName][d] = {t:0,sr:0,s:0};
+      teamDaily[teamName][d].t += tv.t || 0;
+      teamDaily[teamName][d].sr += tv.sr || 0;
+      teamDaily[teamName][d].s += tv.s || 0;
     }
   }
   const teamList = Object.entries(teams).filter(([,v])=>v.t>=1).map(([t,v]) => ({
@@ -1533,14 +1596,17 @@ function _csatUnscopedTeams(fromIso, toIso) {
 // Lightweight unscoped consultant list for populating the team/member selectors,
 // WITHOUT triggering a full recompute (avoids re-entrancy with renderCSAT).
 function _csatUnscopedConsultants(fromIso, toIso) {
+  _ensureFrankAiIndexMapping();
   const raw = _csatRaw?.days || {};
   const lo = fromIso || _csatRaw?.date_min, hi = toIso || _csatRaw?.date_max;
   const cons = {};
   for (const [d, dm] of Object.entries(raw)) {
     if (d < lo || d > hi) continue;
     for (const [cid, cv] of Object.entries(dm.cn || {})) {
-      if (!cons[cid]) cons[cid] = {n:cv.n, tm:cv.tm, t:0, sr:0};
-      cons[cid].t += cv.t; cons[cid].sr += cv.sr;
+      const team = _normalizedCsfTeam(cv?.tm, cv?.n, cid);
+      if (!cons[cid]) cons[cid] = {n:cv.n, tm:team, t:0, sr:0};
+      if (team === 'Voice AI') cons[cid].tm = 'Voice AI';
+      cons[cid].t += cv.t || 0; cons[cid].sr += cv.sr || 0;
     }
   }
   return Object.entries(cons).filter(([,v])=>v.t>=1).map(([cid,v]) => ({
@@ -1756,6 +1822,7 @@ function _renderGlobalCalls() {
 }
 
 function _csatComputeAndRender(from, to) {
+  _ensureFrankAiIndexMapping();
   // Sync any chart-level control set to 'selection' so it re-renders with the new global dates.
   ['csatDist', 'csTeamTrend', 'fcrChart', 'trueFcrChart'].forEach(id => {
     if (_chartCtrl[id] && _chartCtrl[id].rangeType === 'selection') {
@@ -3885,6 +3952,6 @@ waitForChart(init);
 
 
 
-<script defer src="portal-system.js?v=2026-06-25-v9-clean-toolbar"></script>
+<script defer src="portal-system.js?v=2026-06-25-v10-frank-ai-axis"></script>
 </body>
 </html>

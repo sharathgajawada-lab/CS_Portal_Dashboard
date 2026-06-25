@@ -1,123 +1,65 @@
-> Current status: superseded by `docs/FINAL_UNLOCKED_WORLD_CLASS_UI_REPORT.md`. Some earlier protected/admin wording below describes an intermediate version.
-
-# World-class dashboard UI implementation pass
-
-This pass turns the dashboard into a more premium, product-grade analytics experience while preserving the existing FastAPI + vanilla JavaScript architecture and the Domo-first CSAT source model.
-
-## What changed
-
-### Shared UX system
-
-The repeated UI logic is now centralized in shared assets instead of being copied into every page:
-
-- `assets/dashboard_ux.css`
-- `assets/dashboard_ux.js`
-- `GET /assets/dashboard_ux.css`
-- `GET /assets/dashboard_ux.js`
-
-This makes the UI layer easier to upgrade without editing `index.html`, `csat.html`, and `starter_guides.html` separately.
-
-### Premium visual redesign
-
-The shared CSS adds a more polished dashboard shell:
-
-- executive-grade hero area on every page
-- glass/sticky header treatment
-- redesigned card, KPI, table, and chart surfaces
-- better spacing, hover states, focus states, radius, and shadow hierarchy
-- dark mode
-- compact analyst density mode
-- presentation mode
-- responsive mobile/tablet behavior
-- reduced-motion support
-- improved keyboard focus styling
-- skip-to-dashboard accessibility link
-
-### Universal chart experience
-
-Every detected Chart.js canvas now gets the same chart actions automatically:
-
-- `Insight` local analyst readout
-- `Data` table view
-- `CSV` export
-- `PNG` export
-- `Focus` mode
-- click-to-inspect point popover
-- keyboard Enter/Space opens focus mode
-- shared chart focus studio
-- combined export for all loaded chart data
-
-The UX engine detects charts dynamically with a `MutationObserver`, so charts that render later after API calls still get upgraded.
-
-### Command center and navigation
-
-Every page now has:
-
-- command palette opened with Cmd/Ctrl+K
-- quick navigation to Portal, CSAT, and Starter Guides
-- theme, density, presentation, and export actions
-- generated on-page section map
-- chart count/status tiles
-- page-specific source and quality copy
-
-### CSAT source model preserved
-
-The CSAT UI remains Domo-first:
-
-- no visible Excel upload workflow
-- no `/upload/csat` usage in `csat.html`
-- Domo refresh remains the intended operational path
-- raw call details remain protected
-- public CSAT aggregate view remains sanitized
-
-### Testability improvements
-
-Added `test_ui_experience.py` to protect the new UI contract:
-
-- shared UX assets are linked on every dashboard page
-- universal chart actions exist
-- chart canvases exist for all dashboard surfaces
-- CSAT remains Domo-first rather than upload-first
-- accessibility/power-user controls are present
-- shared assets are served by the backend with expected content types
-
-Also hardened refresh/cache endpoints for automated tests so they do not spawn long-running network refresh tasks under test mode.
-
-## Chart coverage
-
-Static dashboard canvases currently covered by the shared chart UX engine:
-
-| Page | Chart canvases covered |
-|---|---:|
-| Portal Activity | 9 |
-| Call Quality / CSAT | 9 |
-| Starter Guides | 6 |
-| **Total** | **24** |
-
-The engine is dynamic, so future Chart.js canvases added to these pages will automatically receive the same toolbar and focus behavior as long as they have an `id`.
-
-## Validation run
-
-```text
-python3 -m py_compile main.py
-node --check assets/dashboard_ux.js
-python3 /tmp/check_html_scripts.py
-pytest -q
-```
-
-Result:
-
-```text
-73 passed
-```
-
-## Remaining next-level investments
-
-This pass is a major UI/product upgrade while staying inside the current stack. The next major leap would be:
-
-1. Move frontend pages into a component system or module-based build pipeline.
-2. Add Playwright browser tests with screenshots for desktop/tablet/mobile states.
-3. Add true chart brushing/zooming with a Chart.js zoom plugin or custom range selector.
-4. Add saved dashboard views and shareable URL filter state.
-5. Add role-based permissions instead of a single admin token.
-6. Move metric definitions into a backend semantic layer with typed Pydantic response models.
+{
+  "generated_at": "2026-06-25T22:43:03.942247Z",
+  "rendering_method": "real HTML with local assets inlined; API calls stubbed by Playwright routes",
+  "results": [
+    {
+      "page": "Portal Activity",
+      "ux_version": "7.4.0-frank-ai-axis-visible",
+      "enhanced_charts": 9,
+      "expand_action_buttons": 9,
+      "visible_expand_buttons": 9,
+      "chart_ids": [
+        "trendChart",
+        "conversionChart",
+        "catChart",
+        "hourInsightChart",
+        "artVidChart",
+        "consumptionChart",
+        "sessionTrendChart",
+        "sessionActivityChart",
+        "hourChart"
+      ],
+      "errors": [],
+      "console_errors": []
+    },
+    {
+      "page": "CSAT / Call Quality",
+      "ux_version": "7.4.0-frank-ai-axis-visible",
+      "enhanced_charts": 9,
+      "expand_action_buttons": 9,
+      "visible_expand_buttons": 9,
+      "chart_ids": [
+        "csatDistChart",
+        "csatTrendChart",
+        "callReasonChart",
+        "opsTrendChart",
+        "opsConsultantChart",
+        "fcrChart",
+        "trueFcrChart",
+        "csTeamTrendChart",
+        "csTeamSolvedChart"
+      ],
+      "errors": [],
+      "console_errors": []
+    },
+    {
+      "page": "Starter Guides",
+      "ux_version": "7.4.0-frank-ai-axis-visible",
+      "enhanced_charts": 5,
+      "expand_action_buttons": 5,
+      "visible_expand_buttons": 5,
+      "chart_ids": [
+        "funnelChart",
+        "completionsChart",
+        "opensChart",
+        "dropoffChart",
+        "answerRateChart"
+      ],
+      "errors": [],
+      "console_errors": []
+    }
+  ],
+  "passed": true,
+  "total_enhanced_charts": 23,
+  "total_expand_clicks": 23
+}
