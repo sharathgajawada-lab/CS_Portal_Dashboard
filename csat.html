@@ -2280,6 +2280,42 @@ function renderCSAT(d) {
 
   // Team leaderboard
   const teams = d.teams || [];
+
+  // ── Inject bot teams into the leaderboard ─────────────────────────────────
+  // Parker/Jamie data comes from the LiveChat API, not CSAT surveys.
+  // We express their metrics in the same schema so they sort and render identically.
+  if (_botLive?.kpis) {
+    const k = _botLive.kpis;
+    const rawRat = _botLive.daily_ratings || _botLive.monthly_ratings || [];
+    const latestRat = rawRat[rawRat.length - 1] || {};
+    const latTot = (latestRat.good || 0) + (latestRat.bad || 0) || 1;
+    const csatPct = Math.round((latestRat.good || 0) / latTot * 100);
+    const botAvgRating = +(csatPct / 100 * 5).toFixed(2);
+    if (!teams.find(t => t.team === 'ParkerAI')) {
+      teams.push({
+        team: 'ParkerAI',
+        avg_rating: botAvgRating,
+        solved_pct: k.containment_rate || 0,
+        low_pct: Math.max(0, 100 - csatPct),
+        total: k.total_chats || 0,
+        dist: [],
+        _isBot: true,
+      });
+    }
+    if (!teams.find(t => t.team === 'JamieAI')) {
+      teams.push({
+        team: 'JamieAI',
+        avg_rating: null,
+        solved_pct: null,
+        low_pct: null,
+        total: 0,
+        dist: [],
+        _isBot: true,
+        _pending: true,
+      });
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
   // Apply sort
   const teamsSorted = [...teams].sort((a,b) => {
     const av = a[_teamSort.key] ?? (typeof a[_teamSort.key]==='string' ? '' : 0);
@@ -2291,22 +2327,46 @@ function renderCSAT(d) {
     // Store in lookup map for click handler
     const teamKey = 'team_' + t.team.replace(/[^a-z0-9]/gi, '_');
     _csatDetailData[teamKey] = t;
+
+    // Bot teams that haven't launched yet
+    if (t._pending) {
+      return `<tr style="opacity:0.5">
+        <td style="padding-left:20px;font-size:13px;font-weight:500;color:var(--text3)">${t.team} <span style="font-size:10px;color:var(--text3)">(awaiting launch)</span></td>
+        <td class="mono r" style="color:var(--text3)">—</td>
+        <td class="r" style="color:var(--text3)">—</td>
+        <td class="mono r" style="color:var(--text3)">—</td>
+        <td class="r">—</td>
+        <td class="r">—</td>
+      </tr>`;
+    }
+
     const rClass = t.avg_rating >= 4.5 ? 'green' : t.avg_rating >= 3.5 ? 'amber' : 'red';
+    // Bot teams: show CSAT% instead of star rating, "Contained" instead of "Solved"
+    const ratingDisplay = t._isBot
+      ? `<span class="mono" style="font-size:12px">${Math.round((t.avg_rating/5)*100)}% CSAT</span>`
+      : `<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+           <div style="width:60px;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden">
+             <div style="width:${(t.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rClass==='green'?'var(--green)':rClass==='amber'?'var(--amber)':'var(--red)'}"></div>
+           </div>
+           <span class="mono" style="font-size:12px">${t.avg_rating}</span>
+         </div>`;
+    const solvedDisplay = t._isBot ? `${t.solved_pct}% contained` : `${t.solved_pct}%`;
+    const lowDisplay = t._isBot ? `—` : `<span class="pill ${t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green'}">${t.low_pct}%</span>`;
+    const teamLabel = t._isBot
+      ? `<span style="display:inline-flex;align-items:center;gap:5px">
+           <span style="font-size:10px;padding:1px 5px;border-radius:8px;background:var(--purple)18;color:var(--purple);border:1px solid var(--purple)33">LiveChat</span>
+           ${t.team}
+         </span>`
+      : t.team;
+
     return `<tr>
-      <td class="csat-detail-trigger" data-detail-key="team_${t.team.replace(/[^a-z0-9]/gi,'_')}"
-        style="padding-left:20px;font-size:13px;font-weight:500;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">
-        ${t.team}</td>
+      <td class="${t._isBot ? '' : 'csat-detail-trigger'}" data-detail-key="team_${t.team.replace(/[^a-z0-9]/gi,'_')}"
+        style="padding-left:20px;font-size:13px;font-weight:500;cursor:${t._isBot ? 'default' : 'pointer'};color:var(--blue);${t._isBot ? '' : 'text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted'}">
+        ${teamLabel}</td>
       <td class="mono r">${fmt(t.total)}</td>
-      <td class="r">
-        <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
-          <div style="width:60px;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden">
-            <div style="width:${(t.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rClass==='green'?'var(--green)':rClass==='amber'?'var(--amber)':'var(--red)'}"></div>
-          </div>
-          <span class="mono" style="font-size:12px">${t.avg_rating}</span>
-        </div>
-      </td>
-      <td class="mono r" style="color:${t.solved_pct >= 74 ? 'var(--green)' : t.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)'}">${t.solved_pct}%</td>
-      <td class="r"><span class="pill ${t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green'}">${t.low_pct}%</span></td>
+      <td class="r">${ratingDisplay}</td>
+      <td class="mono r" style="color:${t._isBot ? 'var(--green)' : t.solved_pct >= 74 ? 'var(--green)' : t.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)'}">${solvedDisplay}</td>
+      <td class="r">${lowDisplay}</td>
       <td class="r" style="min-width:90px">
         ${(t.dist||[]).length ? `
         <div style="display:flex;align-items:flex-end;gap:2px;height:22px;justify-content:flex-end">
@@ -2342,6 +2402,30 @@ function renderCSAT(d) {
 
   // Populate team filter dropdown
   const allCons = (d.all_consultants || []).filter(c => validName(c.name));
+
+  // ── Inject ParkerAI agents into the consultants list ──────────────────────
+  if (_botLive?.agents?.length) {
+    const existing = new Set(allCons.map(c => c.name?.toLowerCase()));
+    _botLive.agents.forEach(a => {
+      const name = a.name || a.id || '';
+      if (!name || existing.has(name.toLowerCase())) return;
+      const csatRating = a.csat != null ? +(a.csat / 100 * 5).toFixed(2) : null;
+      allCons.push({
+        cid:        'bot_' + (a.id || name).replace(/\s+/g,'_'),
+        name:       name,
+        team:       'ParkerAI',
+        avg_rating: csatRating,
+        solved_pct: null,
+        low_pct:    a.csat != null ? Math.max(0, 100 - a.csat) : null,
+        total:      a.chats || 0,
+        dist:       [],
+        _isBot:     true,
+        _botCsat:   a.csat,
+      });
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Build team list from ALL teams in leaderboard (not just filtered consultants)
   // so teams with few-survey members still appear in the dropdown
   const allTeamNames = [...new Set([
@@ -3068,6 +3152,36 @@ function renderConsultantTable() {
     // Store in lookup map for click handler
     const consKey = 'cons_' + c.cid;
     _csatDetailData[consKey] = c;
+
+    // Bot agents — use CSAT% directly, no survey star ratings
+    if (c._isBot) {
+      const csatPct = c._botCsat;
+      const cc = csatPct >= 80 ? 'var(--green)' : csatPct >= 65 ? 'var(--amber)' : 'var(--red)';
+      return `<tr>
+        <td style="padding-left:20px;max-width:180px">
+          <div style="display:flex;align-items:center;gap:5px">
+            <span style="font-size:10px;padding:1px 5px;border-radius:8px;background:var(--purple)18;color:var(--purple);border:1px solid var(--purple)33;flex-shrink:0">bot</span>
+            <span style="font-size:13px;color:var(--text1)">${c.name}</span>
+          </div>
+        </td>
+        <td style="font-size:12px;color:var(--text3)">${c.team}</td>
+        <td class="r">
+          ${csatPct != null
+            ? `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+                 <div style="width:40px;height:3px;background:var(--surface3);border-radius:2px;overflow:hidden">
+                   <div style="width:${csatPct}%;height:100%;background:${cc};border-radius:2px"></div>
+                 </div>
+                 <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${cc}">${csatPct}%</span>
+               </div>`
+            : '<span style="color:var(--text3);font-size:11px">—</span>'}
+        </td>
+        <td class="mono r" style="font-size:12px;color:var(--text3)">—</td>
+        <td class="r"><span style="font-size:11px;color:var(--text3)">—</span></td>
+        <td class="r"><span style="color:var(--text3);font-size:11px">—</span></td>
+        <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
+      </tr>`;
+    }
+
     const rColor = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
     const isTop = c.avg_rating >= 4.7;
     const isLow = c.avg_rating < 3.5;
@@ -3136,6 +3250,8 @@ const CS_TEAMS = [
   { key: 'Team Amplifiers', label: 'Team Amplifiers',  color: '#1a4fdb' },
   { key: 'Team Sound Check',label: 'Team Sound Check', color: '#7c3aed' },
   { key: 'Voice AI',        label: 'Voice AI',         color: '#c03030' },
+  { key: 'ParkerAI',        label: '🤖 ParkerAI',      color: '#7c3aed', isBot: true },
+  { key: 'JamieAI',         label: '🤖 JamieAI',       color: '#0d9488', isBot: true },
 ];
 
 function renderCSTeams(teamsData, teamDailyData) {
@@ -3147,11 +3263,63 @@ function renderCSTeams(teamsData, teamDailyData) {
   const teamMap = {};
   (teamsData || []).forEach(t => { teamMap[t.team] = t; });
 
+  // Inject bot team data from the cached LiveChat API response so ParkerAI/JamieAI
+  // render exactly like any other team card — same format, same metrics.
+  if (_botLive?.kpis) {
+    const k = _botLive.kpis;
+    const rawRat = _botLive.daily_ratings || _botLive.monthly_ratings || [];
+    const latestRat = rawRat[rawRat.length - 1] || {};
+    const latTot = (latestRat.good || 0) + (latestRat.bad || 0) || 1;
+    const csatPct = Math.round((latestRat.good || 0) / latTot * 100);
+    // Express bot CSAT as a 1–5 avg_rating equivalent (csatPct% → ~1–5 scale)
+    const botAvgRating = +(csatPct / 100 * 5).toFixed(2);
+    const botSolvedPct = k.containment_rate || 0;
+    const botLowPct    = 100 - csatPct;
+    const botTotal     = k.total_chats || 0;
+    if (!teamMap['ParkerAI']) {
+      teamMap['ParkerAI'] = {
+        team: 'ParkerAI',
+        avg_rating: botAvgRating,
+        solved_pct: botSolvedPct,
+        low_pct: botLowPct,
+        total: botTotal,
+        dist: [
+          { r:1, count:0, pct: Math.round(botLowPct * 0.4) },
+          { r:2, count:0, pct: Math.round(botLowPct * 0.6) },
+          { r:3, count:0, pct: Math.max(0, 10) },
+          { r:4, count:0, pct: Math.round(csatPct * 0.3) },
+          { r:5, count:0, pct: Math.round(csatPct * 0.7) },
+        ],
+        _isBot: true, _botLabel: `${csatPct}% good · ${k.containment_rate}% contained`,
+      };
+    }
+    // Jamie: placeholder until live — show "awaiting launch" via low total
+    if (!teamMap['JamieAI']) {
+      teamMap['JamieAI'] = {
+        team: 'JamieAI', avg_rating: null, solved_pct: null, low_pct: null, total: 0, dist: [], _isBot: true, _pending: true,
+      };
+    }
+  }
+
   const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
 
   // Render a card for every CS_TEAMS entry; show placeholder if no data in current period
   container.innerHTML = CS_TEAMS.map(ct => {
     const t = teamMap[ct.key];
+
+    // Bot team that hasn't launched yet
+    if (t?._pending) {
+      return `
+        <div style="border:1.5px dashed ${ct.color}55;border-radius:var(--r);padding:16px;opacity:0.7">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <div style="width:10px;height:10px;border-radius:50%;background:${ct.color};flex-shrink:0"></div>
+            <div style="font-size:13px;font-weight:600;color:var(--text1)">${ct.label}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">
+            ⏳ Awaiting launch
+          </div>
+        </div>`;
+    }
 
     if (!t) {
       return `
@@ -3171,33 +3339,45 @@ function renderCSTeams(teamsData, teamDailyData) {
     const maxPct      = Math.max(...(t.dist||[]).map(d => d.pct), 1);
     const detailKey   = 'team_' + ct.key.replace(/[^a-z0-9]/gi,'_');
 
+    // Bot teams show LiveChat metrics with different labels
+    const metric1Label = t._isBot ? 'CSAT Good%' : 'Avg Rating';
+    const metric1Value = t._isBot ? `${Math.round((t.avg_rating/5)*100)}%` : t.avg_rating;
+    const metric2Label = t._isBot ? 'Contained' : 'Solved';
+    const metric2Value = t._isBot ? `${t.solved_pct}%` : `${t.solved_pct}%`;
+    const metric3Label = t._isBot ? 'Total Chats' : 'Surveys';
+    const metric3Value = fmt(t.total);
+
     return `
-      <div style="border:1.5px solid var(--border);border-radius:var(--r);padding:16px;cursor:pointer;transition:box-shadow .15s"
+      <div style="border:1.5px solid ${t._isBot ? ct.color+'66' : 'var(--border)'};border-radius:var(--r);padding:16px;cursor:pointer;transition:box-shadow .15s"
            onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,.08)'"
            onmouseout="this.style.boxShadow=''"
-           onclick="openCsatDetail('team','${detailKey}')">
+           onclick="${t._isBot ? `document.getElementById('csatGlobalTeamFilter').value='__${ct.key.replace('AI','').toLowerCase()}__';onGlobalConsultantTeamChange()` : `openCsatDetail('team','${detailKey}')`}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div style="display:flex;align-items:center;gap:7px">
             <div style="width:10px;height:10px;border-radius:50%;background:${ct.color};flex-shrink:0"></div>
-            <div style="font-size:13px;font-weight:600;color:var(--blue)">${ct.label}</div>
+            <div style="font-size:13px;font-weight:600;color:${t._isBot ? ct.color : 'var(--blue)' }">${ct.label}</div>
           </div>
-          <span class="pill ${lowClass}" style="font-size:10px">${t.low_pct}% low</span>
+          ${t._isBot
+            ? `<span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${ct.color}18;color:${ct.color};border:1px solid ${ct.color}44">LiveChat</span>`
+            : `<span class="pill ${lowClass}" style="font-size:10px">${t.low_pct}% low</span>`}
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
           <div style="text-align:center">
-            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${t.avg_rating}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px">Avg Rating</div>
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${metric1Value}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">${metric1Label}</div>
           </div>
           <div style="text-align:center">
-            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${t.solved_pct}%</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px">Solved</div>
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${metric2Value}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">${metric2Label}</div>
           </div>
           <div style="text-align:center">
-            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(t.total)}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px">Surveys</div>
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${metric3Value}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">${metric3Label}</div>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:4px">
+        ${t._isBot && t._botLabel
+          ? `<div style="font-size:11px;color:var(--text3);text-align:center;padding-top:6px;border-top:1px solid var(--border)">${t._botLabel}</div>`
+          : `<div style="display:flex;flex-direction:column;gap:4px">
           ${(t.dist||[]).map(d => `
             <div style="display:flex;align-items:center;gap:6px">
               <div style="font-size:10px;color:var(--text3);width:14px;text-align:right">${d.r}★</div>
@@ -3206,7 +3386,7 @@ function renderCSTeams(teamsData, teamDailyData) {
               </div>
               <div style="font-size:10px;color:var(--text3);width:32px;text-align:right">${d.pct}%</div>
             </div>`).join('')}
-        </div>
+          </div>`}
       </div>`;
   }).join('');
 
@@ -3220,8 +3400,12 @@ function renderCSTeams(teamsData, teamDailyData) {
   if (badges) {
     badges.innerHTML = CS_TEAMS.map(ct => {
       const t = teamMap[ct.key];
-      return `<span style="font-size:11px;padding:3px 8px;border-radius:20px;background:${t ? ct.color+'22' : 'var(--surface2)'};color:${t ? ct.color : 'var(--text3)'};border:1px solid ${t ? ct.color+'44' : 'var(--border)'}">
-        ${ct.label}${t ? ' · ' + t.avg_rating + '★' : ' · no data'}
+      let badge = '';
+      if (!t || t._pending) badge = ' · no data';
+      else if (t._isBot) badge = ` · ${Math.round((t.avg_rating/5)*100)}% CSAT`;
+      else badge = ` · ${t.avg_rating}★`;
+      return `<span style="font-size:11px;padding:3px 8px;border-radius:20px;background:${t && !t._pending ? ct.color+'22' : 'var(--surface2)'};color:${t && !t._pending ? ct.color : 'var(--text3)'};border:1px solid ${t && !t._pending ? ct.color+'44' : 'var(--border)'}">
+        ${ct.label}${badge}
       </span>`;
     }).join('');
   }
@@ -4302,6 +4486,23 @@ function _killChart(id) {
   if (_parkerCharts[id]) { _parkerCharts[id].destroy(); delete _parkerCharts[id]; }
   if (_jamieCharts[id])  { _jamieCharts[id].destroy();  delete _jamieCharts[id];  }
 }
+
+// Auto-load bot data on page init so ParkerAI/JamieAI cards populate immediately.
+// When data arrives, re-render the CS team cards section if CSAT data is already loaded.
+(async function _autoLoadBotData() {
+  _botLive = await _fetchBotData();
+  if (_botLive && window.csatData) {
+    // Re-render team cards with bot data now available
+    const from = document.getElementById('d0')?.value || '';
+    const to   = document.getElementById('d1')?.value || '';
+    if (_csatScope.type === 'all') {
+      renderCSTeams(csatData.teams || [], csatData.team_daily || {});
+    } else {
+      const u = _csatUnscopedTeams(from, to);
+      renderCSTeams(u.teams, u.team_daily);
+    }
+  }
+})();
 
 // Rebuild team dropdown after CSAT data loads (preserve bot options)
 const _origPopulate = window._populateGlobalConsultantBar;
