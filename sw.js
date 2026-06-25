@@ -1,5 +1,5 @@
-// cs-portal-v6-voice-ai-expand-root — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v6-voice-ai-expand-root';
+// cs-portal-v9-clean-toolbar-team-only — bumped to force cache clear on all clients
+const CACHE_NAME = 'cs-portal-v9-clean-toolbar-team-only';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {

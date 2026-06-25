@@ -1,796 +1,768 @@
 /* ========================================================================== */
-/* World-class dashboard UX layer: visual system, chart tools, accessibility   */
+/* World-class dashboard UX engine                                             */
+/* Universal chart actions, chart studio, command palette, page map.    */
 /* ========================================================================== */
-:root {
-  --bg: #f6f8fc;
-  --surface: rgba(255,255,255,.88);
-  --surface2: rgba(241,245,249,.92);
-  --surface3: #e7edf6;
-  --surface-elevated: #ffffff;
-  --border: rgba(15,23,42,.10);
-  --border2: rgba(37,99,235,.26);
-  --text1: #0f172a;
-  --text2: #334155;
-  --text3: #64748b;
-  --blue: #2563eb;
-  --blue-dim: #dbeafe;
-  --green: #059669;
-  --green-dim: #dcfce7;
-  --amber: #d97706;
-  --amber-dim: #fef3c7;
-  --red: #dc2626;
-  --red-dim: #fee2e2;
-  --purple: #7c3aed;
-  --teal: #0d9488;
-  --r: 18px;
-  --r-sm: 10px;
-  --shadow: 0 16px 45px rgba(15,23,42,.08);
-  --shadow-soft: 0 8px 24px rgba(15,23,42,.06);
-  --focus-ring: 0 0 0 4px rgba(37,99,235,.16);
-  --chart-grid: rgba(100,116,139,.18);
-}
+(function () {
+  'use strict';
+  if (window.DashboardUX && window.DashboardUX.version) return;
 
-body[data-theme="dark"] {
-  --bg: #07111f;
-  --surface: rgba(15,23,42,.84);
-  --surface2: rgba(30,41,59,.84);
-  --surface3: #243044;
-  --surface-elevated: #111c2e;
-  --border: rgba(226,232,240,.12);
-  --border2: rgba(147,197,253,.38);
-  --text1: #f8fafc;
-  --text2: #cbd5e1;
-  --text3: #94a3b8;
-  --blue: #60a5fa;
-  --blue-dim: rgba(37,99,235,.22);
-  --green: #34d399;
-  --green-dim: rgba(16,185,129,.18);
-  --amber: #fbbf24;
-  --amber-dim: rgba(245,158,11,.20);
-  --red: #fb7185;
-  --red-dim: rgba(239,68,68,.18);
-  --purple: #a78bfa;
-  --teal: #2dd4bf;
-  --shadow: 0 18px 56px rgba(0,0,0,.38);
-  --shadow-soft: 0 8px 30px rgba(0,0,0,.28);
-  --chart-grid: rgba(148,163,184,.18);
-  color-scheme: dark;
-}
+  const UX = window.DashboardUX = { version: '7.3.0-clean-flow-toolbar-no-theme-no-lens' };
+  document.documentElement.dataset.dashboardUx = 'root-ready';
+  let studioChart = null;
+  let observerQueued = false;
+  let lastActiveElement = null;
 
-html { scroll-behavior: smooth; }
-body {
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  background:
-    radial-gradient(circle at 4% 0%, rgba(37,99,235,.12), transparent 34rem),
-    radial-gradient(circle at 94% 8%, rgba(13,148,136,.12), transparent 30rem),
-    linear-gradient(180deg, var(--bg), var(--bg));
-}
-body[data-theme="dark"] svg text { fill: var(--text1) !important; }
-body[data-density="compact"] { font-size: 13px; }
-body[data-density="compact"] .card,
-body[data-density="compact"] .kpi,
-body[data-density="compact"] .command-card { padding: 12px !important; }
-body[data-density="compact"] .section { margin-bottom: 16px; }
-body[data-presentation="true"] .header,
-body[data-presentation="true"] .ux-page-map { position: static !important; }
-body[data-presentation="true"] .card { min-height: 260px; }
+  const pageMeta = (() => {
+    const path = document.body?.dataset?.dashboardPage || location.pathname || '/';
+    if (path.includes('csat')) {
+      return {
+        key: 'csat',
+        eyebrow: 'Domo-first quality intelligence',
+        title: 'Call Quality Command Center',
+        subtitle: 'A premium CSAT workspace for leaders and analysts: Domo-first data, open call-level drilldowns, team and consultant analysis, and consistent chart inspection everywhere.',
+        source: 'Domo dataset',
+        primary: 'CSAT, solved rate, true FCR, teams',
+        dataNote: 'Domo-backed raw drilldowns are available directly inside the dashboard.'
+      };
+    }
+    if (path.includes('starter-guides')) {
+      return {
+        key: 'starter-guides',
+        eyebrow: 'Journey intelligence',
+        title: 'Starter Guides Experience Center',
+        subtitle: 'Journey search, guide completion, slide engagement, and answer behavior in one guided workspace built for fast support investigation.',
+        source: 'CMS starter-guide events',
+        primary: 'Journeys, guides, answers, completion',
+        dataNote: 'Search a customer journey first, then use Metrics for aggregate patterns.'
+      };
+    }
+    return {
+      key: 'portal',
+      eyebrow: 'Executive portal intelligence',
+      title: 'CS Portal Activity Center',
+      subtitle: 'A redesigned operating dashboard for engagement, self-service behavior, content health, and analyst-grade drilldowns across the selected period.',
+      source: 'CMS metrics API',
+      primary: 'Usage, search, sessions, content',
+      dataNote: 'Article estimates are called out when source granularity is limited.'
+    };
+  })();
 
-.ux-skip {
-  position: fixed; left: 16px; top: 12px; transform: translateY(-140%);
-  background: var(--text1); color: var(--surface-elevated); padding: 9px 13px;
-  border-radius: 999px; z-index: 5000; text-decoration: none; font-weight: 700;
-}
-.ux-skip:focus { transform: translateY(0); }
+  function cssVar(name) {
+    return getComputedStyle(document.body).getPropertyValue(name).trim() || getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+  function slug(value) {
+    return String(value || 'chart').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'chart';
+  }
+  function fmtNumber(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value ?? '');
+    if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.00$/, '');
+  }
+  function valueToScalar(value) {
+    if (value == null) return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value === 'object') {
+      const candidate = value.y ?? value.v ?? value.value ?? value.count;
+      const n = Number(candidate);
+      return Number.isFinite(n) ? n : null;
+    }
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  function toast(message) {
+    let el = document.getElementById('uxToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'uxToast';
+      el.className = 'ux-toast';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.classList.add('show');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+  function downloadText(filename, text, type) {
+    const blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(() => true).catch(() => false);
+    }
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    area.remove();
+    return Promise.resolve(ok);
+  }
 
-.app { max-width: 1520px; padding-inline: clamp(12px, 2vw, 28px); }
-.header {
-  top: 10px;
-  width: auto !important;
-  margin: 10px 0 18px !important;
-  padding: 12px 14px !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 24px !important;
-  background: color-mix(in srgb, var(--surface) 86%, transparent) !important;
-  box-shadow: var(--shadow-soft) !important;
-}
-.header::after {
-  content: '';
-  position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-  background: linear-gradient(120deg, rgba(255,255,255,.38), transparent 30%, transparent 70%, rgba(37,99,235,.06));
-}
-.header > * { position: relative; z-index: 1; }
-.page-nav { border-radius: 999px !important; padding: 4px !important; background: var(--surface2) !important; }
-.page-nav a { border-radius: 999px !important; }
-.page-nav a.active { background: var(--surface-elevated) !important; box-shadow: 0 8px 18px rgba(15,23,42,.08) !important; }
-.qbtn, .apply-btn, .export-btn, .mini-action, .search-btn, .filter-clear, .chart-expand-btn {
-  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease, opacity .16s ease;
-}
-.qbtn:hover, .apply-btn:hover, .export-btn:hover, .mini-action:hover, .search-btn:hover, .filter-clear:hover, .chart-expand-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-soft);
-}
-button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
-  outline: none !important;
-  box-shadow: var(--focus-ring) !important;
-}
+  function applyPrefs() {
+    try { localStorage.removeItem('dashboard.theme'); } catch (_) {}
+    const density = localStorage.getItem('dashboard.density') || 'comfortable';
+    document.body.removeAttribute('data-theme');
+    document.body.dataset.density = density;
+    recolorAllCharts();
+    updateHeroStats();
+  }
+  function toggleDensity() {
+    const next = document.body.dataset.density === 'compact' ? 'comfortable' : 'compact';
+    document.body.dataset.density = next;
+    localStorage.setItem('dashboard.density', next);
+    toast(next === 'compact' ? 'Compact analyst density enabled' : 'Comfortable layout enabled');
+  }
+  function togglePresentation() {
+    const enabled = document.body.dataset.presentation !== 'true';
+    document.body.dataset.presentation = enabled ? 'true' : 'false';
+    toast(enabled ? 'Presentation mode enabled' : 'Presentation mode disabled');
+  }
 
-.ux-hero {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 28px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--surface-elevated) 94%, transparent), color-mix(in srgb, var(--surface2) 76%, transparent)),
-    radial-gradient(circle at 88% 10%, rgba(37,99,235,.12), transparent 24rem);
-  box-shadow: var(--shadow);
-  padding: clamp(18px, 2.2vw, 30px);
-  margin: 0 0 16px;
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr);
-  gap: 20px;
-}
-.ux-hero::before {
-  content: '';
-  position: absolute; inset: -1px; pointer-events: none;
-  background: linear-gradient(135deg, rgba(37,99,235,.18), transparent 26%, transparent 70%, rgba(13,148,136,.14));
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  padding: 1px; border-radius: inherit; opacity: .7;
-}
-.ux-hero-main, .ux-hero-side { position: relative; z-index: 1; }
-.ux-eyebrow {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
-  color: var(--blue); background: var(--blue-dim); border: 1px solid var(--border2);
-  border-radius: 999px; padding: 5px 10px; margin-bottom: 12px;
-}
-.ux-hero h1 {
-  font-family: 'Syne', sans-serif;
-  font-size: clamp(26px, 4vw, 48px);
-  line-height: .98;
-  letter-spacing: -.055em;
-  color: var(--text1);
-  margin: 0 0 10px;
-}
-.ux-hero p { color: var(--text2); font-size: 14px; max-width: 760px; margin: 0; }
-.ux-view-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-.ux-hero-side {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-  align-content: start;
-}
-.ux-status-tile {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 13px;
-  min-height: 94px;
-  box-shadow: var(--shadow-soft);
-}
-.ux-status-label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; color: var(--text3); margin-bottom: 7px; }
-.ux-status-value { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; color: var(--text1); }
-.ux-status-sub { font-size: 11px; color: var(--text3); line-height: 1.35; margin-top: 3px; }
-.ux-btn {
-  border: 1px solid var(--border);
-  background: var(--surface-elevated);
-  color: var(--text2);
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 750;
-  cursor: pointer;
-  display: inline-flex; align-items: center; gap: 7px;
-  min-height: 34px;
-}
-.ux-btn.primary { background: var(--blue); color: #fff; border-color: transparent; }
-.ux-btn:hover { transform: translateY(-1px); border-color: var(--border2); box-shadow: var(--shadow-soft); color: var(--text1); }
-.ux-btn.primary:hover { color: #fff; opacity: .94; }
+  function chartInstances() {
+    if (!window.Chart) return [];
+    const canvases = Array.from(document.querySelectorAll('canvas[id]'));
+    return canvases.map(c => Chart.getChart(c)).filter(Boolean);
+  }
+  function recolorAllCharts() {
+    if (!window.Chart) return;
+    const text = cssVar('--text3') || '#64748b';
+    const grid = cssVar('--chart-grid') || cssVar('--border') || '#dde1ec';
+    const title = cssVar('--text2') || text;
+    Chart.defaults.color = text;
+    Chart.defaults.borderColor = grid;
+    chartInstances().forEach(chart => {
+      try {
+        if (chart.options?.scales) {
+          Object.values(chart.options.scales).forEach(scale => {
+            if (scale.grid) scale.grid.color = grid;
+            if (scale.ticks) scale.ticks.color = text;
+            if (scale.title) scale.title.color = title;
+          });
+        }
+        const plugins = chart.options.plugins || {};
+        if (plugins.legend?.labels) plugins.legend.labels.color = text;
+        if (plugins.title) plugins.title.color = title;
+        chart.update('none');
+      } catch (_) {}
+    });
+  }
 
-.ux-page-map {
-  position: sticky; top: 86px; z-index: 80;
-  display: flex; gap: 7px; overflow-x: auto; overscroll-behavior-x: contain;
-  padding: 8px; margin: 0 0 18px;
-  border: 1px solid var(--border); border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(16px);
-  scrollbar-width: thin;
-}
-.ux-page-map button {
-  border: 0; background: transparent; color: var(--text3); cursor: pointer;
-  white-space: nowrap; border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 700;
-}
-.ux-page-map button:hover { background: var(--surface2); color: var(--text1); }
-.ux-page-map button.ux-active { background: var(--blue-dim); color: var(--blue); }
+  function injectSkipLink() {
+    if (document.querySelector('.ux-skip')) return;
+    const skip = document.createElement('a');
+    skip.className = 'ux-skip';
+    skip.href = '#appRoot';
+    skip.textContent = 'Skip to dashboard';
+    document.body.insertBefore(skip, document.body.firstChild);
+  }
 
-.card, .kpi, .command-card, .journey-card, .empty-state, .metrics-filters, .search-wrap {
-  border-color: var(--border) !important;
-  background: var(--surface) !important;
-  border-radius: var(--r) !important;
-  box-shadow: var(--shadow-soft) !important;
-}
-.card {
-  position: relative;
-  overflow: clip;
-}
-.card::after {
-  content: '';
-  position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(180deg, rgba(255,255,255,.28), transparent 88px);
-  opacity: .7;
-}
-.card > * { position: relative; z-index: 1; }
-.card:hover, .kpi:hover, .command-card:hover {
-  border-color: var(--border2) !important;
-  box-shadow: var(--shadow) !important;
-  transform: translateY(-1px);
-}
-.section-title { font-size: clamp(18px, 1.8vw, 24px) !important; letter-spacing: -.025em; }
-.section-sub, .card-sub { color: var(--text3) !important; }
-.kpi-value { letter-spacing: -.04em; }
-.table-wrap {
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
-th { background: var(--surface2) !important; color: var(--text3) !important; }
-td { color: var(--text2) !important; }
-tr:hover td { background: var(--blue-dim) !important; }
+  function injectHero() {
+    if (document.getElementById('uxHero')) return;
+    const header = document.querySelector('.header');
+    if (!header) return;
+    const hero = document.createElement('section');
+    hero.id = 'uxHero';
+    hero.className = 'ux-hero';
+    hero.setAttribute('aria-label', 'Dashboard overview and controls');
+    hero.innerHTML = `
+      <div class="ux-hero-main">
+        <div class="ux-eyebrow"><span aria-hidden="true">◆</span>${esc(pageMeta.eyebrow)}</div>
+        <h1>${esc(pageMeta.title)}</h1>
+        <p>${esc(pageMeta.subtitle)}</p>
+        <div class="ux-view-tools" role="toolbar" aria-label="Dashboard view controls">
+          <button type="button" class="ux-btn primary" data-ux-command="palette">⌘ Command center</button>
+          <button type="button" class="ux-btn" data-ux-command="density">Density</button>
+          <button type="button" class="ux-btn" data-ux-command="presentation">Presentation</button>
+          <button type="button" class="ux-btn" data-ux-command="export-all">Export all chart data</button>
+        </div>
+      </div>`;
+    header.insertAdjacentElement('afterend', hero);
+  }
+
+  function buildPageMap() {
+    if (document.getElementById('uxPageMap')) return;
+    const header = document.querySelector('.ux-hero') || document.querySelector('.header');
+    if (!header) return;
+    const seenTitles = new Set();
+    const titles = Array.from(document.querySelectorAll('.section-title, .card-title'))
+      .filter(el => {
+        if (el.closest('.ux-modal, .ux-chart-toolbar, .ux-chart-data-panel')) return false;
+        const text = (el.textContent || '').trim();
+        if (!text || text.length < 3 || seenTitles.has(text)) return false;
+        const visible = el.offsetParent !== null || el.closest('#s4') || el.closest('#s1') || el.closest('#s2') || el.closest('#s3');
+        if (!visible) return false;
+        seenTitles.add(text);
+        return true;
+      })
+      .slice(0, 12);
+    if (!titles.length) return;
+    const nav = document.createElement('nav');
+    nav.id = 'uxPageMap';
+    nav.className = 'ux-page-map';
+    nav.setAttribute('aria-label', 'Sections on this page');
+    titles.forEach((el, idx) => {
+      if (!el.id) el.id = 'ux-section-' + idx + '-' + slug(el.textContent);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = el.textContent.trim();
+      btn.addEventListener('click', () => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      nav.appendChild(btn);
+    });
+    header.insertAdjacentElement('afterend', nav);
+
+    const buttons = Array.from(nav.querySelectorAll('button'));
+    const obs = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      const idx = titles.indexOf(visible.target);
+      buttons.forEach((b, i) => b.classList.toggle('ux-active', i === idx));
+    }, { rootMargin: '-18% 0px -70% 0px', threshold: [0, .25, .5, 1] });
+    titles.forEach(t => obs.observe(t));
+  }
+
+  function titleForCanvas(canvas) {
+    const card = canvas.closest('.card, .section, .journey-card') || canvas.parentElement;
+    const title = card?.querySelector('.card-title, .section-title, h2, h3')?.textContent?.trim();
+    return title || canvas.getAttribute('aria-label') || canvas.id || 'Dashboard chart';
+  }
+  function getChartById(id) {
+    if (!window.Chart) return null;
+    const canvas = document.getElementById(id);
+    return canvas ? Chart.getChart(canvas) : null;
+  }
+  function pruneStaleChartUx(canvasIds) {
+    const live = canvasIds || new Set(Array.from(document.querySelectorAll('canvas[id]')).map(c => c.id));
+    document.querySelectorAll('.ux-chart-toolbar[data-chart-id]').forEach(el => {
+      if (!live.has(el.dataset.chartId)) el.remove();
+    });
+    document.querySelectorAll('.ux-chart-data-panel[id^="ux-data-panel-"]').forEach(el => {
+      const id = el.id.replace('ux-data-panel-', '');
+      if (!live.has(id)) el.remove();
+    });
+  }
+
+  function enhanceCharts() {
+    const canvases = Array.from(document.querySelectorAll('canvas[id]')).filter(canvas => !canvas.id.startsWith('ux') && canvas.id !== 'chartModalCanvas');
+    pruneStaleChartUx(new Set(canvases.map(c => c.id)));
+    canvases.forEach(canvas => {
+      if (canvas.dataset.uxEnhanced === '1') return;
+      const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
+      if (!wrap) return;
+      document.querySelectorAll('.ux-chart-toolbar').forEach(el => { if (el.dataset.chartId === canvas.id) el.remove(); });
+      const stalePanel = document.getElementById('ux-data-panel-' + canvas.id);
+      if (stalePanel) stalePanel.remove();
+      canvas.dataset.uxEnhanced = '1';
+      wrap.classList.add('ux-chart-wrap');
+      canvas.setAttribute('tabindex', '0');
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', titleForCanvas(canvas));
+
+      const title = titleForCanvas(canvas);
+      const toolbar = document.createElement('div');
+      toolbar.className = 'ux-chart-toolbar';
+      toolbar.dataset.chartId = canvas.id;
+      toolbar.innerHTML = `
+        <div class="ux-chart-toolbar-left">
+          <div class="ux-chart-kicker"><span class="ux-chart-name">${esc(title)}</span></div>
+        </div>
+        <div class="ux-chart-actions" role="toolbar" aria-label="Chart actions for ${esc(title)}">
+          <button type="button" class="ux-chart-action" data-ux-action="insight" data-chart-id="${esc(canvas.id)}" title="Show insight" aria-label="Show chart insight">✦</button>
+          <button type="button" class="ux-chart-action" data-ux-action="data" data-chart-id="${esc(canvas.id)}" title="View data table" aria-label="View chart data table">▦</button>
+          <button type="button" class="ux-chart-action" data-ux-action="csv" data-chart-id="${esc(canvas.id)}" title="Download CSV" aria-label="Download chart data as CSV">CSV</button>
+          <button type="button" class="ux-chart-action" data-ux-action="png" data-chart-id="${esc(canvas.id)}" title="Download PNG" aria-label="Download chart image as PNG">PNG</button>
+          <button type="button" class="ux-chart-action" data-ux-action="expand" data-chart-id="${esc(canvas.id)}" title="Expand chart" aria-label="Expand chart">⤢</button>
+        </div>`;
+      const panel = document.createElement('div');
+      panel.className = 'ux-chart-data-panel';
+      panel.id = 'ux-data-panel-' + canvas.id;
+      panel.setAttribute('aria-live', 'polite');
+      wrap.querySelectorAll('.chart-expand-btn, .ux-generated-expand').forEach(btn => btn.remove());
+      wrap.insertBefore(toolbar, wrap.firstChild);
+      wrap.insertAdjacentElement('afterend', panel);
+      installCanvasInspector(canvas);
+    });
+    updateHeroStats();
+  }
+
+  function updateHeroStats() {
+    const el = document.getElementById('uxChartCount');
+    if (el) el.textContent = String(document.querySelectorAll('canvas[data-ux-enhanced="1"]').length);
+  }
+
+  function chartToRows(chart) {
+    const labels = Array.isArray(chart?.data?.labels) ? chart.data.labels : [];
+    const datasets = Array.isArray(chart?.data?.datasets) ? chart.data.datasets : [];
+    return labels.map((label, i) => {
+      const row = { label: label ?? '' };
+      datasets.forEach((ds, di) => {
+        const name = ds.label || ('Series ' + (di + 1));
+        row[name] = valueToScalar(ds.data?.[i]) ?? ds.data?.[i] ?? '';
+      });
+      return row;
+    });
+  }
+  function rowsToCsv(rows) {
+    if (!rows.length) return 'label\n';
+    const headers = Array.from(rows.reduce((set, row) => {
+      Object.keys(row).forEach(k => set.add(k));
+      return set;
+    }, new Set()));
+    const quote = value => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    return [headers.map(quote).join(',')].concat(rows.map(row => headers.map(h => quote(row[h])).join(','))).join('\n');
+  }
+  function chartInsight(chart) {
+    const title = titleForCanvas(chart.canvas);
+    const labels = chart.data?.labels || [];
+    const datasets = chart.data?.datasets || [];
+    const lines = [];
+    lines.push(`${title}: ${labels.length} visible category/time point${labels.length === 1 ? '' : 's'} across ${datasets.length} series.`);
+    datasets.forEach(ds => {
+      const nums = (ds.data || []).map(valueToScalar).filter(v => Number.isFinite(v));
+      if (!nums.length) return;
+      const total = nums.reduce((a, b) => a + b, 0);
+      let maxIdx = 0;
+      let minIdx = 0;
+      nums.forEach((v, i) => { if (v > nums[maxIdx]) maxIdx = i; if (v < nums[minIdx]) minIdx = i; });
+      const first = nums[0];
+      const last = nums[nums.length - 1];
+      const delta = first ? ((last - first) / Math.abs(first)) * 100 : null;
+      const label = ds.label || 'Series';
+      const topLabel = labels[maxIdx] ?? ('point ' + (maxIdx + 1));
+      lines.push(`${label} totals ${fmtNumber(total)}; peak is ${topLabel} at ${fmtNumber(nums[maxIdx])}.`);
+      if (Number.isFinite(delta) && nums.length > 1) {
+        const direction = delta > 2 ? 'up' : delta < -2 ? 'down' : 'flat';
+        lines.push(`${label} ends ${direction} vs the first visible point (${delta > 0 ? '+' : ''}${delta.toFixed(1)}%).`);
+      }
+    });
+    if (labels.length < 4) lines.push('Sample is small; treat this view as directional until more points are loaded.');
+    return lines.join(' ');
+  }
+
+  function renderDataPanel(chart, mode) {
+    const canvasId = chart.canvas.id;
+    const panel = document.getElementById('ux-data-panel-' + canvasId);
+    if (!panel) return;
+    const rows = chartToRows(chart);
+    const headers = rows.length ? Object.keys(rows[0]) : ['label'];
+    const bodyRows = rows.slice(0, 250).map(row => `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`).join('');
+    const insight = chartInsight(chart);
+    panel.innerHTML = `
+      <div class="ux-chart-data-panel-header">
+        <span>${mode === 'insight' ? 'Analyst insight' : 'Underlying chart data'} · ${rows.length} row${rows.length === 1 ? '' : 's'}</span>
+        <button type="button" class="ux-mini-btn" data-ux-action="close-panel" data-chart-id="${esc(canvasId)}">Close</button>
+      </div>
+      ${mode === 'insight' ? `<div class="ux-insight-box"><strong>Readout:</strong> ${esc(insight)}</div>` : ''}
+      <div class="ux-chart-data-scroll">
+        <table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${bodyRows || `<tr><td>No chart data available yet.</td></tr>`}</tbody></table>
+      </div>`;
+    panel.classList.add('open');
+  }
+
+  function installCanvasInspector(canvas) {
+    if (canvas.dataset.uxInspector === '1') return;
+    canvas.dataset.uxInspector = '1';
+    const inspect = evt => {
+      const chart = getChartById(canvas.id);
+      if (!chart) return;
+      const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+      if (!points.length) return;
+      const point = points[0];
+      const ds = chart.data.datasets[point.datasetIndex] || {};
+      const label = chart.data.labels?.[point.index] ?? ('Point ' + (point.index + 1));
+      const raw = ds.data?.[point.index];
+      const value = valueToScalar(raw) ?? raw ?? '';
+      showPointPopover(evt.clientX, evt.clientY, {
+        title: titleForCanvas(canvas),
+        label,
+        series: ds.label || 'Series',
+        value
+      });
+    };
+    canvas.addEventListener('click', inspect);
+    canvas.addEventListener('keydown', evt => {
+      if (evt.key === 'Enter' || evt.key === ' ') {
+        evt.preventDefault();
+        openStudio(canvas.id);
+      }
+    });
+  }
+  function showPointPopover(x, y, item) {
+    document.querySelectorAll('.ux-click-popover').forEach(el => el.remove());
+    const el = document.createElement('div');
+    el.className = 'ux-click-popover';
+    el.innerHTML = `
+      <div class="ux-pop-title">${esc(item.title)}</div>
+      <div class="ux-pop-row"><span>Point</span><span class="ux-pop-value">${esc(item.label)}</span></div>
+      <div class="ux-pop-row"><span>Series</span><span class="ux-pop-value">${esc(item.series)}</span></div>
+      <div class="ux-pop-row"><span>Value</span><span class="ux-pop-value">${esc(fmtNumber(item.value))}</span></div>`;
+    document.body.appendChild(el);
+    const rect = el.getBoundingClientRect();
+    el.style.left = Math.min(window.innerWidth - rect.width - 12, Math.max(12, x + 14)) + 'px';
+    el.style.top = Math.min(window.innerHeight - rect.height - 12, Math.max(12, y + 14)) + 'px';
+    clearTimeout(showPointPopover._timer);
+    showPointPopover._timer = setTimeout(() => el.remove(), 4200);
+  }
+
+  function downloadPng(chart) {
+    try {
+      const a = document.createElement('a');
+      a.download = slug(titleForCanvas(chart.canvas)) + '.png';
+      a.href = chart.toBase64Image('image/png', 1);
+      a.click();
+      toast('PNG exported');
+    } catch (_) {
+      toast('This chart cannot be exported as PNG yet');
+    }
+  }
+  function downloadCsv(chart) {
+    const rows = chartToRows(chart);
+    downloadText(slug(titleForCanvas(chart.canvas)) + '.csv', rowsToCsv(rows), 'text/csv;charset=utf-8');
+    toast('CSV exported');
+  }
+  function exportAllCharts() {
+    const charts = chartInstances();
+    if (!charts.length) { toast('No chart data is available yet'); return; }
+    const blocks = charts.map(chart => {
+      const name = titleForCanvas(chart.canvas);
+      return '### ' + name + '\n' + rowsToCsv(chartToRows(chart));
+    }).join('\n\n');
+    downloadText(slug(pageMeta.title) + '-all-chart-data.csv', blocks, 'text/csv;charset=utf-8');
+    toast('All chart data exported');
+  }
+
+  function ensureStudioModal() {
+    let modal = document.getElementById('uxChartStudio');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'uxChartStudio';
+    modal.className = 'ux-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div class="ux-modal-card">
+        <div class="ux-modal-head">
+          <div>
+            <div class="ux-modal-title" id="uxStudioTitle">Expanded chart studio</div>
+            <div class="ux-modal-sub" id="uxStudioSub">Expand the chart, inspect data, export, and copy the readout.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            <button type="button" class="ux-btn" id="uxStudioCsv">CSV</button>
+            <button type="button" class="ux-btn" id="uxStudioPng">PNG</button>
+            <button type="button" class="ux-btn" id="uxStudioCopy">Copy insight</button>
+            <button type="button" class="ux-btn primary" data-ux-close="studio">Close</button>
+          </div>
+        </div>
+        <div class="ux-modal-body">
+          <div class="ux-studio-grid">
+            <div class="ux-studio-chart"><canvas id="uxStudioCanvas"></canvas></div>
+            <div class="ux-studio-side">
+              <div class="ux-studio-panel"><h3>Analyst readout</h3><div class="ux-panel-body" id="uxStudioInsight"></div></div>
+              <div class="ux-studio-panel"><h3>Visible data</h3><div class="ux-panel-body" id="uxStudioTable" style="max-height:360px;overflow:auto;padding:0"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-ux-close="studio"]')) closeStudio(); });
+    return modal;
+  }
+  function openStudio(canvasId) {
+    const chart = getChartById(canvasId);
+    if (!chart) { toast('Chart is still loading'); return; }
+    const modal = ensureStudioModal();
+    const title = titleForCanvas(chart.canvas);
+    const insight = chartInsight(chart);
+    lastActiveElement = document.activeElement;
+    document.getElementById('uxStudioTitle').textContent = title;
+    document.getElementById('uxStudioSub').textContent = 'Expanded chart studio · click points in the dashboard for instant point inspection.';
+    document.getElementById('uxStudioInsight').innerHTML = esc(insight).replace(/(peak|totals|ends|Sample)/g, '<strong>$1</strong>');
+    const rows = chartToRows(chart);
+    const headers = rows.length ? Object.keys(rows[0]) : ['label'];
+    document.getElementById('uxStudioTable').innerHTML = `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.slice(0, 250).map(row => `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`).join('') || '<tr><td>No data yet.</td></tr>'}</tbody></table>`;
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    if (studioChart) { studioChart.destroy(); studioChart = null; }
+    const cfg = {
+      type: chart.config.type,
+      data: JSON.parse(JSON.stringify(chart.data || {})),
+      options: JSON.parse(JSON.stringify(chart.options || {}))
+    };
+    cfg.options.responsive = true;
+    cfg.options.maintainAspectRatio = false;
+    cfg.options.animation = false;
+    cfg.options.plugins = cfg.options.plugins || {};
+    cfg.options.plugins.legend = cfg.options.plugins.legend || {};
+    cfg.options.plugins.legend.position = cfg.options.plugins.legend.position || 'bottom';
+    const ctx = document.getElementById('uxStudioCanvas').getContext('2d');
+    studioChart = new Chart(ctx, cfg);
+    recolorAllCharts();
+    document.getElementById('uxStudioCsv').onclick = () => downloadCsv(chart);
+    document.getElementById('uxStudioPng').onclick = () => downloadPng(chart);
+    document.getElementById('uxStudioCopy').onclick = () => copyText(insight).then(ok => toast(ok ? 'Insight copied' : 'Copy failed'));
+    modal.querySelector('[data-ux-close="studio"]').focus();
+  }
+  function closeStudio() {
+    const modal = document.getElementById('uxChartStudio');
+    if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
+    if (studioChart) { studioChart.destroy(); studioChart = null; }
+    if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
+  }
+
+  function ensureCommandPalette() {
+    let modal = document.getElementById('uxCommandPalette');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'uxCommandPalette';
+    modal.className = 'ux-modal ux-command-palette';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div class="ux-modal-card">
+        <div class="ux-modal-head">
+          <div>
+            <div class="ux-modal-title">Dashboard command center</div>
+            <div class="ux-modal-sub">Search actions, jump between views, and operate the dashboard faster. Press Esc to close.</div>
+          </div>
+          <button type="button" class="ux-btn primary" data-ux-close="palette">Close</button>
+        </div>
+        <div class="ux-modal-body">
+          <input class="ux-command-input" id="uxCommandInput" placeholder="Type a command, e.g. export, CSAT, clear filters..." autocomplete="off">
+          <div class="ux-command-list" id="uxCommandList"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-ux-close="palette"]')) closePalette(); });
+    document.getElementById('uxCommandInput').addEventListener('input', renderCommands);
+    return modal;
+  }
+  function commandDefs() {
+    const defs = [
+      { title: 'Go to Portal Activity', sub: 'Usage, content, sessions, search', kbd: '/', run: () => { location.href = '/'; } },
+      { title: 'Go to Call Quality', sub: 'Domo-first CSAT and call quality', kbd: '/csat', run: () => { location.href = '/csat'; } },
+      { title: 'Go to Starter Guides', sub: 'Journey and guide analytics', kbd: '/starter-guides', run: () => { location.href = '/starter-guides'; } },
+      { title: 'Toggle density', sub: 'Comfortable vs compact analyst layout', kbd: 'D', run: toggleDensity },
+      { title: 'Presentation mode', sub: 'Reduce stickiness and make cards easier to present', kbd: 'P', run: togglePresentation },
+      { title: 'Export all chart data', sub: 'Download a combined CSV for every loaded chart', kbd: 'E', run: exportAllCharts },
+      { title: 'Expand first chart', sub: 'Open the first loaded chart in the expanded chart studio', kbd: 'F', run: () => { const c = document.querySelector('canvas[data-ux-enhanced="1"]'); if (c) openStudio(c.id); else toast('No chart is loaded yet'); } },
+      { title: 'Scroll to top', sub: 'Return to dashboard overview', kbd: 'Home', run: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
+    ];
+    if (typeof window.clearAllFilters === 'function') defs.push({ title: 'Clear filters', sub: 'Reset active dashboard filters', kbd: 'C', run: () => window.clearAllFilters() });
+    if (typeof window.loadMetrics === 'function') defs.push({ title: 'Reload Starter Guide metrics', sub: 'Refresh aggregate metrics view', kbd: 'R', run: () => window.loadMetrics() });
+    if (typeof window.refreshFromDomo === 'function') defs.push({ title: 'Refresh CSAT from Domo', sub: 'Pull latest Domo CSAT data', kbd: 'R', run: () => window.refreshFromDomo() });
+    else if (typeof window.refreshCsat === 'function') defs.push({ title: 'Refresh CSAT from Domo', sub: 'CSAT refresh action', kbd: 'R', run: () => window.refreshCsat() });
+    return defs;
+  }
+  function renderCommands() {
+    const list = document.getElementById('uxCommandList');
+    const query = (document.getElementById('uxCommandInput')?.value || '').toLowerCase().trim();
+    if (!list) return;
+    const defs = commandDefs().filter(c => !query || (c.title + ' ' + c.sub).toLowerCase().includes(query));
+    list.innerHTML = defs.map((c, i) => `
+      <div class="ux-command-item" role="button" tabindex="0" data-command-index="${i}">
+        <div><div class="ux-command-item-title">${esc(c.title)}</div><div class="ux-command-item-sub">${esc(c.sub)}</div></div>
+        <span class="ux-kbd">${esc(c.kbd)}</span>
+      </div>`).join('') || '<div class="ux-command-item"><div><div class="ux-command-item-title">No commands found</div><div class="ux-command-item-sub">Try export, chart, CSAT, or filters.</div></div></div>';
+    Array.from(list.querySelectorAll('[data-command-index]')).forEach(el => {
+      const idx = Number(el.dataset.commandIndex);
+      el.addEventListener('click', () => { closePalette(); defs[idx].run(); });
+      el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closePalette(); defs[idx].run(); } });
+    });
+  }
+  function openPalette() {
+    const modal = ensureCommandPalette();
+    lastActiveElement = document.activeElement;
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    renderCommands();
+    const input = document.getElementById('uxCommandInput');
+    input.value = '';
+    setTimeout(() => input.focus(), 0);
+  }
+  function closePalette() {
+    const modal = document.getElementById('uxCommandPalette');
+    if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
+    if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
+  }
+
+  function installGlobalHandlers() {
+    document.addEventListener('click', e => {
+      const chartBtn = e.target.closest('[data-ux-action][data-chart-id]');
+      if (chartBtn) {
+        const id = chartBtn.dataset.chartId;
+        const action = chartBtn.dataset.uxAction;
+        const chart = getChartById(id);
+        if (action === 'close-panel') {
+          document.getElementById('ux-data-panel-' + id)?.classList.remove('open');
+          return;
+        }
+        if (!chart) { toast('Chart is still loading'); return; }
+        if (action === 'insight') renderDataPanel(chart, 'insight');
+        if (action === 'data') renderDataPanel(chart, 'data');
+        if (action === 'csv') downloadCsv(chart);
+        if (action === 'png') downloadPng(chart);
+        if (action === 'focus' || action === 'expand') openStudio(id);
+        return;
+      }
+      const cmd = e.target.closest('[data-ux-command]')?.dataset.uxCommand;
+      if (!cmd) return;
+      if (cmd === 'palette') openPalette();
+      if (cmd === 'density') toggleDensity();
+      if (cmd === 'presentation') togglePresentation();
+      if (cmd === 'export-all') exportAllCharts();
+    });
+    document.addEventListener('keydown', e => {
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openPalette();
+      }
+      if (e.key === 'Escape') {
+        closePalette();
+        closeStudio();
+        document.querySelectorAll('.ux-click-popover').forEach(el => el.remove());
+      }
+    });
+  }
+
+  function observeDom() {
+    const target = document.getElementById('appRoot') || document.body;
+    const observer = new MutationObserver(() => {
+      if (observerQueued) return;
+      observerQueued = true;
+      requestAnimationFrame(() => {
+        observerQueued = false;
+        enhanceCharts();
+        forceEveryChartExpandable();
+        ensureVoiceAiInTeamDropdowns();
+      });
+    });
+    observer.observe(target, { childList: true, subtree: true });
+    setInterval(() => { enhanceCharts(); recolorAllCharts(); }, 3500);
+  }
 
 
-.chart-wrap, .ux-chart-wrap { position: relative; }
-.chart-expand-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 6;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
-  color: var(--text2);
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 800;
-  cursor: pointer;
-  box-shadow: var(--shadow-soft);
-}
-.chart-expand-btn:hover { border-color: var(--blue); color: var(--blue); }
+  function removeKnownNoisyUi() {
+    // Defensive cleanup for older cached markup or manually merged files. The current CSAT UI is open and Domo-first.
+    const forbiddenText = ['Data quality:', 'Protected drilldowns', 'Admin access', 'Unlock raw drilldowns'];
+    document.querySelectorAll('button, .card, .alert, .section, [id]').forEach(el => {
+      const txt = (el.textContent || '').trim();
+      if (forbiddenText.some(term => txt.includes(term))) {
+        if (el.id === 'domoRefreshBtn') return;
+        el.style.display = 'none';
+        el.setAttribute('aria-hidden', 'true');
+      }
+    });
+    document.querySelectorAll('[id*="domoAccess"], [id*="protected"], [id*="Protected"]').forEach(el => {
+      el.style.display = 'none';
+      el.setAttribute('aria-hidden', 'true');
+    });
+  }
 
-.chart-wrap, .ux-chart-wrap {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-elevated) 78%, transparent), color-mix(in srgb, var(--surface2) 54%, transparent));
-  padding: 8px;
-  overflow: hidden;
-}
-.chart-wrap canvas, .ux-chart-wrap canvas { width: 100% !important; max-width: 100% !important; }
-.ux-chart-toolbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 8px 0 10px;
-  border-top: 1px solid transparent;
-}
-.ux-chart-toolbar-left { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.ux-chart-kicker { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.ux-chart-name { font-size: 11px; font-weight: 850; color: var(--text2); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38vw; }
-.ux-feature-pill {
-  border: 1px solid var(--border); background: var(--surface2); color: var(--text3);
-  border-radius: 999px; padding: 2px 7px; font-size: 10px; font-weight: 800; letter-spacing: .02em;
-}
-.ux-chart-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.ux-chart-actions button, .ux-mini-btn {
-  border: 1px solid var(--border);
-  background: var(--surface-elevated);
-  color: var(--text2);
-  border-radius: 999px;
-  padding: 5px 9px;
-  font-size: 11px;
-  font-weight: 750;
-  cursor: pointer;
-}
-.ux-chart-actions button:hover, .ux-mini-btn:hover { border-color: var(--border2); color: var(--text1); box-shadow: var(--shadow-soft); }
-.ux-chart-data-panel {
-  display: none;
-  margin: 8px 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--surface-elevated);
-}
-.ux-chart-data-panel.open { display: block; }
-.ux-chart-data-panel-header {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 9px 12px; background: var(--surface2); border-bottom: 1px solid var(--border);
-  font-size: 11px; color: var(--text3); font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
-}
-.ux-chart-data-scroll { max-height: 260px; overflow: auto; }
-.ux-chart-data-panel table { width: 100%; border-collapse: collapse; }
-.ux-chart-data-panel th, .ux-chart-data-panel td { padding: 8px 10px; font-size: 12px; border-bottom: 1px solid var(--border); }
-.ux-insight-box {
-  padding: 12px;
-  background: var(--blue-dim);
-  color: var(--text2);
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  line-height: 1.55;
-}
-.ux-insight-box strong { color: var(--text1); }
 
-.ux-toast {
-  position: fixed; right: 18px; bottom: 18px; z-index: 7000;
-  max-width: min(360px, calc(100vw - 32px));
-  border: 1px solid var(--border); border-radius: 16px;
-  background: var(--surface-elevated); color: var(--text2); box-shadow: var(--shadow);
-  padding: 12px 14px; font-size: 13px; transform: translateY(24px); opacity: 0; pointer-events: none;
-  transition: transform .18s ease, opacity .18s ease;
-}
-.ux-toast.show { transform: translateY(0); opacity: 1; }
-.ux-click-popover {
-  position: fixed; z-index: 6500; min-width: 220px; max-width: 300px;
-  border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow);
-  background: var(--surface-elevated); color: var(--text2); padding: 12px; font-size: 12px;
-}
-.ux-click-popover .ux-pop-title { font-weight: 850; color: var(--text1); margin-bottom: 6px; }
-.ux-click-popover .ux-pop-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
-.ux-click-popover .ux-pop-value { font-family: 'JetBrains Mono', monospace; color: var(--text1); font-weight: 750; }
+  function compactTeamName(value) {
+    return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  }
 
-.ux-modal {
-  position: fixed; inset: 0; z-index: 8000;
-  display: none; align-items: center; justify-content: center;
-  background: rgba(2,6,23,.62); backdrop-filter: blur(10px);
-  padding: 22px;
-}
-.ux-modal.open { display: flex; }
-.ux-modal-card {
-  width: min(1180px, 96vw); max-height: 92vh; overflow: hidden;
-  border-radius: 26px; border: 1px solid var(--border);
-  background: var(--surface-elevated); box-shadow: 0 30px 90px rgba(0,0,0,.34);
-  display: grid; grid-template-rows: auto minmax(0, 1fr);
-}
-.ux-modal-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 16px 18px; border-bottom: 1px solid var(--border); background: var(--surface2);
-}
-.ux-modal-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; color: var(--text1); letter-spacing: -.025em; }
-.ux-modal-sub { font-size: 12px; color: var(--text3); margin-top: 3px; }
-.ux-modal-body { overflow: auto; padding: 18px; }
-.ux-studio-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, .8fr); gap: 16px; }
-.ux-studio-chart { height: min(62vh, 560px); border: 1px solid var(--border); border-radius: 18px; padding: 12px; background: var(--surface); }
-.ux-studio-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.ux-studio-panel { border: 1px solid var(--border); border-radius: 18px; overflow: hidden; background: var(--surface); }
-.ux-studio-panel h3 { font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: var(--text3); margin: 0; padding: 11px 12px; background: var(--surface2); border-bottom: 1px solid var(--border); }
-.ux-studio-panel .ux-panel-body { padding: 12px; color: var(--text2); font-size: 13px; line-height: 1.55; }
+  function ensureVoiceAiInTeamDropdowns() {
+    const likelyTeamSelects = Array.from(document.querySelectorAll('select')).filter(sel => {
+      const idName = ((sel.id || '') + ' ' + (sel.name || '') + ' ' + (sel.getAttribute('aria-label') || '')).toLowerCase();
+      const prevLabel = sel.closest('label')?.textContent?.toLowerCase() || '';
+      return idName.includes('team') || idName.includes('csatglobalteamfilter') || idName.includes('csatteamfilter') || prevLabel.includes('team');
+    });
+    likelyTeamSelects.forEach(sel => {
+      const hasVoiceAi = Array.from(sel.options || []).some(opt => compactTeamName(opt.value || opt.textContent) === 'voiceai');
+      if (!hasVoiceAi) {
+        const opt = document.createElement('option');
+        opt.value = 'Voice AI';
+        opt.textContent = 'Voice AI';
+        // Keep the global "All teams" option first, then show Voice AI near the top.
+        if (sel.options && sel.options.length > 1) sel.insertBefore(opt, sel.options[1]);
+        else sel.appendChild(opt);
+      }
+    });
+  }
 
-.ux-command-palette .ux-modal-card { width: min(720px, 94vw); max-height: 80vh; }
-.ux-command-input {
-  width: 100%; border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
-  color: var(--text1); font-size: 16px; padding: 13px 14px; margin-bottom: 12px;
-}
-.ux-command-list { display: grid; gap: 7px; }
-.ux-command-item {
-  border: 1px solid var(--border); border-radius: 16px; padding: 12px 13px; background: var(--surface);
-  display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer;
-}
-.ux-command-item:hover, .ux-command-item.active { border-color: var(--border2); background: var(--blue-dim); }
-.ux-command-item-title { font-weight: 850; color: var(--text1); }
-.ux-command-item-sub { font-size: 12px; color: var(--text3); margin-top: 2px; }
-.ux-kbd { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 7px; color: var(--text3); background: var(--surface2); }
+  function forceEveryChartExpandable() {
+    // Defensive guarantee: every Chart.js canvas must have exactly one expand action.
+    // Older packages could create duplicated toolbars; this consolidates the action into the primary toolbar.
+    document.querySelectorAll('canvas[id]').forEach(canvas => {
+      const chart = window.Chart && Chart.getChart(canvas);
+      if (!chart) return;
+      const allButtons = Array.from(document.querySelectorAll('[data-ux-action="expand"][data-chart-id]'))
+        .filter(btn => btn.dataset.chartId === canvas.id);
+      if (allButtons.length > 1) allButtons.slice(1).forEach(btn => btn.remove());
+      if (allButtons.length === 1) return;
+      let bar = Array.from(document.querySelectorAll('.ux-chart-toolbar[data-chart-id]'))
+        .find(el => el.dataset.chartId === canvas.id);
+      if (!bar) {
+        const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
+        if (!wrap) return;
+        bar = document.createElement('div');
+        bar.className = 'ux-chart-toolbar';
+        bar.dataset.chartId = canvas.id;
+        bar.innerHTML = '<div class="ux-chart-actions" role="toolbar" aria-label="Chart actions"></div>';
+        wrap.insertBefore(bar, wrap.firstChild);
+      }
+      let actions = bar.querySelector('.ux-chart-actions');
+      if (!actions) {
+        actions = document.createElement('div');
+        actions.className = 'ux-chart-actions';
+        actions.setAttribute('role', 'toolbar');
+        actions.setAttribute('aria-label', 'Chart actions');
+        bar.appendChild(actions);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ux-chart-action ux-expand-guarantee';
+      btn.dataset.uxAction = 'expand';
+      btn.dataset.chartId = canvas.id;
+      btn.textContent = '⤢';
+      btn.setAttribute('aria-label', 'Expand chart');
+      btn.setAttribute('title', 'Expand chart');
+      actions.appendChild(btn);
+    });
+  }
 
-@media (max-width: 980px) {
-  .ux-hero { grid-template-columns: 1fr; }
-  .ux-hero-side { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .ux-studio-grid { grid-template-columns: 1fr; }
-  .ux-page-map { top: 74px; border-radius: 18px; }
-}
-@media (max-width: 680px) {
-  .header { border-radius: 18px !important; }
-  .ux-hero-side { grid-template-columns: 1fr; }
-  .ux-chart-toolbar { align-items: flex-start; flex-direction: column; }
-  .ux-chart-actions { justify-content: flex-start; }
-  .ux-chart-name { max-width: 82vw; }
-  .ux-modal { padding: 10px; }
-  .ux-modal-head { align-items: flex-start; flex-direction: column; }
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; }
-}
+  function init() {
+    document.body.classList.add('pro-dashboard');
+    removeKnownNoisyUi();
+    ensureVoiceAiInTeamDropdowns();
+    applyPrefs();
+    injectSkipLink();
+    injectHero();
+    buildPageMap();
+    installGlobalHandlers();
+    enhanceCharts();
+    forceEveryChartExpandable();
+    ensureVoiceAiInTeamDropdowns();
+    observeDom();
+    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 800);
+    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
+    setInterval(() => { ensureVoiceAiInTeamDropdowns(); forceEveryChartExpandable(); }, 1800);
+    console.info('[DashboardUX] World-class UX engine active', UX.version);
+  }
 
-/* ========================================================================== */
-/* Production root drop-in correction: this is the GitHub-ready visual layer.  */
-/* It intentionally overrides the dense starter styling when assets are placed */
-/* at repository root instead of /assets.                                      */
-/* ========================================================================== */
-:root {
-  --pro-bg-1: #f7f9ff;
-  --pro-bg-2: #edf4ff;
-  --pro-glass: rgba(255,255,255,.86);
-  --pro-line: rgba(33,48,87,.12);
-  --pro-ink: #071733;
-  --pro-muted: #5d6b83;
-  --pro-blue: #2358e8;
-  --pro-blue-soft: rgba(35,88,232,.10);
-  --pro-green: #07855f;
-  --pro-red: #d3293b;
-  --pro-amber: #c97905;
-  --r: 20px;
-  --r-sm: 12px;
-}
-
-html { scroll-padding-top: 160px; }
-body {
-  font-size: 15px !important;
-  color: var(--pro-ink) !important;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(35,88,232,.18), transparent 38rem),
-    radial-gradient(circle at 88% 4%, rgba(5,150,105,.12), transparent 34rem),
-    linear-gradient(180deg, var(--pro-bg-1), #f6f8fc 42%, #f8fafc) !important;
-}
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(15,23,42,.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15,23,42,.035) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: linear-gradient(180deg, rgba(0,0,0,.8), transparent 70%);
-}
-
-.app {
-  max-width: min(1760px, 100%) !important;
-  padding: 0 clamp(18px, 2.6vw, 44px) 72px !important;
-}
-
-.header {
-  top: 12px !important;
-  min-height: 64px !important;
-  gap: 14px !important;
-  border-radius: 28px !important;
-  padding: 12px 16px !important;
-  margin: 12px 0 18px !important;
-  background: rgba(255,255,255,.90) !important;
-  border: 1px solid rgba(15,23,42,.10) !important;
-  box-shadow: 0 22px 70px rgba(21,38,76,.10), 0 1px 0 rgba(255,255,255,.9) inset !important;
-  backdrop-filter: blur(20px) saturate(1.15) !important;
-}
-.header-brand svg { width: 134px !important; height: 38px !important; }
-.header-brand .subtitle { font-size: 11px !important; font-weight: 800 !important; letter-spacing: .08em !important; color: #627089 !important; text-transform: uppercase !important; }
-.page-nav { gap: 4px !important; border: 1px solid rgba(15,23,42,.08) !important; }
-.page-nav a { font-size: 12px !important; font-weight: 850 !important; padding: 8px 12px !important; }
-.date-controls { justify-content: center !important; }
-.qbtn, .apply-btn, .export-btn, .mini-action, .search-btn, .filter-clear, .ux-btn, .voice-ai-action {
-  min-height: 34px !important;
-  border-radius: 999px !important;
-  font-weight: 800 !important;
-}
-.qbtn { padding-inline: 12px !important; }
-input[type=date], select, input[type=text], input[type=search], input[type=number] {
-  min-height: 34px;
-  border-radius: 12px !important;
-}
-
-.ux-hero {
-  margin: 6px 0 18px !important;
-  min-height: 230px;
-  border-radius: 32px !important;
-  padding: clamp(24px, 3.2vw, 42px) !important;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.94), rgba(240,246,255,.78)),
-    radial-gradient(circle at 82% 8%, rgba(35,88,232,.18), transparent 28rem),
-    radial-gradient(circle at 10% 100%, rgba(5,150,105,.12), transparent 22rem) !important;
-  box-shadow: 0 28px 90px rgba(18,39,85,.12) !important;
-}
-.ux-hero h1 {
-  font-size: clamp(34px, 4.6vw, 64px) !important;
-  line-height: .92 !important;
-  letter-spacing: -.07em !important;
-  max-width: 960px;
-}
-.ux-hero p { font-size: 15px !important; line-height: 1.65 !important; color: var(--pro-muted) !important; }
-.ux-status-tile { border-radius: 22px !important; min-height: 116px !important; padding: 16px !important; }
-.ux-status-value { font-size: 24px !important; }
-.ux-page-map { margin-bottom: 24px !important; padding: 9px !important; }
-.ux-page-map button { padding: 9px 13px !important; font-size: 12px !important; }
-
-.section { margin-bottom: 34px !important; }
-.section-header {
-  align-items: flex-end !important;
-  margin: 24px 0 14px !important;
-  padding: 0 4px !important;
-}
-.section-title {
-  font-size: clamp(22px, 2vw, 30px) !important;
-  line-height: 1.05 !important;
-  letter-spacing: -.045em !important;
-}
-.section-sub, .card-sub {
-  font-size: 12px !important;
-  line-height: 1.55 !important;
-  color: var(--pro-muted) !important;
-}
-.card-title {
-  font-size: 14px !important;
-  letter-spacing: -.01em !important;
-}
-.card {
-  padding: clamp(18px, 1.45vw, 24px) !important;
-  border-radius: 24px !important;
-  border: 1px solid rgba(15,23,42,.10) !important;
-  background: rgba(255,255,255,.90) !important;
-  box-shadow: 0 18px 48px rgba(18,39,85,.075), 0 1px 0 rgba(255,255,255,.92) inset !important;
-}
-.card:hover {
-  transform: translateY(-2px) !important;
-  box-shadow: 0 28px 80px rgba(18,39,85,.12), 0 0 0 1px rgba(35,88,232,.18) inset !important;
-}
-.two-col, .three-col, .four-col, .sg-grid, .metrics-grid, .overview-grid {
-  gap: 20px !important;
-}
-.two-col { grid-template-columns: minmax(0,.95fr) minmax(0,1.05fr) !important; }
-.three-col { grid-template-columns: repeat(3, minmax(0,1fr)) !important; }
-.four-col { grid-template-columns: repeat(4, minmax(0,1fr)) !important; }
-.kpi-row { gap: 14px !important; }
-.kpi { min-height: 136px !important; padding: 18px !important; border-radius: 22px !important; }
-.kpi-label { font-size: 11px !important; }
-.kpi-value { font-size: clamp(26px, 2.8vw, 38px) !important; }
-.kpi-sub, .kpi-wow { font-size: 12px !important; }
-
-.chart-wrap, .ux-chart-wrap {
-  min-height: 320px !important;
-  height: clamp(320px, 34vh, 460px) !important;
-  padding: 18px 14px 14px !important;
-  border-radius: 22px !important;
-  border: 1px solid rgba(15,23,42,.10) !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.92), rgba(248,250,255,.72)) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9) !important;
-}
-.chart-wrap canvas, .ux-chart-wrap canvas {
-  height: 100% !important;
-  min-height: 280px !important;
-}
-body[data-dashboard-page="/csat"] #voiceAiTrendWrap,
-body[data-dashboard-page="/csat"] #csatDistWrap,
-body[data-dashboard-page="/csat"] #csatTrendWrap,
-body[data-dashboard-page="/"] #timeseriesWrap,
-body[data-dashboard-page="/starter-guides"] #metricsTimeseriesWrap {
-  min-height: 360px !important;
-  height: clamp(360px, 42vh, 520px) !important;
-}
-.chart-expand-btn,
-.ux-generated-expand {
-  display: inline-flex !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
-  top: 12px !important;
-  right: 12px !important;
-  min-height: 32px !important;
-  padding: 7px 12px !important;
-  border-radius: 999px !important;
-  background: rgba(255,255,255,.96) !important;
-  color: #1c315f !important;
-  border-color: rgba(35,88,232,.22) !important;
-  box-shadow: 0 10px 30px rgba(25,45,91,.14) !important;
-  font-size: 12px !important;
-  font-weight: 900 !important;
-}
-.chart-expand-btn:hover, .ux-generated-expand:hover {
-  background: var(--pro-blue) !important;
-  color: #fff !important;
-  border-color: var(--pro-blue) !important;
-}
-.ux-chart-toolbar {
-  position: relative;
-  margin: 10px 0 14px !important;
-  padding: 11px 12px !important;
-  border: 1px solid rgba(15,23,42,.08) !important;
-  border-radius: 18px !important;
-  background: rgba(248,251,255,.84) !important;
-}
-.ux-chart-actions button, .ux-mini-btn {
-  min-height: 32px !important;
-  padding: 6px 10px !important;
-  font-size: 11px !important;
-  font-weight: 850 !important;
-}
-.ux-feature-pill { background: var(--pro-blue-soft) !important; color: var(--pro-blue) !important; }
-
-body[data-dashboard-page="/csat"] #csatGlobalScopeBar {
-  border-radius: 22px !important;
-  padding: 14px 16px !important;
-  background: rgba(255,255,255,.80) !important;
-  box-shadow: 0 12px 32px rgba(18,39,85,.06) !important;
-}
-body[data-dashboard-page="/csat"] .voice-ai-lens {
-  border-radius: 28px !important;
-  border: 1px solid rgba(211,41,59,.20) !important;
-  border-left: 7px solid var(--pro-red) !important;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.94), rgba(255,245,245,.76)),
-    radial-gradient(circle at 96% 8%, rgba(211,41,59,.13), transparent 18rem) !important;
-}
-.voice-ai-grid { grid-template-columns: minmax(320px,.62fr) minmax(0,1.38fr) !important; gap: 22px !important; }
-.voice-ai-stat-grid { gap: 12px !important; }
-.voice-ai-stat { border-radius: 18px !important; padding: 14px !important; }
-.voice-ai-stat-value { font-size: clamp(24px, 2.3vw, 34px) !important; }
-.voice-ai-action { padding: 8px 13px !important; }
-
-.table-wrap { border-radius: 18px !important; overflow: auto !important; }
-table { font-size: 13px !important; }
-th { font-size: 11px !important; letter-spacing: .075em !important; padding: 11px 12px !important; }
-td { padding: 11px 12px !important; }
-.pill, .badge, .section-status { border-radius: 999px !important; font-weight: 850 !important; }
-
-.ux-modal-card { width: min(1320px, 96vw) !important; border-radius: 30px !important; }
-.ux-studio-grid { grid-template-columns: minmax(0,1.75fr) minmax(340px,.7fr) !important; }
-.ux-studio-chart { height: min(66vh, 680px) !important; border-radius: 24px !important; }
-.ux-modal-title { font-size: 24px !important; }
-
-body[data-density="compact"] .chart-wrap,
-body[data-density="compact"] .ux-chart-wrap { min-height: 280px !important; height: clamp(280px, 30vh, 400px) !important; }
-body[data-theme="dark"] {
-  --pro-ink: #f8fafc;
-  --pro-muted: #b8c4d6;
-  --pro-glass: rgba(15,23,42,.86);
-}
-body[data-theme="dark"] .header,
-body[data-theme="dark"] .card,
-body[data-theme="dark"] .ux-hero,
-body[data-theme="dark"] .ux-status-tile,
-body[data-theme="dark"] .chart-wrap,
-body[data-theme="dark"] .ux-chart-toolbar {
-  background: rgba(15,23,42,.84) !important;
-  border-color: rgba(226,232,240,.13) !important;
-}
-
-@media (max-width: 1180px) {
-  .two-col, .three-col, .four-col, .voice-ai-grid { grid-template-columns: 1fr !important; }
-  .chart-wrap, .ux-chart-wrap { height: 360px !important; }
-}
-@media (max-width: 760px) {
-  .app { padding-inline: 12px !important; }
-  .ux-hero { border-radius: 24px !important; padding: 22px !important; }
-  .ux-hero h1 { font-size: 34px !important; }
-  .header { border-radius: 22px !important; }
-  .chart-wrap, .ux-chart-wrap { height: 320px !important; }
-  .ux-studio-grid { grid-template-columns: 1fr !important; }
-}
-
-/* ========================================================================== */
-/* Emergency v6 visual correction: force premium layout on the flat GitHub root */
-/* ========================================================================== */
-body.pro-dashboard {
-  --bg: #eef3fb;
-  --surface: rgba(255,255,255,.94);
-  --surface-elevated: #fff;
-  --border: rgba(35,48,78,.13);
-  --shadow-soft: 0 12px 34px rgba(15,23,42,.08);
-  --shadow: 0 24px 70px rgba(15,23,42,.12);
-  letter-spacing: -0.006em;
-}
-body.pro-dashboard .app { max-width: 1760px !important; }
-body.pro-dashboard .header {
-  min-height: 58px !important;
-  gap: 12px !important;
-}
-body.pro-dashboard .ux-hero {
-  margin-top: 6px !important;
-  margin-bottom: 22px !important;
-  min-height: 260px !important;
-  align-items: stretch !important;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.98), rgba(244,248,255,.94) 52%, rgba(239,253,250,.92)),
-    radial-gradient(circle at 8% 0%, rgba(37,99,235,.18), transparent 28rem),
-    radial-gradient(circle at 92% 18%, rgba(16,185,129,.17), transparent 22rem) !important;
-}
-body.pro-dashboard .ux-hero h1 { font-size: clamp(36px, 5vw, 70px) !important; max-width: 980px; }
-body.pro-dashboard .ux-hero p { font-size: 15px !important; line-height: 1.7 !important; max-width: 920px; }
-body.pro-dashboard .ux-status-tile {
-  border-radius: 22px !important;
-  min-height: 118px !important;
-  padding: 16px !important;
-}
-body.pro-dashboard .section { margin-bottom: 30px !important; }
-body.pro-dashboard .section-header {
-  margin: 24px 0 14px !important;
-  padding-left: 4px !important;
-}
-body.pro-dashboard .section-title {
-  font-size: clamp(20px,2.2vw,30px) !important;
-  letter-spacing: -.04em !important;
-}
-body.pro-dashboard .section-sub { font-size: 13px !important; }
-body.pro-dashboard .card,
-body.pro-dashboard .kpi,
-body.pro-dashboard .command-card,
-body.pro-dashboard .metrics-filters,
-body.pro-dashboard .search-wrap {
-  border-radius: 24px !important;
-  padding: 20px !important;
-  box-shadow: 0 18px 50px rgba(15,23,42,.08) !important;
-}
-body.pro-dashboard .card-title { font-size: 15px !important; }
-body.pro-dashboard .card-sub { font-size: 12px !important; line-height: 1.55 !important; }
-body.pro-dashboard .kpi-row {
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
-  gap: 14px !important;
-}
-body.pro-dashboard .kpi-value { font-size: clamp(28px, 3vw, 42px) !important; }
-body.pro-dashboard .chart-wrap {
-  min-height: 340px !important;
-  padding-top: 8px !important;
-}
-body.pro-dashboard .card:has(canvas) {
-  min-height: 430px !important;
-}
-body.pro-dashboard canvas {
-  max-height: none !important;
-}
-body.pro-dashboard table {
-  border-collapse: separate !important;
-  border-spacing: 0 6px !important;
-}
-body.pro-dashboard tbody tr {
-  background: rgba(255,255,255,.66) !important;
-  box-shadow: 0 6px 18px rgba(15,23,42,.04) !important;
-}
-body.pro-dashboard tbody td:first-child { border-radius: 12px 0 0 12px !important; }
-body.pro-dashboard tbody td:last-child { border-radius: 0 12px 12px 0 !important; }
-body.pro-dashboard select,
-body.pro-dashboard input[type="date"],
-body.pro-dashboard input[type="search"],
-body.pro-dashboard input[type="text"] {
-  min-height: 36px !important;
-  border-radius: 12px !important;
-  border: 1px solid rgba(37,99,235,.22) !important;
-  background: rgba(255,255,255,.92) !important;
-  color: var(--text1) !important;
-  font-weight: 650 !important;
-}
-body.pro-dashboard button,
-body.pro-dashboard .qbtn,
-body.pro-dashboard .apply-btn,
-body.pro-dashboard .export-btn,
-body.pro-dashboard .mini-action,
-body.pro-dashboard .chart-expand-btn {
-  border-radius: 999px !important;
-  min-height: 34px !important;
-  font-weight: 760 !important;
-}
-body.pro-dashboard .ux-chart-toolbar {
-  position: absolute !important;
-  top: 12px !important;
-  right: 12px !important;
-  z-index: 8 !important;
-  background: rgba(255,255,255,.82) !important;
-  border: 1px solid rgba(15,23,42,.10) !important;
-  backdrop-filter: blur(18px) !important;
-  border-radius: 999px !important;
-  box-shadow: 0 12px 30px rgba(15,23,42,.10) !important;
-}
-body.pro-dashboard .ux-chart-action,
-body.pro-dashboard .ux-expand-guarantee {
-  min-height: 30px !important;
-  padding: 6px 10px !important;
-  border-radius: 999px !important;
-}
-body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
-body.pro-dashboard .ux-expand-guarantee {
-  background: #0f172a !important;
-  color: #fff !important;
-}
-body.pro-dashboard #csatGlobalTeamFilter option[value="Voice AI"],
-body.pro-dashboard #csatTeamFilter option[value="Voice AI"] {
-  font-weight: 800 !important;
-}
-@media (max-width: 900px) {
-  body.pro-dashboard .ux-hero { grid-template-columns: 1fr !important; min-height: 0 !important; }
-  body.pro-dashboard .ux-hero-side { grid-template-columns: 1fr !important; }
-  body.pro-dashboard .card:has(canvas) { min-height: 360px !important; }
-  body.pro-dashboard .chart-wrap { min-height: 280px !important; }
-}
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+})();

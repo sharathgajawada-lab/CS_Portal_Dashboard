@@ -31,7 +31,7 @@ def test_world_class_ux_assets_are_linked_on_every_page():
         assert "/assets/dashboard_ux.js" not in html
     assert "World-class dashboard UX layer" in _asset("dashboard_ux.css")
     assert "World-class dashboard UX engine" in _asset("dashboard_ux.js")
-    assert "Emergency v6 visual correction" in _asset("dashboard_ux.css")
+    assert "v7 clean-up" in _asset("dashboard_ux.css")
 
 
 def test_universal_chart_actions_exist_in_shared_ux_engine():
@@ -81,12 +81,14 @@ def test_accessibility_and_power_user_controls_are_present_in_ux_engine():
 
 
 
-def test_csat_has_dedicated_voice_ai_lens_and_chart():
+def test_csat_treats_voice_ai_as_standard_team_not_special_lens():
     html = _html("csat.html")
-    assert 'id="voiceAiLensCard"' in html
-    assert 'id="voiceAiTrendChart"' in html
-    assert "Focus Voice AI" in html
-    assert "Voice AI lens" in html
+    assert "Voice AI" in html
+    assert 'id="voiceAiLensCard"' not in html
+    assert 'id="voiceAiTrendChart"' not in html
+    assert "Focus Voice AI" not in html
+    assert "Voice AI lens" not in html
+    assert "ensureVoiceAiInTeamDropdowns" in _asset("dashboard_ux.js")
 
 
 def test_pages_expose_page_identity_for_shared_ux_engine():
@@ -108,11 +110,11 @@ def test_shared_assets_are_served_by_backend_with_expected_content_types():
     assert css.status_code == 200
     assert "text/css" in css.headers.get("content-type", "")
     assert "World-class dashboard UX layer" in css.text
-    assert "Emergency v6 visual correction" in css.text
+    assert "v7 clean-up" in css.text
     assert js.status_code == 200
     assert "javascript" in js.headers.get("content-type", "")
     assert "World-class dashboard UX engine" in js.text
-    assert "6.0.0-voice-ai-team-dropdowns-every-chart-expand" in js.text
+    assert "7.3.0-clean-flow-toolbar-no-theme-no-lens" in js.text
     assert legacy_css.status_code == 200
     assert legacy_js.status_code == 200
     assert missing.status_code == 404
@@ -135,6 +137,6 @@ def test_csat_removes_old_top_diagnostic_cards_and_unlock_ui():
 def test_universal_chart_engine_generates_expand_for_every_chart():
     js = _asset("dashboard_ux.js")
     assert 'data-ux-action="expand"' in js
-    assert 'chart-expand-btn ux-generated-expand' in js
+    assert 'ux-expand-guarantee' in js
     chart_line = "const canvases = Array.from(document.querySelectorAll('canvas[id]')).filter(canvas => !canvas.id.startsWith('ux') && canvas.id !== 'chartModalCanvas');"
     assert chart_line in js

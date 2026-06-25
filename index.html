@@ -504,7 +504,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
 
 </style>
-<link rel="stylesheet" href="portal-overrides.css?v=2026-06-25-v6-voice-ai-expand">
+<link rel="stylesheet" href="portal-overrides.css?v=2026-06-25-v9-clean-toolbar">
 </head>
 <body data-dashboard-page="/">
 
@@ -583,7 +583,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
 
   <!-- Executive command center -->
-  <div class="command-center" id="portalCommandCenter" aria-live="polite"></div>
+  <!-- Portal command cards removed: page starts with operational KPIs and charts. -->
 
   <!-- KPI row -->
   <div class="kpi-row" id="kpiRow"></div>
@@ -658,7 +658,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
     </div>
     <div class="card">
       <div class="chart-wrap" style="height:220px">
-        <button class="chart-expand-btn" onclick="expandChart(charts.trend,'Engagement trend')">⤢ Expand</button>
+        <button class="chart-expand-btn" onclick="expandChart(charts.trend,'Engagement trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="trendChart"></canvas>
       </div>
     </div>
@@ -678,7 +678,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           <div class="card-title">📈 Conversion rate</div>
           <div class="card-sub">Logins divided by total CS views over time</div>
         </div>
-        <button class="chart-expand-btn" onclick="expandChart(charts.conversionChart,'Conversion rate')">⤢ Expand</button>
+        <button class="chart-expand-btn" onclick="expandChart(charts.conversionChart,'Conversion rate')" title="Expand chart" aria-label="Expand chart">⤢</button>
       </div>
       <div class="chart-wrap" style="height:200px">
         <canvas id="conversionChart"></canvas>
@@ -712,7 +712,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           </div>
         </div>
         <div class="chart-wrap" style="height:180px">
-          <button class="chart-expand-btn" onclick="expandChart(charts.cat,'Content categories')">⤢ Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.cat,'Content categories')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="catChart"></canvas>
         </div>
       </div>
@@ -771,7 +771,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           <div id="artVidChart_controls_placeholder"></div>
         </div>
         <div class="chart-wrap" style="height:200px;margin-top:6px">
-          <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Videos watched per login')">&#x2922; Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Videos watched per login')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="artVidChart"></canvas>
         </div>
       </div>
@@ -792,7 +792,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           <div id="consumptionChart_controls_placeholder"></div>
         </div>
         <div class="chart-wrap" style="height:200px;margin-top:6px">
-          <button class="chart-expand-btn" onclick="expandChart(charts.consumptionChart,'Daily consumption rate')">&#x2922; Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.consumptionChart,'Daily consumption rate')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="consumptionChart"></canvas>
         </div>
       </div>
@@ -890,7 +890,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           </div>
         </div>
         <div class="chart-wrap" style="height:170px" id="sessionTrendWrap">
-          <button class="chart-expand-btn" onclick="expandChart(charts.sessionTrend,'Session duration trend')">⤢ Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.sessionTrend,'Session duration trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="sessionTrendChart"></canvas>
         </div>
       </div>
@@ -898,7 +898,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="card-title">Time by activity</div>
         <div class="card-sub">Where users spend time per session</div>
         <div class="chart-wrap" style="height:170px" id="sessionActivityWrap">
-          <button class="chart-expand-btn" onclick="expandChart(charts.sessionAct,'Session activity breakdown')">⤢ Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.sessionAct,'Session activity breakdown')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="sessionActivityChart"></canvas>
         </div>
       </div>
@@ -930,7 +930,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div id="hourChart_controls_placeholder"></div>
       </div>
       <div class="chart-wrap" id="hourChartWrap" style="height:160px;margin-top:8px">
-        <button class="chart-expand-btn" onclick="expandChart(charts.hourChart,'Hour of day activity')">⤢ Expand</button>
+        <button class="chart-expand-btn" onclick="expandChart(charts.hourChart,'Hour of day activity')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="hourChart"></canvas>
       </div>
     </div>
@@ -1302,48 +1302,11 @@ function _portalTrendText(wow) {
   const arrow = wow > 0 ? 'up' : wow < 0 ? 'down' : 'flat';
   return `${Math.abs(wow)}% ${arrow} vs the comparable previous period`;
 }
-function renderPortalCommandCenter(totalViews, avgViews, totalViewsWow) {
+function renderPortalCommandCenter(_totalViews, _avgViews, _totalViewsWow) {
   const el = document.getElementById('portalCommandCenter');
   if (!el) return;
-  const logins = getTotal('auth.login') || 0;
-  const articles = getTotal('article.viewed') || 0;
-  const searches = getTotal('search.performed') || 0;
-  const videos = getTotal('video.watched') || 0;
-  const channelRows = [
-    { key:'article.viewed', label:'Articles', value:articles },
-    { key:'search.performed', label:'Search', value:searches },
-    { key:'video.watched', label:'Videos', value:videos },
-  ].sort((a,b)=>b.value-a.value);
-  const top = channelRows[0] || { key:'article.viewed', label:'Articles', value:0 };
-  const viewsPerLogin = logins ? Math.round((totalViews / logins) * 10) / 10 : null;
-  const searchPerLogin = logins ? Math.round((searches / logins) * 10) / 10 : null;
-  const active = filters.event ? (EVENTS.find(e => e.key === filters.event)?.label || filters.event) : 'All events';
-  const riskClass = _portalTrendClass(totalViewsWow);
-  const filterCopy = filters.event ? `Filtered to ${escapeHtml(active)}. Clear the filter to return to the executive view.` : `Showing the full engagement mix for ${state.days} selected day${state.days === 1 ? '' : 's'}.`;
-  el.innerHTML = `
-    <div class="command-card ${riskClass}">
-      <div class="command-label">Executive readout</div>
-      <div class="command-value">${fmt(totalViews)} total views</div>
-      <div class="command-sub">${escapeHtml(_portalTrendText(totalViewsWow))} · ${fmt(avgViews)}/day. ${filterCopy}</div>
-      <div class="command-actions"><button class="mini-action" onclick="clearAllFilters()">Clear filters</button><button class="mini-action" onclick="document.getElementById('trendChart')?.scrollIntoView({behavior:'smooth',block:'center'})">Inspect trend</button></div>
-    </div>
-    <div class="command-card info">
-      <div class="command-label">Dominant behavior</div>
-      <div class="command-value">${escapeHtml(top.label)}</div>
-      <div class="command-sub">${fmt(top.value)} events in the selected period. Use this as the first place to inspect adoption shifts.</div>
-      <div class="command-actions"><button class="mini-action" onclick="setFilter('event',${jsString(top.key)})">Focus</button></div>
-    </div>
-    <div class="command-card ${viewsPerLogin && viewsPerLogin < 2 ? 'warning' : 'good'}">
-      <div class="command-label">Depth signal</div>
-      <div class="command-value">${viewsPerLogin == null ? '—' : viewsPerLogin + ' views/login'}</div>
-      <div class="command-sub">${fmt(logins)} logins · ${searchPerLogin == null ? '—' : searchPerLogin} searches/login. Low depth can mean users are not finding enough value after login.</div>
-    </div>
-    <div class="command-card info">
-      <div class="command-label">Analyst note</div>
-      <div class="command-value">Use exact vs estimated carefully</div>
-      <div class="command-sub">Daily event totals are exact from the metrics source. Selected-period article-level splits may be directional when article-day facts are unavailable.</div>
-      <div class="command-actions"><button class="mini-action" onclick="document.getElementById('articleTable')?.scrollIntoView({behavior:'smooth',block:'start'})">Review content</button></div>
-    </div>`;
+  el.innerHTML = '';
+  el.style.display = 'none';
 }
 
 // ── KPIs ─────────────────────────────────────────────────────────────────────
@@ -2400,7 +2363,9 @@ function renderHourGridFromInsights(hourDist) {
     (function() {
       var _b = document.createElement('button');
       _b.className = 'chart-expand-btn';
-      _b.textContent = '\u2922 Expand';
+      _b.textContent = '\u2922';
+      _b.title = 'Expand chart';
+      _b.setAttribute('aria-label', 'Expand chart');
       _b.setAttribute('data-chart', 'charts.hourChart');
       _b.setAttribute('data-title', 'Hour of day activity');
       _b.onclick = function() { handleExpandClick(this); };
@@ -3343,6 +3308,6 @@ waitForChart(init);
 
 
 
-<script defer src="portal-system.js?v=2026-06-25-v6-voice-ai-expand"></script>
+<script defer src="portal-system.js?v=2026-06-25-v9-clean-toolbar"></script>
 </body>
 </html>

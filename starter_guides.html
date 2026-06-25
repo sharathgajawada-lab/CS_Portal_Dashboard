@@ -408,7 +408,7 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
 
 
 </style>
-<link rel="stylesheet" href="portal-overrides.css?v=2026-06-25-v6-voice-ai-expand">
+<link rel="stylesheet" href="portal-overrides.css?v=2026-06-25-v9-clean-toolbar">
 </head>
 <body data-dashboard-page="/starter-guides">
 
@@ -545,7 +545,7 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
     </div>
 
 
-    <div class="command-center" id="metricsCommandCenter" aria-live="polite"></div>
+    <!-- Metrics command cards removed: page starts with operational KPIs and charts. -->
 
     <!-- Charts row 1 -->
     <div class="two-col" style="margin-bottom:16px">
@@ -1133,38 +1133,8 @@ function exportGuideAnswersCSV() {
 
 // ── Metrics command center ──────────────────────────────────────────────────
 
-function renderMetricsCommandCenter(totalOpens, totalAnswers, slideTop, cmsProject, opensSeries, answerSeries) {
-  const el = document.getElementById('metricsCommandCenter');
-  if (!el) return;
-  const answerRate = totalOpens ? Math.round((totalAnswers / totalOpens) * 1000) / 10 : null;
-  const topSlide = slideTop[0] || null;
-  const activeDays = new Set((opensSeries || []).filter(p => (p.count || 0) > 0).map(p => p.date)).size;
-  const latestOpen = (opensSeries || []).slice().reverse().find(p => (p.count || 0) > 0);
-  const rateClass = answerRate == null ? 'warning' : answerRate >= 40 ? 'good' : answerRate >= 15 ? 'warning' : 'info';
-  el.innerHTML = `
-    <div class="command-card ${rateClass}">
-      <div class="command-label">Executive readout</div>
-      <div class="command-value">${totalOpens.toLocaleString()} guide opens</div>
-      <div class="command-sub">${answerRate == null ? 'No answer-rate baseline yet' : answerRate + '% answer submission rate'} · ${totalAnswers.toLocaleString()} submitted answers.</div>
-      <div class="command-actions"><button class="mini-action" onclick="document.getElementById('opensChart')?.scrollIntoView({behavior:'smooth',block:'center'})">Inspect opens</button></div>
-    </div>
-    <div class="command-card info">
-      <div class="command-label">Top slide signal</div>
-      <div class="command-value">${topSlide ? esc(topSlide.label || topSlide.id || 'Slide') : 'No slide data'}</div>
-      <div class="command-sub">${topSlide ? `${Number(topSlide.count || 0).toLocaleString()} views. Click the slide drop-off chart bars for the exact ranked labels.` : 'No slide_viewed events were returned by the CMS metrics source.'}</div>
-      <div class="command-actions"><button class="mini-action" onclick="document.getElementById('dropoffChart')?.scrollIntoView({behavior:'smooth',block:'center'})">Inspect drop-off</button></div>
-    </div>
-    <div class="command-card ${activeDays ? 'good' : 'warning'}">
-      <div class="command-label">Freshness & coverage</div>
-      <div class="command-value">${activeDays} active days</div>
-      <div class="command-sub">Latest open event bucket: ${latestOpen ? esc(latestOpen.date) : '—'} · CMS project ${esc(cmsProject)}.</div>
-    </div>
-    <div class="command-card info">
-      <div class="command-label">Analyst note</div>
-      <div class="command-value">Journey details are drill-down first</div>
-      <div class="command-sub">Use Customer GID search for instance-level answers; this metrics page focuses on aggregate CMS event behavior.</div>
-      <div class="command-actions"><button class="mini-action" onclick="showSection('s1', document.querySelectorAll('.sub-nav button')[0])">Search journey</button></div>
-    </div>`;
+function renderMetricsCommandCenter(_totalOpens, _totalAnswers, _slideTop, _cmsProject, _opensSeries, _answerSeries) {
+  // Removed: metrics page starts with core operational KPIs and charts.
 }
 function setMetricsInsight(title, detail) {
   const el = document.getElementById('metricsCommandCenter');
@@ -1356,6 +1326,6 @@ function showChartEmpty(canvasId, msg, showDebugLink = false) {
 </script>
 
 
-<script defer src="portal-system.js?v=2026-06-25-v6-voice-ai-expand"></script>
+<script defer src="portal-system.js?v=2026-06-25-v9-clean-toolbar"></script>
 </body>
 </html>

@@ -1,12 +1,12 @@
 /* ========================================================================== */
 /* World-class dashboard UX engine                                             */
-/* Universal chart actions, chart studio, command palette, theme, page map.    */
+/* Universal chart actions, chart studio, command palette, page map.    */
 /* ========================================================================== */
 (function () {
   'use strict';
   if (window.DashboardUX && window.DashboardUX.version) return;
 
-  const UX = window.DashboardUX = { version: '6.0.0-voice-ai-team-dropdowns-every-chart-expand' };
+  const UX = window.DashboardUX = { version: '7.3.0-clean-flow-toolbar-no-theme-no-lens' };
   document.documentElement.dataset.dashboardUx = 'root-ready';
   let studioChart = null;
   let observerQueued = false;
@@ -19,9 +19,9 @@
         key: 'csat',
         eyebrow: 'Domo-first quality intelligence',
         title: 'Call Quality Command Center',
-        subtitle: 'A premium CSAT workspace for leaders and analysts: Domo-first data, open call-level drilldowns, Voice AI coverage, and consistent chart inspection everywhere.',
+        subtitle: 'A premium CSAT workspace for leaders and analysts: Domo-first data, open call-level drilldowns, team and consultant analysis, and consistent chart inspection everywhere.',
         source: 'Domo dataset',
-        primary: 'CSAT, solved rate, true FCR, Voice AI',
+        primary: 'CSAT, solved rate, true FCR, teams',
         dataNote: 'Domo-backed raw drilldowns are available directly inside the dashboard.'
       };
     }
@@ -118,20 +118,12 @@
   }
 
   function applyPrefs() {
-    const storedTheme = localStorage.getItem('dashboard.theme');
-    const theme = storedTheme || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    try { localStorage.removeItem('dashboard.theme'); } catch (_) {}
     const density = localStorage.getItem('dashboard.density') || 'comfortable';
-    document.body.dataset.theme = theme;
+    document.body.removeAttribute('data-theme');
     document.body.dataset.density = density;
     recolorAllCharts();
     updateHeroStats();
-  }
-  function toggleTheme() {
-    const next = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
-    document.body.dataset.theme = next;
-    localStorage.setItem('dashboard.theme', next);
-    recolorAllCharts();
-    toast(next === 'dark' ? 'Dark executive mode enabled' : 'Light executive mode enabled');
   }
   function toggleDensity() {
     const next = document.body.dataset.density === 'compact' ? 'comfortable' : 'compact';
@@ -198,32 +190,9 @@
         <p>${esc(pageMeta.subtitle)}</p>
         <div class="ux-view-tools" role="toolbar" aria-label="Dashboard view controls">
           <button type="button" class="ux-btn primary" data-ux-command="palette">⌘ Command center</button>
-          <button type="button" class="ux-btn" data-ux-command="theme">Theme</button>
           <button type="button" class="ux-btn" data-ux-command="density">Density</button>
           <button type="button" class="ux-btn" data-ux-command="presentation">Presentation</button>
           <button type="button" class="ux-btn" data-ux-command="export-all">Export all chart data</button>
-        </div>
-      </div>
-      <div class="ux-hero-side">
-        <div class="ux-status-tile">
-          <div class="ux-status-label">Source</div>
-          <div class="ux-status-value" style="font-size:16px">${esc(pageMeta.source)}</div>
-          <div class="ux-status-sub">${esc(pageMeta.dataNote)}</div>
-        </div>
-        <div class="ux-status-tile">
-          <div class="ux-status-label">Chart tools</div>
-          <div class="ux-status-value" id="uxChartCount">0</div>
-          <div class="ux-status-sub">Every detected chart gets expand, data, export, and click inspect.</div>
-        </div>
-        <div class="ux-status-tile">
-          <div class="ux-status-label">Primary lens</div>
-          <div class="ux-status-value" style="font-size:16px">${esc(pageMeta.primary)}</div>
-          <div class="ux-status-sub">Use chart clicks and filters for cross-analysis.</div>
-        </div>
-        <div class="ux-status-tile">
-          <div class="ux-status-label">QA posture</div>
-          <div class="ux-status-value" style="font-size:16px">Production-aware</div>
-          <div class="ux-status-sub">Accessible, exportable, responsive, Domo-first where applicable.</div>
         </div>
       </div>`;
     header.insertAdjacentElement('afterend', hero);
@@ -313,45 +282,21 @@
       toolbar.dataset.chartId = canvas.id;
       toolbar.innerHTML = `
         <div class="ux-chart-toolbar-left">
-          <div class="ux-chart-kicker">
-            <span class="ux-chart-name">${esc(title)}</span>
-            <span class="ux-feature-pill">Click inspect</span>
-            <span class="ux-feature-pill">CSV</span>
-            <span class="ux-feature-pill">PNG</span>
-            <span class="ux-feature-pill">Expand</span>
-          </div>
+          <div class="ux-chart-kicker"><span class="ux-chart-name">${esc(title)}</span></div>
         </div>
-        <div class="ux-chart-actions">
-          <button type="button" data-ux-action="insight" data-chart-id="${esc(canvas.id)}">Insight</button>
-          <button type="button" data-ux-action="data" data-chart-id="${esc(canvas.id)}">Data</button>
-          <button type="button" data-ux-action="csv" data-chart-id="${esc(canvas.id)}">CSV</button>
-          <button type="button" data-ux-action="png" data-chart-id="${esc(canvas.id)}">PNG</button>
-          <button type="button" data-ux-action="expand" data-chart-id="${esc(canvas.id)}">Expand</button>
+        <div class="ux-chart-actions" role="toolbar" aria-label="Chart actions for ${esc(title)}">
+          <button type="button" class="ux-chart-action" data-ux-action="insight" data-chart-id="${esc(canvas.id)}" title="Show insight" aria-label="Show chart insight">✦</button>
+          <button type="button" class="ux-chart-action" data-ux-action="data" data-chart-id="${esc(canvas.id)}" title="View data table" aria-label="View chart data table">▦</button>
+          <button type="button" class="ux-chart-action" data-ux-action="csv" data-chart-id="${esc(canvas.id)}" title="Download CSV" aria-label="Download chart data as CSV">CSV</button>
+          <button type="button" class="ux-chart-action" data-ux-action="png" data-chart-id="${esc(canvas.id)}" title="Download PNG" aria-label="Download chart image as PNG">PNG</button>
+          <button type="button" class="ux-chart-action" data-ux-action="expand" data-chart-id="${esc(canvas.id)}" title="Expand chart" aria-label="Expand chart">⤢</button>
         </div>`;
       const panel = document.createElement('div');
       panel.className = 'ux-chart-data-panel';
       panel.id = 'ux-data-panel-' + canvas.id;
       panel.setAttribute('aria-live', 'polite');
-      const existingExpand = wrap.querySelector('.chart-expand-btn');
-      if (existingExpand) {
-        existingExpand.type = 'button';
-        existingExpand.dataset.uxAction = 'expand';
-        existingExpand.dataset.chartId = canvas.id;
-        existingExpand.removeAttribute('onclick');
-        existingExpand.removeAttribute('data-chart');
-        existingExpand.removeAttribute('data-title');
-        if (!existingExpand.textContent.trim()) existingExpand.textContent = '⤢ Expand';
-        existingExpand.textContent = '⤢ Expand';
-      } else {
-        const expand = document.createElement('button');
-        expand.type = 'button';
-        expand.className = 'chart-expand-btn ux-generated-expand';
-        expand.dataset.uxAction = 'expand';
-        expand.dataset.chartId = canvas.id;
-        expand.textContent = '⤢ Expand';
-        wrap.insertAdjacentElement('afterbegin', expand);
-      }
-      wrap.insertAdjacentElement('beforebegin', toolbar);
+      wrap.querySelectorAll('.chart-expand-btn, .ux-generated-expand').forEach(btn => btn.remove());
+      wrap.insertBefore(toolbar, wrap.firstChild);
       wrap.insertAdjacentElement('afterend', panel);
       installCanvasInspector(canvas);
     });
@@ -601,7 +546,7 @@
           <button type="button" class="ux-btn primary" data-ux-close="palette">Close</button>
         </div>
         <div class="ux-modal-body">
-          <input class="ux-command-input" id="uxCommandInput" placeholder="Type a command, e.g. export, theme, CSAT, clear filters..." autocomplete="off">
+          <input class="ux-command-input" id="uxCommandInput" placeholder="Type a command, e.g. export, CSAT, clear filters..." autocomplete="off">
           <div class="ux-command-list" id="uxCommandList"></div>
         </div>
       </div>`;
@@ -615,7 +560,6 @@
       { title: 'Go to Portal Activity', sub: 'Usage, content, sessions, search', kbd: '/', run: () => { location.href = '/'; } },
       { title: 'Go to Call Quality', sub: 'Domo-first CSAT and call quality', kbd: '/csat', run: () => { location.href = '/csat'; } },
       { title: 'Go to Starter Guides', sub: 'Journey and guide analytics', kbd: '/starter-guides', run: () => { location.href = '/starter-guides'; } },
-      { title: 'Toggle theme', sub: 'Switch light/dark executive mode', kbd: 'T', run: toggleTheme },
       { title: 'Toggle density', sub: 'Comfortable vs compact analyst layout', kbd: 'D', run: toggleDensity },
       { title: 'Presentation mode', sub: 'Reduce stickiness and make cards easier to present', kbd: 'P', run: togglePresentation },
       { title: 'Export all chart data', sub: 'Download a combined CSV for every loaded chart', kbd: 'E', run: exportAllCharts },
@@ -637,7 +581,7 @@
       <div class="ux-command-item" role="button" tabindex="0" data-command-index="${i}">
         <div><div class="ux-command-item-title">${esc(c.title)}</div><div class="ux-command-item-sub">${esc(c.sub)}</div></div>
         <span class="ux-kbd">${esc(c.kbd)}</span>
-      </div>`).join('') || '<div class="ux-command-item"><div><div class="ux-command-item-title">No commands found</div><div class="ux-command-item-sub">Try export, chart, CSAT, theme, or filters.</div></div></div>';
+      </div>`).join('') || '<div class="ux-command-item"><div><div class="ux-command-item-title">No commands found</div><div class="ux-command-item-sub">Try export, chart, CSAT, or filters.</div></div></div>';
     Array.from(list.querySelectorAll('[data-command-index]')).forEach(el => {
       const idx = Number(el.dataset.commandIndex);
       el.addEventListener('click', () => { closePalette(); defs[idx].run(); });
@@ -683,7 +627,6 @@
       const cmd = e.target.closest('[data-ux-command]')?.dataset.uxCommand;
       if (!cmd) return;
       if (cmd === 'palette') openPalette();
-      if (cmd === 'theme') toggleTheme();
       if (cmd === 'density') toggleDensity();
       if (cmd === 'presentation') togglePresentation();
       if (cmd === 'export-all') exportAllCharts();
@@ -761,28 +704,43 @@
   }
 
   function forceEveryChartExpandable() {
-    // The existing chart enhancer is Chart.js-aware; this adds a defensive visible
-    // Expand button for any canvas that still slipped through because it rendered late.
+    // Defensive guarantee: every Chart.js canvas must have exactly one expand action.
+    // Older packages could create duplicated toolbars; this consolidates the action into the primary toolbar.
     document.querySelectorAll('canvas[id]').forEach(canvas => {
       const chart = window.Chart && Chart.getChart(canvas);
-      const host = canvas.closest('.chart-wrap, .card, section, div');
-      if (!host || !chart) return;
-      if (host.querySelector(`[data-ux-action="expand"][data-chart-id="${canvas.id}"]`)) return;
-      let bar = host.querySelector('.ux-chart-toolbar');
+      if (!chart) return;
+      const allButtons = Array.from(document.querySelectorAll('[data-ux-action="expand"][data-chart-id]'))
+        .filter(btn => btn.dataset.chartId === canvas.id);
+      if (allButtons.length > 1) allButtons.slice(1).forEach(btn => btn.remove());
+      if (allButtons.length === 1) return;
+      let bar = Array.from(document.querySelectorAll('.ux-chart-toolbar[data-chart-id]'))
+        .find(el => el.dataset.chartId === canvas.id);
       if (!bar) {
+        const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
+        if (!wrap) return;
         bar = document.createElement('div');
         bar.className = 'ux-chart-toolbar';
-        const parent = canvas.parentElement || host;
-        parent.insertBefore(bar, parent.firstChild);
+        bar.dataset.chartId = canvas.id;
+        bar.innerHTML = '<div class="ux-chart-actions" role="toolbar" aria-label="Chart actions"></div>';
+        wrap.insertBefore(bar, wrap.firstChild);
+      }
+      let actions = bar.querySelector('.ux-chart-actions');
+      if (!actions) {
+        actions = document.createElement('div');
+        actions.className = 'ux-chart-actions';
+        actions.setAttribute('role', 'toolbar');
+        actions.setAttribute('aria-label', 'Chart actions');
+        bar.appendChild(actions);
       }
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'ux-chart-action ux-expand-guarantee';
       btn.dataset.uxAction = 'expand';
       btn.dataset.chartId = canvas.id;
-      btn.textContent = '⤢ Expand';
+      btn.textContent = '⤢';
       btn.setAttribute('aria-label', 'Expand chart');
-      bar.appendChild(btn);
+      btn.setAttribute('title', 'Expand chart');
+      actions.appendChild(btn);
     });
   }
 

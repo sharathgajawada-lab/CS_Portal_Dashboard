@@ -794,3 +794,598 @@ body.pro-dashboard #csatTeamFilter option[value="Voice AI"] {
   body.pro-dashboard .card:has(canvas) { min-height: 360px !important; }
   body.pro-dashboard .chart-wrap { min-height: 280px !important; }
 }
+
+/* ========================================================================== */
+/* v7 clean-up: remove extra readout cards, keep Voice AI as a normal team,    */
+/* and replace noisy chart pills with a compact glass action rail.             */
+/* ========================================================================== */
+#portalCommandCenter,
+#metricsCommandCenter,
+#voiceAiLensCard {
+  display: none !important;
+}
+
+body.pro-dashboard .ux-chart-toolbar-left,
+body.pro-dashboard .ux-feature-pill,
+body.pro-dashboard .ux-chart-name {
+  display: none !important;
+}
+
+body.pro-dashboard .card:has(.chart-wrap),
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap {
+  position: relative !important;
+}
+
+body.pro-dashboard .ux-chart-toolbar {
+  position: absolute !important;
+  top: 12px !important;
+  right: 12px !important;
+  z-index: 12 !important;
+  width: auto !important;
+  max-width: calc(100% - 24px) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  margin: 0 !important;
+  padding: 5px !important;
+  gap: 4px !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(15,23,42,.10) !important;
+  background: rgba(255,255,255,.72) !important;
+  box-shadow: 0 12px 30px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.72) !important;
+  backdrop-filter: blur(16px) saturate(130%) !important;
+}
+
+body.pro-dashboard .ux-chart-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+}
+
+body.pro-dashboard .ux-chart-action,
+body.pro-dashboard .ux-chart-actions button,
+body.pro-dashboard .ux-expand-guarantee {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 12px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+  font-size: 0 !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+  transition: background .16s ease, color .16s ease, transform .16s ease, border-color .16s ease !important;
+}
+
+body.pro-dashboard .ux-chart-action::before,
+body.pro-dashboard .ux-chart-actions button::before,
+body.pro-dashboard .ux-expand-guarantee::before {
+  font-size: 13px !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+}
+
+body.pro-dashboard .ux-chart-action:hover,
+body.pro-dashboard .ux-chart-actions button:hover,
+body.pro-dashboard .ux-expand-guarantee:hover {
+  transform: translateY(-1px) !important;
+  background: #eef4ff !important;
+  border-color: rgba(37,99,235,.18) !important;
+  color: #1d4ed8 !important;
+}
+
+body.pro-dashboard .ux-chart-action[data-ux-action="insight"]::before { content: "✦"; }
+body.pro-dashboard .ux-chart-action[data-ux-action="data"]::before { content: "▦"; }
+body.pro-dashboard .ux-chart-action[data-ux-action="csv"]::before { content: "CSV"; font-size: 10px !important; letter-spacing: -.02em !important; }
+body.pro-dashboard .ux-chart-action[data-ux-action="png"]::before { content: "PNG"; font-size: 10px !important; letter-spacing: -.02em !important; }
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"]::before,
+body.pro-dashboard .ux-expand-guarantee::before { content: "⤢"; font-size: 15px !important; }
+
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
+body.pro-dashboard .ux-expand-guarantee {
+  background: #0f172a !important;
+  color: #fff !important;
+}
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"]:hover,
+body.pro-dashboard .ux-expand-guarantee:hover {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+
+body.pro-dashboard .chart-expand-btn:not(.ux-generated-expand) {
+  display: none !important;
+}
+
+body.pro-dashboard .ux-view-tools [data-ux-command="theme"] {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  body.pro-dashboard .ux-chart-toolbar {
+    top: 8px !important;
+    right: 8px !important;
+    padding: 4px !important;
+  }
+  body.pro-dashboard .ux-chart-action,
+  body.pro-dashboard .ux-chart-actions button,
+  body.pro-dashboard .ux-expand-guarantee {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+  }
+}
+
+
+/* v7 clean UI pass: remove noisy readout strips and refine chart controls */
+#portalCommandCenter,
+#metricsCommandCenter,
+#voiceAiLensCard {
+  display: none !important;
+}
+.ux-feature-pill {
+  display: none !important;
+}
+body.pro-dashboard .ux-chart-toolbar,
+.ux-chart-toolbar {
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  z-index: 11 !important;
+  width: auto !important;
+  max-width: calc(100% - 28px) !important;
+  margin: 0 !important;
+  padding: 5px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 6px !important;
+  border: 1px solid rgba(15,23,42,.08) !important;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,.78) !important;
+  box-shadow: 0 14px 34px rgba(15,23,42,.10) !important;
+  backdrop-filter: blur(18px) saturate(1.35) !important;
+}
+.ux-chart-toolbar-left { display: none !important; }
+.ux-chart-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+}
+.ux-chart-actions button,
+.ux-chart-actions .ux-chart-action,
+body.pro-dashboard .ux-chart-actions button,
+body.pro-dashboard .ux-chart-action {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #334155 !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  letter-spacing: -.01em !important;
+  line-height: 1 !important;
+  box-shadow: none !important;
+}
+.ux-chart-actions button:hover,
+.ux-chart-actions .ux-chart-action:hover,
+body.pro-dashboard .ux-chart-action:hover {
+  transform: translateY(-1px) !important;
+  background: #f1f5ff !important;
+  border-color: rgba(37,99,235,.18) !important;
+  color: #1d4ed8 !important;
+  box-shadow: 0 10px 22px rgba(37,99,235,.10) !important;
+}
+.chart-expand-btn,
+.ux-generated-expand,
+body.pro-dashboard .chart-expand-btn,
+body.pro-dashboard .ux-expand-guarantee {
+  top: 14px !important;
+  right: 14px !important;
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  background: #0f172a !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(15,23,42,.12) !important;
+  box-shadow: 0 14px 30px rgba(15,23,42,.18) !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+}
+.chart-expand-btn:hover,
+.ux-generated-expand:hover,
+body.pro-dashboard .ux-expand-guarantee:hover {
+  transform: translateY(-1px) scale(1.03) !important;
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+.card:has(.ux-chart-toolbar) .chart-wrap,
+.card:has(.chart-expand-btn) .chart-wrap {
+  padding-top: 42px !important;
+}
+body[data-dashboard-page="/csat"] .section-sub#csatSub,
+body[data-dashboard-page="/csat"] .card-sub { text-wrap: pretty; }
+
+
+/* ========================================================================== */
+/* v9 final user-request cleanup                                               */
+/* Removes the extra readout/KPI strips, keeps Voice AI as a normal team only,  */
+/* removes theme UI, and turns chart actions into a single polished icon rail.  */
+/* ========================================================================== */
+#portalCommandCenter,
+#metricsCommandCenter,
+#voiceAiLensCard,
+.voice-ai-lens,
+[data-role="voice-ai-lens"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+body.pro-dashboard .ux-hero {
+  grid-template-columns: 1fr !important;
+  min-height: 0 !important;
+}
+body.pro-dashboard .ux-hero-side,
+body.pro-dashboard .ux-status-tile {
+  display: none !important;
+}
+body.pro-dashboard .ux-view-tools [data-ux-command="theme"],
+[data-ux-command="theme"],
+.theme-toggle,
+#themeToggle {
+  display: none !important;
+}
+
+body.pro-dashboard .ux-feature-pill,
+body.pro-dashboard .ux-chart-toolbar-left,
+body.pro-dashboard .ux-chart-name {
+  display: none !important;
+}
+
+body.pro-dashboard .card:has(.chart-wrap),
+body.pro-dashboard .card:has(.ux-chart-toolbar),
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap {
+  position: relative !important;
+}
+
+body.pro-dashboard .ux-chart-toolbar,
+.ux-chart-toolbar {
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  z-index: 40 !important;
+  width: auto !important;
+  max-width: calc(100% - 28px) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  margin: 0 !important;
+  padding: 4px !important;
+  gap: 4px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(15, 23, 42, .10) !important;
+  background: rgba(255, 255, 255, .82) !important;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255,255,255,.84) !important;
+  backdrop-filter: blur(18px) saturate(145%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(145%) !important;
+  pointer-events: auto !important;
+}
+
+body.pro-dashboard .ux-chart-actions,
+.ux-chart-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  pointer-events: auto !important;
+}
+
+body.pro-dashboard .ux-chart-action,
+body.pro-dashboard .ux-chart-actions button,
+body.pro-dashboard .ux-expand-guarantee,
+.ux-chart-action,
+.ux-chart-actions button,
+.ux-expand-guarantee {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+  font-size: 0 !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  transition: transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease !important;
+}
+
+body.pro-dashboard .ux-chart-action::before,
+body.pro-dashboard .ux-chart-actions button::before,
+body.pro-dashboard .ux-expand-guarantee::before,
+.ux-chart-action::before,
+.ux-chart-actions button::before,
+.ux-expand-guarantee::before {
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+}
+
+.ux-chart-action[data-ux-action="insight"]::before { content: "✦" !important; }
+.ux-chart-action[data-ux-action="data"]::before { content: "▦" !important; }
+.ux-chart-action[data-ux-action="csv"]::before { content: "CSV" !important; font-size: 9.5px !important; letter-spacing: -.03em !important; }
+.ux-chart-action[data-ux-action="png"]::before { content: "PNG" !important; font-size: 9.5px !important; letter-spacing: -.03em !important; }
+.ux-chart-action[data-ux-action="expand"]::before,
+.ux-expand-guarantee::before { content: "⤢" !important; font-size: 15px !important; }
+
+body.pro-dashboard .ux-chart-action:hover,
+body.pro-dashboard .ux-chart-actions button:hover,
+body.pro-dashboard .ux-expand-guarantee:hover,
+.ux-chart-action:hover,
+.ux-chart-actions button:hover,
+.ux-expand-guarantee:hover {
+  transform: translateY(-1px) !important;
+  background: #eef4ff !important;
+  border-color: rgba(37,99,235,.18) !important;
+  color: #1d4ed8 !important;
+  box-shadow: 0 10px 20px rgba(37,99,235,.10) !important;
+}
+
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
+body.pro-dashboard .ux-expand-guarantee,
+.ux-chart-action[data-ux-action="expand"],
+.ux-expand-guarantee {
+  background: #0f172a !important;
+  color: #ffffff !important;
+  border-color: rgba(15,23,42,.10) !important;
+  box-shadow: 0 12px 24px rgba(15,23,42,.18) !important;
+}
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"]:hover,
+body.pro-dashboard .ux-expand-guarantee:hover,
+.ux-chart-action[data-ux-action="expand"]:hover,
+.ux-expand-guarantee:hover {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+body.pro-dashboard .chart-expand-btn:not(.ux-generated-expand) {
+  display: none !important;
+}
+
+body.pro-dashboard .card:has(.ux-chart-toolbar) .chart-wrap,
+body.pro-dashboard .card:has(.chart-expand-btn) .chart-wrap {
+  padding-top: 48px !important;
+}
+
+body.pro-dashboard #csatGlobalTeamFilter option[value="Voice AI"],
+body.pro-dashboard #csatTeamFilter option[value="Voice AI"] {
+  font-weight: 850 !important;
+}
+
+@media (max-width: 720px) {
+  body.pro-dashboard .ux-chart-toolbar,
+  .ux-chart-toolbar {
+    top: 10px !important;
+    right: 10px !important;
+    padding: 3px !important;
+  }
+  body.pro-dashboard .ux-chart-action,
+  body.pro-dashboard .ux-chart-actions button,
+  body.pro-dashboard .ux-expand-guarantee,
+  .ux-chart-action,
+  .ux-chart-actions button,
+  .ux-expand-guarantee {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+  }
+}
+
+
+/* ========================================================================== */
+/* v7.3 final feedback pass: clean in-flow chart actions, no theme, no lens      */
+/* ========================================================================== */
+#portalCommandCenter,
+body[data-dashboard-page="/"] #portalCommandCenter,
+#voiceAiLensCard,
+body[data-dashboard-page="/csat"] #voiceAiLensCard,
+[data-ux-command="theme"] {
+  display: none !important;
+}
+body { color-scheme: light !important; }
+body[data-theme="dark"] { color-scheme: light !important; }
+
+/* One elegant toolbar per chart. No floating overlays, no duplicate legacy pills. */
+body.pro-dashboard .ux-chart-toolbar,
+.ux-chart-toolbar {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  z-index: 5 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  margin: 10px 0 12px !important;
+  padding: 8px 10px 8px 13px !important;
+  border-radius: 18px !important;
+  border: 1px solid rgba(37,99,235,.12) !important;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.96), rgba(247,250,255,.88)) !important;
+  box-shadow: 0 12px 26px rgba(15,23,42,.055), inset 0 1px 0 rgba(255,255,255,.92) !important;
+  backdrop-filter: blur(12px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(120%) !important;
+  pointer-events: auto !important;
+}
+body.pro-dashboard .ux-chart-toolbar-left,
+.ux-chart-toolbar-left {
+  display: block !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+body.pro-dashboard .ux-chart-kicker,
+.ux-chart-kicker {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+body.pro-dashboard .ux-chart-name,
+.ux-chart-name {
+  display: block !important;
+  max-width: min(560px, 46vw) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: #334155 !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  letter-spacing: .09em !important;
+  text-transform: uppercase !important;
+}
+.ux-feature-pill { display: none !important; }
+
+body.pro-dashboard .ux-chart-actions,
+.ux-chart-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 5px !important;
+  flex-wrap: nowrap !important;
+  padding: 3px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(15,23,42,.08) !important;
+  background: rgba(255,255,255,.72) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9) !important;
+}
+body.pro-dashboard .ux-chart-action,
+body.pro-dashboard .ux-chart-actions button,
+.ux-chart-action,
+.ux-chart-actions button {
+  width: auto !important;
+  height: 31px !important;
+  min-width: 31px !important;
+  min-height: 31px !important;
+  padding: 0 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+body.pro-dashboard .ux-chart-action::before,
+body.pro-dashboard .ux-chart-actions button::before,
+.ux-chart-action::before,
+.ux-chart-actions button::before {
+  content: none !important;
+  display: none !important;
+}
+body.pro-dashboard .ux-chart-action:hover,
+body.pro-dashboard .ux-chart-actions button:hover,
+.ux-chart-action:hover,
+.ux-chart-actions button:hover {
+  transform: translateY(-1px) !important;
+  background: rgba(37,99,235,.08) !important;
+  border-color: rgba(37,99,235,.18) !important;
+  color: #1d4ed8 !important;
+  box-shadow: 0 8px 16px rgba(37,99,235,.10) !important;
+}
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
+body.pro-dashboard .ux-chart-actions button[data-ux-action="expand"],
+.ux-chart-action[data-ux-action="expand"],
+.ux-chart-actions button[data-ux-action="expand"] {
+  background: #0f172a !important;
+  color: #ffffff !important;
+  border-color: rgba(15,23,42,.12) !important;
+  box-shadow: 0 9px 18px rgba(15,23,42,.18) !important;
+}
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"]:hover,
+body.pro-dashboard .ux-chart-actions button[data-ux-action="expand"]:hover,
+.ux-chart-action[data-ux-action="expand"]:hover,
+.ux-chart-actions button[data-ux-action="expand"]:hover {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+body.pro-dashboard .chart-expand-btn,
+body.pro-dashboard .ux-generated-expand,
+.chart-expand-btn.ux-superseded-expand,
+.ux-generated-expand {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+body.pro-dashboard .card:has(.ux-chart-toolbar) .chart-wrap,
+body.pro-dashboard .card:has(.chart-expand-btn) .chart-wrap,
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap {
+  padding-top: 18px !important;
+}
+@media (max-width: 760px) {
+  body.pro-dashboard .ux-chart-toolbar,
+  .ux-chart-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    border-radius: 16px !important;
+  }
+  body.pro-dashboard .ux-chart-name,
+  .ux-chart-name { max-width: 100% !important; }
+  body.pro-dashboard .ux-chart-actions,
+  .ux-chart-actions {
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+    width: 100% !important;
+  }
+  body.pro-dashboard .ux-chart-action,
+  body.pro-dashboard .ux-chart-actions button,
+  .ux-chart-action,
+  .ux-chart-actions button {
+    padding-inline: 9px !important;
+  }
+}

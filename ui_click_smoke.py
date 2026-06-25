@@ -1,810 +1,383 @@
-/* ========================================================================== */
-/* World-class dashboard UX engine                                             */
-/* Universal chart actions, chart studio, command palette, theme, page map.    */
-/* ========================================================================== */
-(function () {
-  'use strict';
-  if (window.DashboardUX && window.DashboardUX.version) return;
+#!/usr/bin/env python3
+"""Browser click smoke for the dashboard UI.
 
-  const UX = window.DashboardUX = { version: '6.0.0-voice-ai-team-dropdowns-every-chart-expand' };
-  document.documentElement.dataset.dashboardUx = 'root-ready';
-  let studioChart = null;
-  let observerQueued = false;
-  let lastActiveElement = null;
+The sandbox Chromium policy blocks localhost navigation, so this test renders the
+real HTML files with local assets inlined, stubs API responses through
+Playwright routing, and clicks every detected chart Expand action.
+"""
+from __future__ import annotations
 
-  const pageMeta = (() => {
-    const path = document.body?.dataset?.dashboardPage || location.pathname || '/';
-    if (path.includes('csat')) {
-      return {
-        key: 'csat',
-        eyebrow: 'Domo-first quality intelligence',
-        title: 'Call Quality Command Center',
-        subtitle: 'A premium CSAT workspace for leaders and analysts: Domo-first data, open call-level drilldowns, Voice AI coverage, and consistent chart inspection everywhere.',
-        source: 'Domo dataset',
-        primary: 'CSAT, solved rate, true FCR, Voice AI',
-        dataNote: 'Domo-backed raw drilldowns are available directly inside the dashboard.'
-      };
-    }
-    if (path.includes('starter-guides')) {
-      return {
-        key: 'starter-guides',
-        eyebrow: 'Journey intelligence',
-        title: 'Starter Guides Experience Center',
-        subtitle: 'Journey search, guide completion, slide engagement, and answer behavior in one guided workspace built for fast support investigation.',
-        source: 'CMS starter-guide events',
-        primary: 'Journeys, guides, answers, completion',
-        dataNote: 'Search a customer journey first, then use Metrics for aggregate patterns.'
-      };
-    }
-    return {
-      key: 'portal',
-      eyebrow: 'Executive portal intelligence',
-      title: 'CS Portal Activity Center',
-      subtitle: 'A redesigned operating dashboard for engagement, self-service behavior, content health, and analyst-grade drilldowns across the selected period.',
-      source: 'CMS metrics API',
-      primary: 'Usage, search, sessions, content',
-      dataNote: 'Article estimates are called out when source granularity is limited.'
-    };
-  })();
+import json
+import sys
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from urllib.parse import urlparse
 
-  function cssVar(name) {
-    return getComputedStyle(document.body).getPropertyValue(name).trim() || getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  }
-  function esc(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-  }
-  function slug(value) {
-    return String(value || 'chart').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'chart';
-  }
-  function fmtNumber(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return String(value ?? '');
-    if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-    if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.00$/, '');
-  }
-  function valueToScalar(value) {
-    if (value == null) return null;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-    if (typeof value === 'object') {
-      const candidate = value.y ?? value.v ?? value.value ?? value.count;
-      const n = Number(candidate);
-      return Number.isFinite(n) ? n : null;
-    }
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  function toast(message) {
-    let el = document.getElementById('uxToast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'uxToast';
-      el.className = 'ux-toast';
-      el.setAttribute('role', 'status');
-      el.setAttribute('aria-live', 'polite');
-      document.body.appendChild(el);
-    }
-    el.textContent = message;
-    el.classList.add('show');
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => el.classList.remove('show'), 2600);
-  }
-  function downloadText(filename, text, type) {
-    const blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-  }
-  function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(text).then(() => true).catch(() => false);
-    }
-    const area = document.createElement('textarea');
-    area.value = text;
-    area.style.position = 'fixed';
-    area.style.opacity = '0';
-    document.body.appendChild(area);
-    area.focus();
-    area.select();
-    let ok = false;
-    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-    area.remove();
-    return Promise.resolve(ok);
-  }
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 
-  function applyPrefs() {
-    const storedTheme = localStorage.getItem('dashboard.theme');
-    const theme = storedTheme || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    const density = localStorage.getItem('dashboard.density') || 'comfortable';
-    document.body.dataset.theme = theme;
-    document.body.dataset.density = density;
-    recolorAllCharts();
-    updateHeroStats();
-  }
-  function toggleTheme() {
-    const next = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
-    document.body.dataset.theme = next;
-    localStorage.setItem('dashboard.theme', next);
-    recolorAllCharts();
-    toast(next === 'dark' ? 'Dark executive mode enabled' : 'Light executive mode enabled');
-  }
-  function toggleDensity() {
-    const next = document.body.dataset.density === 'compact' ? 'comfortable' : 'compact';
-    document.body.dataset.density = next;
-    localStorage.setItem('dashboard.density', next);
-    toast(next === 'compact' ? 'Compact analyst density enabled' : 'Comfortable layout enabled');
-  }
-  function togglePresentation() {
-    const enabled = document.body.dataset.presentation !== 'true';
-    document.body.dataset.presentation = enabled ? 'true' : 'false';
-    toast(enabled ? 'Presentation mode enabled' : 'Presentation mode disabled');
-  }
+ROOT = Path(__file__).resolve().parents[1]
+BASE = "https://dashboard-qa.local/"
 
-  function chartInstances() {
-    if (!window.Chart) return [];
-    const canvases = Array.from(document.querySelectorAll('canvas[id]'));
-    return canvases.map(c => Chart.getChart(c)).filter(Boolean);
+CHART_STUB = r"""
+(function(){
+  const instances = new Map();
+  function getCanvas(target){ return target && target.canvas ? target.canvas : target; }
+  function Chart(target, config){
+    this.canvas = getCanvas(target);
+    this.config = config || {};
+    this.data = (config && config.data) || { labels: [], datasets: [] };
+    this.options = (config && config.options) || {};
+    this.ctx = this.canvas && this.canvas.getContext ? this.canvas.getContext('2d') : null;
+    instances.set(this.canvas, this);
   }
-  function recolorAllCharts() {
-    if (!window.Chart) return;
-    const text = cssVar('--text3') || '#64748b';
-    const grid = cssVar('--chart-grid') || cssVar('--border') || '#dde1ec';
-    const title = cssVar('--text2') || text;
-    Chart.defaults.color = text;
-    Chart.defaults.borderColor = grid;
-    chartInstances().forEach(chart => {
-      try {
-        if (chart.options?.scales) {
-          Object.values(chart.options.scales).forEach(scale => {
-            if (scale.grid) scale.grid.color = grid;
-            if (scale.ticks) scale.ticks.color = text;
-            if (scale.title) scale.title.color = title;
-          });
-        }
-        const plugins = chart.options.plugins || {};
-        if (plugins.legend?.labels) plugins.legend.labels.color = text;
-        if (plugins.title) plugins.title.color = title;
-        chart.update('none');
-      } catch (_) {}
-    });
-  }
-
-  function injectSkipLink() {
-    if (document.querySelector('.ux-skip')) return;
-    const skip = document.createElement('a');
-    skip.className = 'ux-skip';
-    skip.href = '#appRoot';
-    skip.textContent = 'Skip to dashboard';
-    document.body.insertBefore(skip, document.body.firstChild);
-  }
-
-  function injectHero() {
-    if (document.getElementById('uxHero')) return;
-    const header = document.querySelector('.header');
-    if (!header) return;
-    const hero = document.createElement('section');
-    hero.id = 'uxHero';
-    hero.className = 'ux-hero';
-    hero.setAttribute('aria-label', 'Dashboard overview and controls');
-    hero.innerHTML = `
-      <div class="ux-hero-main">
-        <div class="ux-eyebrow"><span aria-hidden="true">◆</span>${esc(pageMeta.eyebrow)}</div>
-        <h1>${esc(pageMeta.title)}</h1>
-        <p>${esc(pageMeta.subtitle)}</p>
-        <div class="ux-view-tools" role="toolbar" aria-label="Dashboard view controls">
-          <button type="button" class="ux-btn primary" data-ux-command="palette">⌘ Command center</button>
-          <button type="button" class="ux-btn" data-ux-command="theme">Theme</button>
-          <button type="button" class="ux-btn" data-ux-command="density">Density</button>
-          <button type="button" class="ux-btn" data-ux-command="presentation">Presentation</button>
-          <button type="button" class="ux-btn" data-ux-command="export-all">Export all chart data</button>
-        </div>
-      </div>
-      <div class="ux-hero-side">
-        <div class="ux-status-tile">
-          <div class="ux-status-label">Source</div>
-          <div class="ux-status-value" style="font-size:16px">${esc(pageMeta.source)}</div>
-          <div class="ux-status-sub">${esc(pageMeta.dataNote)}</div>
-        </div>
-        <div class="ux-status-tile">
-          <div class="ux-status-label">Chart tools</div>
-          <div class="ux-status-value" id="uxChartCount">0</div>
-          <div class="ux-status-sub">Every detected chart gets expand, data, export, and click inspect.</div>
-        </div>
-        <div class="ux-status-tile">
-          <div class="ux-status-label">Primary lens</div>
-          <div class="ux-status-value" style="font-size:16px">${esc(pageMeta.primary)}</div>
-          <div class="ux-status-sub">Use chart clicks and filters for cross-analysis.</div>
-        </div>
-        <div class="ux-status-tile">
-          <div class="ux-status-label">QA posture</div>
-          <div class="ux-status-value" style="font-size:16px">Production-aware</div>
-          <div class="ux-status-sub">Accessible, exportable, responsive, Domo-first where applicable.</div>
-        </div>
-      </div>`;
-    header.insertAdjacentElement('afterend', hero);
-  }
-
-  function buildPageMap() {
-    if (document.getElementById('uxPageMap')) return;
-    const header = document.querySelector('.ux-hero') || document.querySelector('.header');
-    if (!header) return;
-    const seenTitles = new Set();
-    const titles = Array.from(document.querySelectorAll('.section-title, .card-title'))
-      .filter(el => {
-        if (el.closest('.ux-modal, .ux-chart-toolbar, .ux-chart-data-panel')) return false;
-        const text = (el.textContent || '').trim();
-        if (!text || text.length < 3 || seenTitles.has(text)) return false;
-        const visible = el.offsetParent !== null || el.closest('#s4') || el.closest('#s1') || el.closest('#s2') || el.closest('#s3');
-        if (!visible) return false;
-        seenTitles.add(text);
-        return true;
-      })
-      .slice(0, 12);
-    if (!titles.length) return;
-    const nav = document.createElement('nav');
-    nav.id = 'uxPageMap';
-    nav.className = 'ux-page-map';
-    nav.setAttribute('aria-label', 'Sections on this page');
-    titles.forEach((el, idx) => {
-      if (!el.id) el.id = 'ux-section-' + idx + '-' + slug(el.textContent);
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = el.textContent.trim();
-      btn.addEventListener('click', () => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      nav.appendChild(btn);
-    });
-    header.insertAdjacentElement('afterend', nav);
-
-    const buttons = Array.from(nav.querySelectorAll('button'));
-    const obs = new IntersectionObserver(entries => {
-      const visible = entries.filter(e => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (!visible) return;
-      const idx = titles.indexOf(visible.target);
-      buttons.forEach((b, i) => b.classList.toggle('ux-active', i === idx));
-    }, { rootMargin: '-18% 0px -70% 0px', threshold: [0, .25, .5, 1] });
-    titles.forEach(t => obs.observe(t));
-  }
-
-  function titleForCanvas(canvas) {
-    const card = canvas.closest('.card, .section, .journey-card') || canvas.parentElement;
-    const title = card?.querySelector('.card-title, .section-title, h2, h3')?.textContent?.trim();
-    return title || canvas.getAttribute('aria-label') || canvas.id || 'Dashboard chart';
-  }
-  function getChartById(id) {
-    if (!window.Chart) return null;
-    const canvas = document.getElementById(id);
-    return canvas ? Chart.getChart(canvas) : null;
-  }
-  function pruneStaleChartUx(canvasIds) {
-    const live = canvasIds || new Set(Array.from(document.querySelectorAll('canvas[id]')).map(c => c.id));
-    document.querySelectorAll('.ux-chart-toolbar[data-chart-id]').forEach(el => {
-      if (!live.has(el.dataset.chartId)) el.remove();
-    });
-    document.querySelectorAll('.ux-chart-data-panel[id^="ux-data-panel-"]').forEach(el => {
-      const id = el.id.replace('ux-data-panel-', '');
-      if (!live.has(id)) el.remove();
-    });
-  }
-
-  function enhanceCharts() {
-    const canvases = Array.from(document.querySelectorAll('canvas[id]')).filter(canvas => !canvas.id.startsWith('ux') && canvas.id !== 'chartModalCanvas');
-    pruneStaleChartUx(new Set(canvases.map(c => c.id)));
-    canvases.forEach(canvas => {
-      if (canvas.dataset.uxEnhanced === '1') return;
-      const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
-      if (!wrap) return;
-      document.querySelectorAll('.ux-chart-toolbar').forEach(el => { if (el.dataset.chartId === canvas.id) el.remove(); });
-      const stalePanel = document.getElementById('ux-data-panel-' + canvas.id);
-      if (stalePanel) stalePanel.remove();
-      canvas.dataset.uxEnhanced = '1';
-      wrap.classList.add('ux-chart-wrap');
-      canvas.setAttribute('tabindex', '0');
-      canvas.setAttribute('role', 'img');
-      canvas.setAttribute('aria-label', titleForCanvas(canvas));
-
-      const title = titleForCanvas(canvas);
-      const toolbar = document.createElement('div');
-      toolbar.className = 'ux-chart-toolbar';
-      toolbar.dataset.chartId = canvas.id;
-      toolbar.innerHTML = `
-        <div class="ux-chart-toolbar-left">
-          <div class="ux-chart-kicker">
-            <span class="ux-chart-name">${esc(title)}</span>
-            <span class="ux-feature-pill">Click inspect</span>
-            <span class="ux-feature-pill">CSV</span>
-            <span class="ux-feature-pill">PNG</span>
-            <span class="ux-feature-pill">Expand</span>
-          </div>
-        </div>
-        <div class="ux-chart-actions">
-          <button type="button" data-ux-action="insight" data-chart-id="${esc(canvas.id)}">Insight</button>
-          <button type="button" data-ux-action="data" data-chart-id="${esc(canvas.id)}">Data</button>
-          <button type="button" data-ux-action="csv" data-chart-id="${esc(canvas.id)}">CSV</button>
-          <button type="button" data-ux-action="png" data-chart-id="${esc(canvas.id)}">PNG</button>
-          <button type="button" data-ux-action="expand" data-chart-id="${esc(canvas.id)}">Expand</button>
-        </div>`;
-      const panel = document.createElement('div');
-      panel.className = 'ux-chart-data-panel';
-      panel.id = 'ux-data-panel-' + canvas.id;
-      panel.setAttribute('aria-live', 'polite');
-      const existingExpand = wrap.querySelector('.chart-expand-btn');
-      if (existingExpand) {
-        existingExpand.type = 'button';
-        existingExpand.dataset.uxAction = 'expand';
-        existingExpand.dataset.chartId = canvas.id;
-        existingExpand.removeAttribute('onclick');
-        existingExpand.removeAttribute('data-chart');
-        existingExpand.removeAttribute('data-title');
-        if (!existingExpand.textContent.trim()) existingExpand.textContent = '⤢ Expand';
-        existingExpand.textContent = '⤢ Expand';
-      } else {
-        const expand = document.createElement('button');
-        expand.type = 'button';
-        expand.className = 'chart-expand-btn ux-generated-expand';
-        expand.dataset.uxAction = 'expand';
-        expand.dataset.chartId = canvas.id;
-        expand.textContent = '⤢ Expand';
-        wrap.insertAdjacentElement('afterbegin', expand);
-      }
-      wrap.insertAdjacentElement('beforebegin', toolbar);
-      wrap.insertAdjacentElement('afterend', panel);
-      installCanvasInspector(canvas);
-    });
-    updateHeroStats();
-  }
-
-  function updateHeroStats() {
-    const el = document.getElementById('uxChartCount');
-    if (el) el.textContent = String(document.querySelectorAll('canvas[data-ux-enhanced="1"]').length);
-  }
-
-  function chartToRows(chart) {
-    const labels = Array.isArray(chart?.data?.labels) ? chart.data.labels : [];
-    const datasets = Array.isArray(chart?.data?.datasets) ? chart.data.datasets : [];
-    return labels.map((label, i) => {
-      const row = { label: label ?? '' };
-      datasets.forEach((ds, di) => {
-        const name = ds.label || ('Series ' + (di + 1));
-        row[name] = valueToScalar(ds.data?.[i]) ?? ds.data?.[i] ?? '';
-      });
-      return row;
-    });
-  }
-  function rowsToCsv(rows) {
-    if (!rows.length) return 'label\n';
-    const headers = Array.from(rows.reduce((set, row) => {
-      Object.keys(row).forEach(k => set.add(k));
-      return set;
-    }, new Set()));
-    const quote = value => '"' + String(value ?? '').replace(/"/g, '""') + '"';
-    return [headers.map(quote).join(',')].concat(rows.map(row => headers.map(h => quote(row[h])).join(','))).join('\n');
-  }
-  function chartInsight(chart) {
-    const title = titleForCanvas(chart.canvas);
-    const labels = chart.data?.labels || [];
-    const datasets = chart.data?.datasets || [];
-    const lines = [];
-    lines.push(`${title}: ${labels.length} visible category/time point${labels.length === 1 ? '' : 's'} across ${datasets.length} series.`);
-    datasets.forEach(ds => {
-      const nums = (ds.data || []).map(valueToScalar).filter(v => Number.isFinite(v));
-      if (!nums.length) return;
-      const total = nums.reduce((a, b) => a + b, 0);
-      let maxIdx = 0;
-      let minIdx = 0;
-      nums.forEach((v, i) => { if (v > nums[maxIdx]) maxIdx = i; if (v < nums[minIdx]) minIdx = i; });
-      const first = nums[0];
-      const last = nums[nums.length - 1];
-      const delta = first ? ((last - first) / Math.abs(first)) * 100 : null;
-      const label = ds.label || 'Series';
-      const topLabel = labels[maxIdx] ?? ('point ' + (maxIdx + 1));
-      lines.push(`${label} totals ${fmtNumber(total)}; peak is ${topLabel} at ${fmtNumber(nums[maxIdx])}.`);
-      if (Number.isFinite(delta) && nums.length > 1) {
-        const direction = delta > 2 ? 'up' : delta < -2 ? 'down' : 'flat';
-        lines.push(`${label} ends ${direction} vs the first visible point (${delta > 0 ? '+' : ''}${delta.toFixed(1)}%).`);
-      }
-    });
-    if (labels.length < 4) lines.push('Sample is small; treat this view as directional until more points are loaded.');
-    return lines.join(' ');
-  }
-
-  function renderDataPanel(chart, mode) {
-    const canvasId = chart.canvas.id;
-    const panel = document.getElementById('ux-data-panel-' + canvasId);
-    if (!panel) return;
-    const rows = chartToRows(chart);
-    const headers = rows.length ? Object.keys(rows[0]) : ['label'];
-    const bodyRows = rows.slice(0, 250).map(row => `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`).join('');
-    const insight = chartInsight(chart);
-    panel.innerHTML = `
-      <div class="ux-chart-data-panel-header">
-        <span>${mode === 'insight' ? 'Analyst insight' : 'Underlying chart data'} · ${rows.length} row${rows.length === 1 ? '' : 's'}</span>
-        <button type="button" class="ux-mini-btn" data-ux-action="close-panel" data-chart-id="${esc(canvasId)}">Close</button>
-      </div>
-      ${mode === 'insight' ? `<div class="ux-insight-box"><strong>Readout:</strong> ${esc(insight)}</div>` : ''}
-      <div class="ux-chart-data-scroll">
-        <table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${bodyRows || `<tr><td>No chart data available yet.</td></tr>`}</tbody></table>
-      </div>`;
-    panel.classList.add('open');
-  }
-
-  function installCanvasInspector(canvas) {
-    if (canvas.dataset.uxInspector === '1') return;
-    canvas.dataset.uxInspector = '1';
-    const inspect = evt => {
-      const chart = getChartById(canvas.id);
-      if (!chart) return;
-      const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
-      if (!points.length) return;
-      const point = points[0];
-      const ds = chart.data.datasets[point.datasetIndex] || {};
-      const label = chart.data.labels?.[point.index] ?? ('Point ' + (point.index + 1));
-      const raw = ds.data?.[point.index];
-      const value = valueToScalar(raw) ?? raw ?? '';
-      showPointPopover(evt.clientX, evt.clientY, {
-        title: titleForCanvas(canvas),
-        label,
-        series: ds.label || 'Series',
-        value
-      });
-    };
-    canvas.addEventListener('click', inspect);
-    canvas.addEventListener('keydown', evt => {
-      if (evt.key === 'Enter' || evt.key === ' ') {
-        evt.preventDefault();
-        openStudio(canvas.id);
-      }
-    });
-  }
-  function showPointPopover(x, y, item) {
-    document.querySelectorAll('.ux-click-popover').forEach(el => el.remove());
-    const el = document.createElement('div');
-    el.className = 'ux-click-popover';
-    el.innerHTML = `
-      <div class="ux-pop-title">${esc(item.title)}</div>
-      <div class="ux-pop-row"><span>Point</span><span class="ux-pop-value">${esc(item.label)}</span></div>
-      <div class="ux-pop-row"><span>Series</span><span class="ux-pop-value">${esc(item.series)}</span></div>
-      <div class="ux-pop-row"><span>Value</span><span class="ux-pop-value">${esc(fmtNumber(item.value))}</span></div>`;
-    document.body.appendChild(el);
-    const rect = el.getBoundingClientRect();
-    el.style.left = Math.min(window.innerWidth - rect.width - 12, Math.max(12, x + 14)) + 'px';
-    el.style.top = Math.min(window.innerHeight - rect.height - 12, Math.max(12, y + 14)) + 'px';
-    clearTimeout(showPointPopover._timer);
-    showPointPopover._timer = setTimeout(() => el.remove(), 4200);
-  }
-
-  function downloadPng(chart) {
-    try {
-      const a = document.createElement('a');
-      a.download = slug(titleForCanvas(chart.canvas)) + '.png';
-      a.href = chart.toBase64Image('image/png', 1);
-      a.click();
-      toast('PNG exported');
-    } catch (_) {
-      toast('This chart cannot be exported as PNG yet');
-    }
-  }
-  function downloadCsv(chart) {
-    const rows = chartToRows(chart);
-    downloadText(slug(titleForCanvas(chart.canvas)) + '.csv', rowsToCsv(rows), 'text/csv;charset=utf-8');
-    toast('CSV exported');
-  }
-  function exportAllCharts() {
-    const charts = chartInstances();
-    if (!charts.length) { toast('No chart data is available yet'); return; }
-    const blocks = charts.map(chart => {
-      const name = titleForCanvas(chart.canvas);
-      return '### ' + name + '\n' + rowsToCsv(chartToRows(chart));
-    }).join('\n\n');
-    downloadText(slug(pageMeta.title) + '-all-chart-data.csv', blocks, 'text/csv;charset=utf-8');
-    toast('All chart data exported');
-  }
-
-  function ensureStudioModal() {
-    let modal = document.getElementById('uxChartStudio');
-    if (modal) return modal;
-    modal = document.createElement('div');
-    modal.id = 'uxChartStudio';
-    modal.className = 'ux-modal';
-    modal.setAttribute('role', 'dialog');
-    modal.setAttribute('aria-modal', 'true');
-    modal.innerHTML = `
-      <div class="ux-modal-card">
-        <div class="ux-modal-head">
-          <div>
-            <div class="ux-modal-title" id="uxStudioTitle">Expanded chart studio</div>
-            <div class="ux-modal-sub" id="uxStudioSub">Expand the chart, inspect data, export, and copy the readout.</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-            <button type="button" class="ux-btn" id="uxStudioCsv">CSV</button>
-            <button type="button" class="ux-btn" id="uxStudioPng">PNG</button>
-            <button type="button" class="ux-btn" id="uxStudioCopy">Copy insight</button>
-            <button type="button" class="ux-btn primary" data-ux-close="studio">Close</button>
-          </div>
-        </div>
-        <div class="ux-modal-body">
-          <div class="ux-studio-grid">
-            <div class="ux-studio-chart"><canvas id="uxStudioCanvas"></canvas></div>
-            <div class="ux-studio-side">
-              <div class="ux-studio-panel"><h3>Analyst readout</h3><div class="ux-panel-body" id="uxStudioInsight"></div></div>
-              <div class="ux-studio-panel"><h3>Visible data</h3><div class="ux-panel-body" id="uxStudioTable" style="max-height:360px;overflow:auto;padding:0"></div></div>
-            </div>
-          </div>
-        </div>
-      </div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-ux-close="studio"]')) closeStudio(); });
-    return modal;
-  }
-  function openStudio(canvasId) {
-    const chart = getChartById(canvasId);
-    if (!chart) { toast('Chart is still loading'); return; }
-    const modal = ensureStudioModal();
-    const title = titleForCanvas(chart.canvas);
-    const insight = chartInsight(chart);
-    lastActiveElement = document.activeElement;
-    document.getElementById('uxStudioTitle').textContent = title;
-    document.getElementById('uxStudioSub').textContent = 'Expanded chart studio · click points in the dashboard for instant point inspection.';
-    document.getElementById('uxStudioInsight').innerHTML = esc(insight).replace(/(peak|totals|ends|Sample)/g, '<strong>$1</strong>');
-    const rows = chartToRows(chart);
-    const headers = rows.length ? Object.keys(rows[0]) : ['label'];
-    document.getElementById('uxStudioTable').innerHTML = `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.slice(0, 250).map(row => `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`).join('') || '<tr><td>No data yet.</td></tr>'}</tbody></table>`;
-    modal.classList.add('open');
-    document.body.style.overflow = 'hidden';
-    if (studioChart) { studioChart.destroy(); studioChart = null; }
-    const cfg = {
-      type: chart.config.type,
-      data: JSON.parse(JSON.stringify(chart.data || {})),
-      options: JSON.parse(JSON.stringify(chart.options || {}))
-    };
-    cfg.options.responsive = true;
-    cfg.options.maintainAspectRatio = false;
-    cfg.options.animation = false;
-    cfg.options.plugins = cfg.options.plugins || {};
-    cfg.options.plugins.legend = cfg.options.plugins.legend || {};
-    cfg.options.plugins.legend.position = cfg.options.plugins.legend.position || 'bottom';
-    const ctx = document.getElementById('uxStudioCanvas').getContext('2d');
-    studioChart = new Chart(ctx, cfg);
-    recolorAllCharts();
-    document.getElementById('uxStudioCsv').onclick = () => downloadCsv(chart);
-    document.getElementById('uxStudioPng').onclick = () => downloadPng(chart);
-    document.getElementById('uxStudioCopy').onclick = () => copyText(insight).then(ok => toast(ok ? 'Insight copied' : 'Copy failed'));
-    modal.querySelector('[data-ux-close="studio"]').focus();
-  }
-  function closeStudio() {
-    const modal = document.getElementById('uxChartStudio');
-    if (modal) modal.classList.remove('open');
-    document.body.style.overflow = '';
-    if (studioChart) { studioChart.destroy(); studioChart = null; }
-    if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
-  }
-
-  function ensureCommandPalette() {
-    let modal = document.getElementById('uxCommandPalette');
-    if (modal) return modal;
-    modal = document.createElement('div');
-    modal.id = 'uxCommandPalette';
-    modal.className = 'ux-modal ux-command-palette';
-    modal.setAttribute('role', 'dialog');
-    modal.setAttribute('aria-modal', 'true');
-    modal.innerHTML = `
-      <div class="ux-modal-card">
-        <div class="ux-modal-head">
-          <div>
-            <div class="ux-modal-title">Dashboard command center</div>
-            <div class="ux-modal-sub">Search actions, jump between views, and operate the dashboard faster. Press Esc to close.</div>
-          </div>
-          <button type="button" class="ux-btn primary" data-ux-close="palette">Close</button>
-        </div>
-        <div class="ux-modal-body">
-          <input class="ux-command-input" id="uxCommandInput" placeholder="Type a command, e.g. export, theme, CSAT, clear filters..." autocomplete="off">
-          <div class="ux-command-list" id="uxCommandList"></div>
-        </div>
-      </div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-ux-close="palette"]')) closePalette(); });
-    document.getElementById('uxCommandInput').addEventListener('input', renderCommands);
-    return modal;
-  }
-  function commandDefs() {
-    const defs = [
-      { title: 'Go to Portal Activity', sub: 'Usage, content, sessions, search', kbd: '/', run: () => { location.href = '/'; } },
-      { title: 'Go to Call Quality', sub: 'Domo-first CSAT and call quality', kbd: '/csat', run: () => { location.href = '/csat'; } },
-      { title: 'Go to Starter Guides', sub: 'Journey and guide analytics', kbd: '/starter-guides', run: () => { location.href = '/starter-guides'; } },
-      { title: 'Toggle theme', sub: 'Switch light/dark executive mode', kbd: 'T', run: toggleTheme },
-      { title: 'Toggle density', sub: 'Comfortable vs compact analyst layout', kbd: 'D', run: toggleDensity },
-      { title: 'Presentation mode', sub: 'Reduce stickiness and make cards easier to present', kbd: 'P', run: togglePresentation },
-      { title: 'Export all chart data', sub: 'Download a combined CSV for every loaded chart', kbd: 'E', run: exportAllCharts },
-      { title: 'Expand first chart', sub: 'Open the first loaded chart in the expanded chart studio', kbd: 'F', run: () => { const c = document.querySelector('canvas[data-ux-enhanced="1"]'); if (c) openStudio(c.id); else toast('No chart is loaded yet'); } },
-      { title: 'Scroll to top', sub: 'Return to dashboard overview', kbd: 'Home', run: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
-    ];
-    if (typeof window.clearAllFilters === 'function') defs.push({ title: 'Clear filters', sub: 'Reset active dashboard filters', kbd: 'C', run: () => window.clearAllFilters() });
-    if (typeof window.loadMetrics === 'function') defs.push({ title: 'Reload Starter Guide metrics', sub: 'Refresh aggregate metrics view', kbd: 'R', run: () => window.loadMetrics() });
-    if (typeof window.refreshFromDomo === 'function') defs.push({ title: 'Refresh CSAT from Domo', sub: 'Pull latest Domo CSAT data', kbd: 'R', run: () => window.refreshFromDomo() });
-    else if (typeof window.refreshCsat === 'function') defs.push({ title: 'Refresh CSAT from Domo', sub: 'CSAT refresh action', kbd: 'R', run: () => window.refreshCsat() });
-    return defs;
-  }
-  function renderCommands() {
-    const list = document.getElementById('uxCommandList');
-    const query = (document.getElementById('uxCommandInput')?.value || '').toLowerCase().trim();
-    if (!list) return;
-    const defs = commandDefs().filter(c => !query || (c.title + ' ' + c.sub).toLowerCase().includes(query));
-    list.innerHTML = defs.map((c, i) => `
-      <div class="ux-command-item" role="button" tabindex="0" data-command-index="${i}">
-        <div><div class="ux-command-item-title">${esc(c.title)}</div><div class="ux-command-item-sub">${esc(c.sub)}</div></div>
-        <span class="ux-kbd">${esc(c.kbd)}</span>
-      </div>`).join('') || '<div class="ux-command-item"><div><div class="ux-command-item-title">No commands found</div><div class="ux-command-item-sub">Try export, chart, CSAT, theme, or filters.</div></div></div>';
-    Array.from(list.querySelectorAll('[data-command-index]')).forEach(el => {
-      const idx = Number(el.dataset.commandIndex);
-      el.addEventListener('click', () => { closePalette(); defs[idx].run(); });
-      el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closePalette(); defs[idx].run(); } });
-    });
-  }
-  function openPalette() {
-    const modal = ensureCommandPalette();
-    lastActiveElement = document.activeElement;
-    modal.classList.add('open');
-    document.body.style.overflow = 'hidden';
-    renderCommands();
-    const input = document.getElementById('uxCommandInput');
-    input.value = '';
-    setTimeout(() => input.focus(), 0);
-  }
-  function closePalette() {
-    const modal = document.getElementById('uxCommandPalette');
-    if (modal) modal.classList.remove('open');
-    document.body.style.overflow = '';
-    if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
-  }
-
-  function installGlobalHandlers() {
-    document.addEventListener('click', e => {
-      const chartBtn = e.target.closest('[data-ux-action][data-chart-id]');
-      if (chartBtn) {
-        const id = chartBtn.dataset.chartId;
-        const action = chartBtn.dataset.uxAction;
-        const chart = getChartById(id);
-        if (action === 'close-panel') {
-          document.getElementById('ux-data-panel-' + id)?.classList.remove('open');
-          return;
-        }
-        if (!chart) { toast('Chart is still loading'); return; }
-        if (action === 'insight') renderDataPanel(chart, 'insight');
-        if (action === 'data') renderDataPanel(chart, 'data');
-        if (action === 'csv') downloadCsv(chart);
-        if (action === 'png') downloadPng(chart);
-        if (action === 'focus' || action === 'expand') openStudio(id);
-        return;
-      }
-      const cmd = e.target.closest('[data-ux-command]')?.dataset.uxCommand;
-      if (!cmd) return;
-      if (cmd === 'palette') openPalette();
-      if (cmd === 'theme') toggleTheme();
-      if (cmd === 'density') toggleDensity();
-      if (cmd === 'presentation') togglePresentation();
-      if (cmd === 'export-all') exportAllCharts();
-    });
-    document.addEventListener('keydown', e => {
-      const isMac = navigator.platform.toUpperCase().includes('MAC');
-      if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        openPalette();
-      }
-      if (e.key === 'Escape') {
-        closePalette();
-        closeStudio();
-        document.querySelectorAll('.ux-click-popover').forEach(el => el.remove());
-      }
-    });
-  }
-
-  function observeDom() {
-    const target = document.getElementById('appRoot') || document.body;
-    const observer = new MutationObserver(() => {
-      if (observerQueued) return;
-      observerQueued = true;
-      requestAnimationFrame(() => {
-        observerQueued = false;
-        enhanceCharts();
-        forceEveryChartExpandable();
-        ensureVoiceAiInTeamDropdowns();
-      });
-    });
-    observer.observe(target, { childList: true, subtree: true });
-    setInterval(() => { enhanceCharts(); recolorAllCharts(); }, 3500);
-  }
-
-
-  function removeKnownNoisyUi() {
-    // Defensive cleanup for older cached markup or manually merged files. The current CSAT UI is open and Domo-first.
-    const forbiddenText = ['Data quality:', 'Protected drilldowns', 'Admin access', 'Unlock raw drilldowns'];
-    document.querySelectorAll('button, .card, .alert, .section, [id]').forEach(el => {
-      const txt = (el.textContent || '').trim();
-      if (forbiddenText.some(term => txt.includes(term))) {
-        if (el.id === 'domoRefreshBtn') return;
-        el.style.display = 'none';
-        el.setAttribute('aria-hidden', 'true');
-      }
-    });
-    document.querySelectorAll('[id*="domoAccess"], [id*="protected"], [id*="Protected"]').forEach(el => {
-      el.style.display = 'none';
-      el.setAttribute('aria-hidden', 'true');
-    });
-  }
-
-
-  function compactTeamName(value) {
-    return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-  }
-
-  function ensureVoiceAiInTeamDropdowns() {
-    const likelyTeamSelects = Array.from(document.querySelectorAll('select')).filter(sel => {
-      const idName = ((sel.id || '') + ' ' + (sel.name || '') + ' ' + (sel.getAttribute('aria-label') || '')).toLowerCase();
-      const prevLabel = sel.closest('label')?.textContent?.toLowerCase() || '';
-      return idName.includes('team') || idName.includes('csatglobalteamfilter') || idName.includes('csatteamfilter') || prevLabel.includes('team');
-    });
-    likelyTeamSelects.forEach(sel => {
-      const hasVoiceAi = Array.from(sel.options || []).some(opt => compactTeamName(opt.value || opt.textContent) === 'voiceai');
-      if (!hasVoiceAi) {
-        const opt = document.createElement('option');
-        opt.value = 'Voice AI';
-        opt.textContent = 'Voice AI';
-        // Keep the global "All teams" option first, then show Voice AI near the top.
-        if (sel.options && sel.options.length > 1) sel.insertBefore(opt, sel.options[1]);
-        else sel.appendChild(opt);
-      }
-    });
-  }
-
-  function forceEveryChartExpandable() {
-    // The existing chart enhancer is Chart.js-aware; this adds a defensive visible
-    // Expand button for any canvas that still slipped through because it rendered late.
-    document.querySelectorAll('canvas[id]').forEach(canvas => {
-      const chart = window.Chart && Chart.getChart(canvas);
-      const host = canvas.closest('.chart-wrap, .card, section, div');
-      if (!host || !chart) return;
-      if (host.querySelector(`[data-ux-action="expand"][data-chart-id="${canvas.id}"]`)) return;
-      let bar = host.querySelector('.ux-chart-toolbar');
-      if (!bar) {
-        bar = document.createElement('div');
-        bar.className = 'ux-chart-toolbar';
-        const parent = canvas.parentElement || host;
-        parent.insertBefore(bar, parent.firstChild);
-      }
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ux-chart-action ux-expand-guarantee';
-      btn.dataset.uxAction = 'expand';
-      btn.dataset.chartId = canvas.id;
-      btn.textContent = '⤢ Expand';
-      btn.setAttribute('aria-label', 'Expand chart');
-      bar.appendChild(btn);
-    });
-  }
-
-  function init() {
-    document.body.classList.add('pro-dashboard');
-    removeKnownNoisyUi();
-    ensureVoiceAiInTeamDropdowns();
-    applyPrefs();
-    injectSkipLink();
-    injectHero();
-    buildPageMap();
-    installGlobalHandlers();
-    enhanceCharts();
-    forceEveryChartExpandable();
-    ensureVoiceAiInTeamDropdowns();
-    observeDom();
-    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 800);
-    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
-    setInterval(() => { ensureVoiceAiInTeamDropdowns(); forceEveryChartExpandable(); }, 1800);
-    console.info('[DashboardUX] World-class UX engine active', UX.version);
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
-  else init();
+  Chart.defaults = { color:'#64748b', borderColor:'#dde1ec', font:{} };
+  Chart.getChart = function(target){ return instances.get(getCanvas(target)) || null; };
+  Chart.prototype.update = function(){};
+  Chart.prototype.destroy = function(){ instances.delete(this.canvas); };
+  Chart.prototype.toBase64Image = function(){
+    try { return this.canvas.toDataURL('image/png'); } catch(e) { return 'data:image/png;base64,'; }
+  };
+  Chart.prototype.getElementsAtEventForMode = function(){
+    const ds = (this.data.datasets || [])[0] || { data: [] };
+    return ds.data && ds.data.length ? [{ datasetIndex:0, index:0 }] : [];
+  };
+  window.Chart = Chart;
 })();
+"""
+
+
+def iso_days(n: int = 42):
+    end = date.today()
+    start = end - timedelta(days=n - 1)
+    return [(start + timedelta(days=i)).isoformat() for i in range(n)]
+
+
+def series(mult: int, offset: int = 0):
+    return [{"date": d, "count": max(1, ((i + 3 + offset) * mult) % 95 + 5)} for i, d in enumerate(iso_days())]
+
+
+def make_portal_batch():
+    keys = [
+        "auth.login", "auth.logout", "article.viewed", "search.performed", "video.watched",
+        "total.views", "category.viewed", "article.feedback", "order_supplies.visited", "scheduling.started",
+    ]
+    return {key: {"series": series(idx + 2, idx)} for idx, key in enumerate(keys)}
+
+
+def make_articles():
+    return {
+        "total_views": 3280,
+        "articles": [
+            {"id":"a1","label":"Troubleshooting Bluetooth pairing","slug":"bluetooth-pairing","url":"https://example.com/a1","views":840,"helpful_pct":82,"total_feedback":44,"is_dead_end":False,"category":"Troubleshooting","health_score":88},
+            {"id":"a2","label":"Voice AI follow-up workflow","slug":"voice-ai-follow-up","url":"https://example.com/a2","views":610,"helpful_pct":76,"total_feedback":29,"is_dead_end":False,"category":"Voice AI","health_score":79},
+            {"id":"a3","label":"Scheduling reschedule steps","slug":"schedule-reschedule","url":"https://example.com/a3","views":455,"helpful_pct":61,"total_feedback":18,"is_dead_end":True,"category":"Scheduling","health_score":55},
+            {"id":"a4","label":"Order supplies guide","slug":"supplies","url":"https://example.com/a4","views":390,"helpful_pct":90,"total_feedback":23,"is_dead_end":False,"category":"Supplies","health_score":91},
+        ],
+        "note": "QA stub data",
+    }
+
+
+def make_search():
+    return {
+        "top_queries": [
+            {"query":"voice ai", "count": 218},
+            {"query":"pairing", "count": 164},
+            {"query":"reschedule", "count": 139},
+            {"query":"invoice", "count": 88},
+        ],
+        "zero_result": [{"query":"invoice", "count": 12}],
+        "content_gaps": [
+            {"query":"invoice", "count": 88, "has_content": False, "is_zero_result": True},
+            {"query":"domo refresh", "count": 31, "has_content": False, "is_zero_result": False},
+        ],
+        "total_searches": 1260,
+        "conversion_rate": 67,
+        "note": "QA stub data",
+    }
+
+
+def make_categories():
+    return {"categories": [
+        {"path":"Troubleshooting", "label":"Troubleshooting", "count": 940},
+        {"path":"Voice AI", "label":"Voice AI", "count": 760},
+        {"path":"Scheduling", "label":"Scheduling", "count": 610},
+        {"path":"Supplies", "label":"Supplies", "count": 330},
+        {"path":"Billing", "label":"Billing", "count": 250},
+    ]}
+
+
+def make_sessions():
+    days = iso_days(14)
+    return {
+        "available": True,
+        "total_sessions": 420,
+        "total_users": 76,
+        "median_seconds": 210,
+        "avg_seconds": 295,
+        "p90_seconds": 780,
+        "pct_with_logout": 68,
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "note": "QA stub Supabase session model",
+        "depth_distribution": {"bounce": 68, "normal": 254, "deep": 98},
+        "daily_avg": [{"date": d, "avg_seconds": 220 + (i % 6) * 35} for i, d in enumerate(days)],
+        "prev_daily_avg": [{"date": d, "avg_seconds": 180 + (i % 5) * 25} for i, d in enumerate(days)],
+        "activity_breakdown": [
+            {"label":"Article reading", "avg_seconds": 420, "pct_time": 44},
+            {"label":"Search", "avg_seconds": 170, "pct_time": 18},
+            {"label":"Video", "avg_seconds": 240, "pct_time": 24},
+            {"label":"Navigation", "avg_seconds": 110, "pct_time": 14},
+        ],
+        "hour_distribution": {str(h): (h % 6 + 1) * 7 for h in range(7, 19)},
+    }
+
+
+def make_insights():
+    return {
+        "weekly_digest": "Portal usage is healthy; Voice AI and troubleshooting are the strongest demand signals.",
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "consumption_ratio": 2.8,
+        "frustration_index": 1.4,
+        "engagement_velocity": 12,
+        "self_service_rate": 58,
+        "hour_distribution": {str(h): (h % 6 + 1) * 7 for h in range(7, 19)},
+    }
+
+
+def make_videos():
+    return {"videos":[
+        {"title":"Bluetooth reset walkthrough", "url":"https://example.com/v1", "count": 340},
+        {"title":"Voice AI call review", "url":"https://example.com/v2", "count": 290},
+        {"title":"Scheduling best practices", "url":"https://example.com/v3", "count": 210},
+    ], "note":"QA stub data"}
+
+
+def make_sg_timeseries(mult=3):
+    return {"project":"cs-portal-starter-guide-events", "series":[{"date": d, "count": ((i + 2) * mult) % 50 + 10} for i, d in enumerate(iso_days(35))]}
+
+
+def make_sg_topn():
+    return {"project":"cs-portal-starter-guide-events", "top":[
+        {"id":"voice-ai-intro", "label":"Voice AI intro", "count": 740},
+        {"id":"setup-checklist", "label":"Setup checklist", "count": 620},
+        {"id":"pairing-step", "label":"Pairing step", "count": 515},
+        {"id":"schedule-step", "label":"Schedule step", "count": 420},
+    ]}
+
+
+def make_csat_index():
+    sys.path.insert(0, str(ROOT))
+    from main import _build_csat_index
+    rows = []
+    start = date.today() - timedelta(days=29)
+    teams = ["Team Amplifiers", "Team Hear4Life", "Team Sound Check", "VoiceAI"]
+    reasons = ["Billing", "Scheduling", "Device pairing", "Voice AI follow-up"]
+    for d in range(30):
+        for i, team in enumerate(teams):
+            rating = 5 if (d + i) % 6 else 2
+            rows.append({
+                "date": (start + timedelta(days=d)).isoformat(),
+                "datetime": (start + timedelta(days=d)).isoformat() + "T10:00:00",
+                "team": team,
+                "cid": f"C{i}",
+                "name": f"{team} Agent",
+                "rating": rating,
+                "solved": rating >= 4,
+                "reason": reasons[i],
+                "summary": f"QA sample summary for {reasons[i]}",
+                "summary_raw": f"QA sample summary for {reasons[i]}",
+                "call_id": f"call-{d}-{i}",
+                "opp_id": f"opp-{d}-{i}",
+                "response_id": f"resp-{d}-{i}",
+                "created_by_id": "u1",
+                "owner_id": "o1",
+            })
+    return _build_csat_index(rows)
+
+
+PORTAL_BATCH = make_portal_batch()
+ARTICLES = make_articles()
+SEARCH = make_search()
+CATEGORIES = make_categories()
+SESSIONS = make_sessions()
+INSIGHTS = make_insights()
+VIDEOS = make_videos()
+CSAT_INDEX = make_csat_index()
+
+
+def prepare_html(fname: str) -> str:
+    soup = BeautifulSoup((ROOT / fname).read_text(), "html.parser")
+    if soup.head:
+        base = soup.new_tag("base", href=BASE)
+        soup.head.insert(0, base)
+        storage = soup.new_tag("script")
+        storage.string = """
+(() => {
+  function makeStorage(){ const store = {}; return { getItem:k => Object.prototype.hasOwnProperty.call(store,k) ? store[k] : null, setItem:(k,v) => { store[k] = String(v); }, removeItem:k => { delete store[k]; }, clear:() => { Object.keys(store).forEach(k => delete store[k]); } }; }
+  try { Object.defineProperty(window, 'localStorage', { value: makeStorage(), configurable: true }); } catch (_) {}
+  try { Object.defineProperty(window, 'sessionStorage', { value: makeStorage(), configurable: true }); } catch (_) {}
+})();
+"""
+        soup.head.insert(1, storage)
+    for tag in list(soup.find_all("script", src=True)):
+        src = tag.get("src", "")
+        replacement = soup.new_tag("script")
+        if "chart" in src.lower():
+            replacement.string = CHART_STUB
+            tag.replace_with(replacement)
+        elif "dashboard_ux.js" in src or "portal-system.js" in src:
+            asset = ROOT / "portal-system.js"
+            if not asset.exists():
+                asset = ROOT / "assets" / "dashboard_ux.js"
+            replacement.string = asset.read_text()
+            tag.replace_with(replacement)
+    for tag in list(soup.find_all("link", href=True)):
+        href = tag.get("href", "")
+        if "dashboard_ux.css" in href or "portal-overrides.css" in href:
+            style = soup.new_tag("style")
+            asset = ROOT / "portal-overrides.css"
+            if not asset.exists():
+                asset = ROOT / "assets" / "dashboard_ux.css"
+            style.string = asset.read_text()
+            tag.replace_with(style)
+        elif "fonts.googleapis.com" in href:
+            tag.decompose()
+    return str(soup)
+
+
+def json_response(route, payload, status=200):
+    route.fulfill(status=status, content_type="application/json", body=json.dumps(payload))
+
+
+def route_handler(route, request):
+    parsed = urlparse(request.url)
+    path = parsed.path
+    if path == "/api/metrics/batch":
+        return json_response(route, PORTAL_BATCH)
+    if path == "/api/articles":
+        return json_response(route, ARTICLES)
+    if path == "/api/search":
+        return json_response(route, SEARCH)
+    if path in {"/api/sessions/full", "/api/sessions"}:
+        return json_response(route, SESSIONS)
+    if path == "/api/videos":
+        return json_response(route, VIDEOS)
+    if path == "/api/categories":
+        return json_response(route, CATEGORIES)
+    if path == "/api/insights":
+        return json_response(route, INSIGHTS)
+    if path in {"/api/csat/raw", "/api/csat/view"}:
+        return json_response(route, CSAT_INDEX)
+    if path == "/api/csat/status":
+        return json_response(route, {
+            "available": True,
+            "date_min": CSAT_INDEX.get("date_min"),
+            "date_max": CSAT_INDEX.get("date_max"),
+            "total_rows": CSAT_INDEX.get("total_rows"),
+            "generated": CSAT_INDEX.get("generated"),
+            "source": {"active":"domo", "domo_configured": True, "raw_drilldowns_public": True, "refresh_requires_admin": False},
+            "quality": CSAT_INDEX.get("quality", {}),
+        })
+    if path == "/api/refresh/csat":
+        return json_response(route, {"success": True, "message":"Domo CSAT refreshed", "rows": CSAT_INDEX.get("total_rows")})
+    if path == "/api/sg/metrics/timeseries":
+        mult = 5 if "answer_submitted" in parsed.query else 7
+        return json_response(route, make_sg_timeseries(mult))
+    if path == "/api/sg/metrics/topn":
+        return json_response(route, make_sg_topn())
+    if path.startswith("/api/sg/journeys"):
+        return json_response(route, {"journeys": [], "items": [], "answers": [], "total": 0})
+    route.fulfill(status=204, body="")
+
+
+def collect_console(page, messages):
+    page.on("console", lambda msg: messages.append({"type": msg.type, "text": msg.text}))
+    page.on("pageerror", lambda exc: messages.append({"type": "pageerror", "text": str(exc)}))
+
+
+def page_expand_smoke(page, fname: str, label: str, setup=None):
+    errors = []
+    console = []
+    collect_console(page, console)
+    page.set_content(prepare_html(fname), wait_until="load")
+    if setup:
+        setup(page)
+    page.wait_for_timeout(3500)
+    ux_version = page.evaluate("window.DashboardUX && window.DashboardUX.version")
+    enhanced = page.locator('canvas[data-ux-enhanced="1"]').count()
+    action_expands = page.locator('[data-ux-action="expand"][data-chart-id]').count()
+    visible_expand = page.locator('[data-ux-action="expand"][data-chart-id]').count()
+    chart_ids = page.evaluate("Array.from(document.querySelectorAll('canvas[data-ux-enhanced=\"1\"]')).map(c => c.id)")
+    if enhanced == 0:
+        errors.append(f"{label}: no charts were enhanced by the UX engine")
+    if action_expands < enhanced:
+        errors.append(f"{label}: only {action_expands} Expand actions for {enhanced} enhanced charts")
+    for chart_id in chart_ids:
+        try:
+            loc = page.locator(f'[data-ux-action="expand"][data-chart-id="{chart_id}"]').first
+            loc.click(timeout=3000)
+            page.locator('#uxChartStudio.open').wait_for(timeout=3000)
+            title = page.locator('#uxStudioTitle').inner_text(timeout=2000)
+            if not title.strip():
+                errors.append(f"{label}:{chart_id}: studio title was empty")
+            page.locator('[data-ux-close="studio"]').click(timeout=2000)
+            page.wait_for_timeout(75)
+        except Exception as exc:
+            errors.append(f"{label}:{chart_id}: expand click failed: {exc}")
+    return {
+        "page": label,
+        "ux_version": ux_version,
+        "enhanced_charts": enhanced,
+        "expand_action_buttons": action_expands,
+        "visible_expand_buttons": visible_expand,
+        "chart_ids": chart_ids,
+        "errors": errors,
+        "console_errors": [m for m in console if m["type"] in {"error", "pageerror"}],
+    }
+
+
+def main() -> int:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, executable_path="/usr/bin/chromium")
+        ctx = browser.new_context(viewport={"width": 1440, "height": 1100}, accept_downloads=True)
+        ctx.route("**/*", route_handler)
+        results = []
+
+        page = ctx.new_page()
+        results.append(page_expand_smoke(page, "index.html", "Portal Activity"))
+        page.close()
+
+        page = ctx.new_page()
+        results.append(page_expand_smoke(page, "csat.html", "CSAT / Call Quality"))
+        page_text = page.locator("body").inner_text(timeout=3000)
+        forbidden = ["Data quality:", "Executive readout", "Primary risk", "Protected drilldowns", "Admin access", "Unlock raw drilldowns", "Voice AI lens", "Domo team"]
+        for term in forbidden:
+            if term.lower() in page_text.lower():
+                results[-1]["errors"].append(f"CSAT still shows removed/locked UI text: {term}")
+        if "Voice AI" not in page_text:
+            results[-1]["errors"].append("CSAT page does not show Voice AI in the loaded UI")
+        page.close()
+
+        page = ctx.new_page()
+        def open_metrics(pg):
+            pg.evaluate("if (typeof showSection === 'function') showSection('s4')")
+            pg.wait_for_timeout(800)
+        results.append(page_expand_smoke(page, "starter_guides.html", "Starter Guides", setup=open_metrics))
+        page.close()
+        browser.close()
+
+    out = {
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "rendering_method": "real HTML with local assets inlined; API calls stubbed by Playwright routes",
+        "results": results,
+        "passed": all(not r["errors"] for r in results),
+        "total_enhanced_charts": sum(r["enhanced_charts"] for r in results),
+        "total_expand_clicks": sum(len(r["chart_ids"]) for r in results),
+    }
+    (ROOT / "docs" / "FINAL_UI_CLICK_QA.json").write_text(json.dumps(out, indent=2))
+    print(json.dumps(out, indent=2))
+    return 0 if out["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
