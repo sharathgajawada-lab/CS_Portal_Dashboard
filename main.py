@@ -201,6 +201,14 @@ DATA_START    = os.environ.get("DATA_START", "2026-04-24")
 APP_ENV       = os.environ.get("APP_ENV", "development").strip().lower()
 DASHBOARD_VERSION = os.environ.get("DASHBOARD_VERSION", "2026.06-secure-metrics")
 
+def _is_test_mode() -> bool:
+    """Return True under pytest/local contract tests to avoid spawning network refresh tasks."""
+    return (
+        APP_ENV == "test"
+        or API_KEY.startswith("TEST-")
+        or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    )
+
 def _env_truthy(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -235,12 +243,12 @@ async def require_admin_token(
 SG_BASE       = os.environ.get("STARTER_GUIDE_BASE_URL", "https://starter-guide-service.audibene.net")
 
 # ── CSAT Survey Data ────────────────────────────────────────────────────────────
-# Loaded once at startup from call_quality.csv
-# Also rebuilt on-demand via POST /upload/csat
+# Domo-first CSAT source. Startup may load bundled call_quality.csv as a fallback.
+# POST /upload/csat is retained only as a protected break-glass ingestion path.
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
 
-# CSAT uploads and raw CSAT drilldown are protected by require_admin_token.
+# Raw CSAT drilldown, Domo refresh, and break-glass ingestion are protected by require_admin_token.
 
 # Path where csat_index.json is saved for serving
 CSAT_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "csat_index.json")
@@ -730,6 +738,26 @@ DOMO_CLIENT_ID     = os.getenv("DOMO_CLIENT_ID", "")
 DOMO_CLIENT_SECRET = os.getenv("DOMO_CLIENT_SECRET", "")
 DOMO_DATASET_ID    = os.getenv("DOMO_DATASET_ID", "")
 DOMO_API_BASE      = os.getenv("DOMO_API_BASE", "https://api.domo.com")
+CSAT_REFRESH_SOURCE = {
+    "source": "not_loaded",
+    "loaded_at": "",
+    "last_success_at": "",
+    "last_error": "",
+    "domo_configured": False,
+}
+
+
+def _mark_csat_source(source: str, error: str = "") -> None:
+    """Track where the active CSAT index came from for dashboard source/status UX."""
+    ts = _utcnow().isoformat() + "Z"
+    CSAT_REFRESH_SOURCE.update({
+        "source": source,
+        "loaded_at": ts,
+        "domo_configured": _domo_configured(),
+        "last_error": error or "",
+    })
+    if not error:
+        CSAT_REFRESH_SOURCE["last_success_at"] = ts
 
 
 def _domo_configured() -> bool:
@@ -798,12 +826,15 @@ def _refresh_csat_from_domo() -> bool:
     """Pull from Domo and rebuild the CSAT index. Returns True if it succeeded."""
     csv_text = _domo_fetch_csv()
     if csv_text is None:
+        _mark_csat_source(CSAT_REFRESH_SOURCE.get("source") or "domo", "Domo export failed or returned no CSV")
         return False
     rows = _parse_csv_text(csv_text)
     if not rows:
         print("[domo] parsed 0 rows — keeping previous index", flush=True)
+        _mark_csat_source(CSAT_REFRESH_SOURCE.get("source") or "domo", "Domo export parsed 0 valid rows")
         return False
     _build_csat_index(rows)
+    _mark_csat_source("domo")
     _save_csat_json()
     print(f"[domo] CSAT index rebuilt from Domo — {len(rows)} rows", flush=True)
     return True
@@ -835,10 +866,12 @@ def _load_csat_csv():
         with open(path, newline='', encoding='utf-8') as f:
             rows = _parse_csv_text(f.read())
         _build_csat_index(rows)
+        _mark_csat_source("bundled_csv")
         _save_csat_json()
         print(f"[csat] loaded from {path}", flush=True)
         return
-    print("[csat] call_quality.csv not found — upload via dashboard", flush=True)
+    _mark_csat_source("not_loaded", "No bundled CSV found and Domo did not load")
+    print("[csat] call_quality.csv not found — no CSAT index available", flush=True)
 
 
 def _parse_excel_bytes(data: bytes) -> list:
@@ -2182,30 +2215,90 @@ async def api_sessions_full(date_from: str = "", date_to: str = ""):
         "note": f"From {user_count} users in Supabase — {'full' if user_count >= 50 else 'building up coverage'} ({n} sessions)",
     }
 
-@app.get("/api/csat/raw")
-async def api_csat_raw(admin_ok: bool = Depends(require_admin_token)):
-    """Serve pre-built csat_index.json — used by frontend for client-side filtering.
-    Never cached — must always serve the latest uploaded file.
+def _current_csat_index_data() -> dict:
+    """Return the active CSAT index from memory or disk without leaking secrets."""
+    index_data = _csat_index.get("index_data")
+    if index_data:
+        return index_data
+    if os.path.exists(CSAT_JSON_PATH):
+        try:
+            with open(CSAT_JSON_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as exc:
+            print(f"[csat] failed to read {CSAT_JSON_PATH}: {exc}", flush=True)
+    return {}
+
+
+def _sanitize_csat_index_for_dashboard(index_data: dict) -> dict:
+    """Return the chart-ready CSAT index without call-level summaries/IDs.
+
+    This keeps the dashboard useful for normal users while keeping sensitive
+    call summaries, call IDs, response IDs, opportunity IDs, owner IDs, and
+    created-by IDs behind /api/csat/raw.
     """
-    _NO_CACHE = {
+    if not index_data:
+        return {"available": False, "note": "CSAT Domo data is not available yet"}
+    safe = json.loads(json.dumps(index_data))
+    for dm in (safe.get("days") or {}).values():
+        for rv in (dm.get("rs") or {}).values():
+            rv.pop("sm", None)
+        for tv in (dm.get("tm") or {}).values():
+            for rv in (tv.get("rs") or {}).values():
+                rv.pop("sm", None)
+        for cv in (dm.get("cn") or {}).values():
+            cv.pop("c", None)
+            for rv in (cv.get("rs") or {}).values():
+                rv.pop("sm", None)
+    safe["access"] = {
+        "level": "aggregate",
+        "sensitive_fields_removed": True,
+        "protected_fields": [
+            "call_id", "call_summary", "opportunity_id", "response_id",
+            "created_by_id", "owner_id", "consultant_call_cache",
+        ],
+    }
+    return safe
+
+
+def _csat_no_cache_headers() -> dict:
+    return {
         "Cache-Control": "no-store, no-cache, must-revalidate",
         "Pragma": "no-cache",
     }
-    if os.path.exists(CSAT_JSON_PATH):
-        return FileResponse(CSAT_JSON_PATH, media_type="application/json",
-                           headers=_NO_CACHE)
-    index_data = _csat_index.get("index_data")
+
+
+@app.get("/api/csat/view")
+async def api_csat_view():
+    """Public aggregate CSAT index used by the dashboard by default.
+
+    It is sourced from the same Domo-built index as /api/csat/raw, but strips
+    call-level payloads. Admin drilldowns can opt into /api/csat/raw with an
+    admin token.
+    """
+    index_data = _current_csat_index_data()
+    return JSONResponse(_sanitize_csat_index_for_dashboard(index_data), headers=_csat_no_cache_headers())
+
+
+@app.get("/api/csat/raw")
+async def api_csat_raw(admin_ok: bool = Depends(require_admin_token)):
+    """Serve the full Domo-backed CSAT index for protected drilldowns.
+
+    This payload may include call IDs, call summaries, opportunity IDs, and
+    consultant-level call caches. It is never used as the anonymous default.
+    """
+    index_data = _current_csat_index_data()
     if index_data:
-        return Response(content=json.dumps(index_data), media_type="application/json",
-                       headers=_NO_CACHE)
-    return JSONResponse({"available": False, "note": "Upload call_quality.xlsx via the dashboard"},
-                       headers=_NO_CACHE)
+        return JSONResponse(index_data, headers=_csat_no_cache_headers())
+    return JSONResponse({"available": False, "note": "CSAT Domo data is not available yet"},
+                        headers=_csat_no_cache_headers())
 
 
 @app.post("/upload/csat")
 async def upload_csat(file: UploadFile = File(...), admin_ok: bool = Depends(require_admin_token)):
-    """Upload a new call quality Excel file. Rebuilds the CSAT index immediately.
-    Protected by DASHBOARD_ADMIN_TOKEN (or the backwards-compatible CSAT_UPLOAD_PASSWORD env alias).
+    """Protected break-glass CSAT ingestion. Normal dashboard flow pulls from Domo.
+
+    This endpoint is intentionally not exposed in the browser UI. It exists for
+    emergency recovery/backfill only and requires DASHBOARD_ADMIN_TOKEN.
     """
     # Validate file type
     fname = file.filename or ""
@@ -2214,7 +2307,7 @@ async def upload_csat(file: UploadFile = File(...), admin_ok: bool = Depends(req
 
     try:
         data = await file.read()
-        print(f"[upload] received {fname} ({len(data)//1024} KB)", flush=True)
+        print(f"[csat-breakglass] received {fname} ({len(data)//1024} KB)", flush=True)
 
         if fname.lower().endswith(".csv"):
             # Parse CSV directly
@@ -2226,8 +2319,11 @@ async def upload_csat(file: UploadFile = File(...), admin_ok: bool = Depends(req
             raise HTTPException(status_code=400,
                 detail=f"Only {len(rows)} valid rows found — check file format")
 
-        # Rebuild index in memory
+        # Rebuild index in memory. This endpoint is intentionally retained as
+        # a protected break-glass path; the normal CSAT dashboard flow pulls
+        # directly from Domo.
         index_data = _build_csat_index(rows)
+        _mark_csat_source("manual_break_glass_upload")
 
         # Save to disk so it persists and gets served via /api/csat/raw
         _save_csat_json()
@@ -2254,7 +2350,7 @@ async def api_csat(admin_ok: bool = Depends(require_admin_token)):
     if index_data:
         return index_data
     if not _csat_index.get("day_map"):
-        return {"available": False, "note": "Upload call_quality.csv to enable CSAT section"}
+        return {"available": False, "note": "CSAT Domo data is not available yet"}
     return {
         "available": True,
         "schema_version": CSAT_SCHEMA_VERSION,
@@ -2279,6 +2375,15 @@ async def api_csat_status():
         "total_rows": idx.get("total_rows", len(_csat_rows)),
         "raw_total_rows": idx.get("raw_total_rows", len(_csat_rows)),
         "generated": idx.get("generated", ""),
+        "source": {
+            "active": CSAT_REFRESH_SOURCE.get("source") or ("domo" if _domo_configured() else "bundled_csv"),
+            "domo_configured": _domo_configured(),
+            "dataset_id_set": bool(DOMO_DATASET_ID),
+            "last_success_at": CSAT_REFRESH_SOURCE.get("last_success_at", ""),
+            "loaded_at": CSAT_REFRESH_SOURCE.get("loaded_at", ""),
+            "last_error": CSAT_REFRESH_SOURCE.get("last_error", ""),
+            "refresh_cadence_seconds": REFRESH_SEC,
+        },
         "quality": {
             "indexed_rows": quality.get("indexed_rows"),
             "raw_rows": quality.get("raw_rows"),
@@ -2394,6 +2499,9 @@ async def api_refresh(admin_ok: bool = Depends(require_admin_token)):
     Safer default than /cache/clear because it never drops cached data.
     Safe to call any time — protected by lock so only one runs at a time.
     """
+    if _is_test_mode():
+        return {"status": "refresh skipped in test mode",
+                "note": "Network refresh jobs are not spawned during automated tests."}
     lock = get_lock()
     if not lock.locked():
         asyncio.create_task(full_refresh())
@@ -2415,9 +2523,10 @@ async def api_refresh_csat(admin_ok: bool = Depends(require_admin_token)):
     if ok:
         idx = _csat_index.get("index_data", {})
         return {"status": "csat refreshed from domo",
-                "data_min": idx.get("date_min"),
-                "data_max": idx.get("date_max"),
-                "rows": idx.get("total_rows")}
+                "date_min": idx.get("date_min"),
+                "date_max": idx.get("date_max"),
+                "rows": idx.get("total_rows"),
+                "source": CSAT_REFRESH_SOURCE}
     return JSONResponse(
         {"status": "domo pull failed", "note": "Check server logs for the [domo] error line."},
         status_code=502,
@@ -2431,6 +2540,11 @@ async def clear_cache(force: bool = False, admin_ok: bool = Depends(require_admi
     upstream outages. Use force=true only when you intentionally want to drop
     cached data immediately.
     """
+    if _is_test_mode():
+        if force:
+            _cache.clear()
+        return {"status": "cache test-mode no-op",
+                "note": "Refresh jobs are not spawned during automated tests."}
     global _client
     if _client and not _client.is_closed:
         await _client.aclose()
@@ -2842,6 +2956,26 @@ async def csat_page():
     return HTMLResponse(content=html,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache"})
+
+
+
+@app.get("/assets/{asset_name}")
+async def dashboard_asset(asset_name: str):
+    """Serve shared dashboard UX assets with a whitelist."""
+    allowed = {
+        "dashboard_ux.css": "text/css",
+        "dashboard_ux.js": "application/javascript",
+    }
+    media_type = allowed.get(asset_name)
+    if not media_type:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    asset_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", asset_name)
+    if not os.path.exists(asset_path):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    with open(asset_path, encoding="utf-8") as f:
+        content = f.read()
+    return Response(content=content, media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"})
 
 @app.get("/sw.js")
 async def service_worker():

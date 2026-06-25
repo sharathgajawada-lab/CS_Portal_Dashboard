@@ -145,6 +145,37 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .kpi-value { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 600; color: var(--text1); line-height: 1; margin-bottom: 4px }
 .kpi-sub   { font-size: 11px; color: var(--text3) }
 
+
+/* ── Metrics command center ── */
+.command-center {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr 1fr;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+.command-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 15px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+.command-card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--blue); }
+.command-card.good::before { background:var(--green); }
+.command-card.warning::before { background:var(--amber); }
+.command-card.info::before { background:var(--blue); }
+.command-label { font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text3); margin-bottom:5px; }
+.command-value { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; color:var(--text1); line-height:1.15; margin-bottom:5px; }
+.command-sub { font-size:12px; color:var(--text3); line-height:1.45; }
+.command-actions { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; }
+.mini-action { border:1px solid var(--border); background:var(--surface2); color:var(--text2); border-radius:999px; padding:4px 9px; font-size:11px; cursor:pointer; }
+.mini-action:hover { border-color:var(--border2); color:var(--text1); }
+@media (max-width:980px) { .command-center { grid-template-columns:1fr 1fr; } }
+@media (max-width:620px) { .command-center { grid-template-columns:1fr; } }
+
 /* ── Sections ── */
 .section { margin-bottom: 24px }
 .section-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap }
@@ -374,7 +405,10 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
   .two-col, .three-col { grid-template-columns: 1fr }
   .journey-grid { grid-template-columns: 1fr }
 }
+
+
 </style>
+<link rel="stylesheet" href="/assets/dashboard_ux.css?v=2026-06-25-world-ui">
 </head>
 <body>
 
@@ -509,6 +543,9 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
       <div class="skeleton skeleton-kpi"></div>
       <div class="skeleton skeleton-kpi"></div>
     </div>
+
+
+    <div class="command-center" id="metricsCommandCenter" aria-live="polite"></div>
 
     <!-- Charts row 1 -->
     <div class="two-col" style="margin-bottom:16px">
@@ -1094,6 +1131,50 @@ function exportGuideAnswersCSV() {
   URL.revokeObjectURL(url);
 }
 
+// ── Metrics command center ──────────────────────────────────────────────────
+
+function renderMetricsCommandCenter(totalOpens, totalAnswers, slideTop, cmsProject, opensSeries, answerSeries) {
+  const el = document.getElementById('metricsCommandCenter');
+  if (!el) return;
+  const answerRate = totalOpens ? Math.round((totalAnswers / totalOpens) * 1000) / 10 : null;
+  const topSlide = slideTop[0] || null;
+  const activeDays = new Set((opensSeries || []).filter(p => (p.count || 0) > 0).map(p => p.date)).size;
+  const latestOpen = (opensSeries || []).slice().reverse().find(p => (p.count || 0) > 0);
+  const rateClass = answerRate == null ? 'warning' : answerRate >= 40 ? 'good' : answerRate >= 15 ? 'warning' : 'info';
+  el.innerHTML = `
+    <div class="command-card ${rateClass}">
+      <div class="command-label">Executive readout</div>
+      <div class="command-value">${totalOpens.toLocaleString()} guide opens</div>
+      <div class="command-sub">${answerRate == null ? 'No answer-rate baseline yet' : answerRate + '% answer submission rate'} · ${totalAnswers.toLocaleString()} submitted answers.</div>
+      <div class="command-actions"><button class="mini-action" onclick="document.getElementById('opensChart')?.scrollIntoView({behavior:'smooth',block:'center'})">Inspect opens</button></div>
+    </div>
+    <div class="command-card info">
+      <div class="command-label">Top slide signal</div>
+      <div class="command-value">${topSlide ? esc(topSlide.label || topSlide.id || 'Slide') : 'No slide data'}</div>
+      <div class="command-sub">${topSlide ? `${Number(topSlide.count || 0).toLocaleString()} views. Click the slide drop-off chart bars for the exact ranked labels.` : 'No slide_viewed events were returned by the CMS metrics source.'}</div>
+      <div class="command-actions"><button class="mini-action" onclick="document.getElementById('dropoffChart')?.scrollIntoView({behavior:'smooth',block:'center'})">Inspect drop-off</button></div>
+    </div>
+    <div class="command-card ${activeDays ? 'good' : 'warning'}">
+      <div class="command-label">Freshness & coverage</div>
+      <div class="command-value">${activeDays} active days</div>
+      <div class="command-sub">Latest open event bucket: ${latestOpen ? esc(latestOpen.date) : '—'} · CMS project ${esc(cmsProject)}.</div>
+    </div>
+    <div class="command-card info">
+      <div class="command-label">Analyst note</div>
+      <div class="command-value">Journey details are drill-down first</div>
+      <div class="command-sub">Use Customer GID search for instance-level answers; this metrics page focuses on aggregate CMS event behavior.</div>
+      <div class="command-actions"><button class="mini-action" onclick="showSection('s1', document.querySelectorAll('.sub-nav button')[0])">Search journey</button></div>
+    </div>`;
+}
+function setMetricsInsight(title, detail) {
+  const el = document.getElementById('metricsCommandCenter');
+  if (!el) return;
+  const first = el.querySelector('.command-card');
+  if (!first) return;
+  first.className = 'command-card info';
+  first.innerHTML = `<div class="command-label">Selected chart insight</div><div class="command-value">${esc(title)}</div><div class="command-sub">${esc(detail)}</div><div class="command-actions"><button class="mini-action" onclick="loadMetrics()">Reset metrics readout</button></div>`;
+}
+
 // ── Section 4 — Metrics ───────────────────────────────────────────────────────
 let _metricsLoaded = false;
 
@@ -1136,6 +1217,8 @@ async function loadMetrics() {
       <div class="kpi-sub">${k.sub}</div>
     </div>`).join('');
 
+  renderMetricsCommandCenter(totalOpens, totalAnswers, slideTop, cmsProject, opensSeries, answerSeries);
+
   // Update chart subtitles to show which CMS project is being queried
   const guidOpensSub = document.getElementById('guidOpensSub');
   if (guidOpensSub) guidOpensSub.textContent = `CMS project: ${cmsProject} · starter_guide.opened`;
@@ -1161,6 +1244,12 @@ async function loadMetrics() {
         indexAxis: 'y',
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
+        onClick: (evt, elements) => {
+          if (!elements.length) return;
+          const idx = elements[0].index;
+          const row = slideTop.slice(0,15)[idx];
+          if (row) setMetricsInsight(row.label || row.id || 'Slide', `${row.count || 0} slide views in the selected CMS extract`);
+        },
         scales: {
           x: { grid: { color: '#dde1ec' }, ticks: { font: { size: 10 } } },
           y: { grid: { display: false }, ticks: { font: { size: 10 } } },
@@ -1265,5 +1354,8 @@ function showChartEmpty(canvasId, msg, showDebugLink = false) {
   </div>`;
 }
 </script>
+
+
+<script defer src="/assets/dashboard_ux.js?v=2026-06-25-world-ui"></script>
 </body>
 </html>

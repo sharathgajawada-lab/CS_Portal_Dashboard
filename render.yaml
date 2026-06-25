@@ -9,7 +9,7 @@ services:
       - key: APP_ENV
         value: production
       - key: DASHBOARD_ADMIN_TOKEN
-        sync: false   # required for raw CSAT, uploads, refresh, cache, and debug endpoints
+        sync: false   # required for raw CSAT, Domo refresh, break-glass ingestion, cache, and debug endpoints
       - key: ALLOWED_ORIGINS
         sync: false   # comma-separated browser origins; leave blank only for same-origin use
       - key: CMS_API_KEY

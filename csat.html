@@ -376,6 +376,59 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .data-quality-banner.warning { border-left-color:var(--amber); background:rgba(217,119,6,.04); }
 .data-quality-banner strong { color:var(--text1); }
 
+
+/* ── Executive / source UX ── */
+.source-strip {
+  display:grid; grid-template-columns:1.3fr repeat(3, minmax(150px, .7fr)); gap:10px;
+  margin-bottom:16px;
+}
+.source-tile {
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--r);
+  padding:12px 14px; min-width:0; box-shadow:var(--shadow);
+}
+.source-tile .label, .brief-card .label {
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:5px;
+}
+.source-tile .value { font-size:13px; font-weight:700; color:var(--text1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.source-tile .sub { font-size:11px; color:var(--text3); margin-top:3px; }
+.source-main { border-left:4px solid var(--blue); }
+.executive-brief {
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:16px;
+}
+.brief-card {
+  background:linear-gradient(180deg, #fff, #fafbfe); border:1px solid var(--border); border-radius:var(--r);
+  padding:14px 16px; min-width:0; box-shadow:var(--shadow);
+}
+.brief-card .value { font-size:18px; font-weight:800; color:var(--text1); line-height:1.2; margin-bottom:6px; }
+.brief-card .sub { font-size:12px; color:var(--text2); line-height:1.45; }
+.brief-card.critical { border-left:4px solid var(--red); }
+.brief-card.warning { border-left:4px solid var(--amber); }
+.brief-card.good { border-left:4px solid var(--green); }
+.brief-card.info { border-left:4px solid var(--blue); }
+.brief-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.mini-action {
+  border:1px solid var(--border); background:var(--surface2); color:var(--text2); border-radius:6px;
+  padding:4px 8px; font-size:11px; cursor:pointer;
+}
+.mini-action:hover { border-color:var(--blue); color:var(--blue); }
+.chart-hint { font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:2px 7px; }
+.protected-note {
+  padding:14px 16px; background:rgba(37,99,235,.06); border:1px solid rgba(37,99,235,.18); border-radius:8px;
+  color:var(--text2); font-size:12px; line-height:1.5;
+}
+.modal-panel {
+  background:var(--surface);border-radius:14px;padding:28px 32px;width:440px;max-width:92vw;box-shadow:0 8px 40px rgba(0,0,0,.22);
+}
+.modal-title { font-size:17px;font-weight:700;color:var(--text1);margin-bottom:6px; }
+.modal-sub { font-size:13px;color:var(--text3);margin-bottom:18px;line-height:1.5; }
+@media (max-width: 1024px) {
+  .source-strip { grid-template-columns:1fr 1fr; }
+  .executive-brief { grid-template-columns:1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .source-strip, .executive-brief { grid-template-columns:1fr; }
+}
+
 /* ── Footer ── */
 .footer { padding:20px 0; border-top:1px solid var(--border); display:flex;
   align-items:center; justify-content:space-between; font-size:11px; color:var(--text3) }
@@ -414,7 +467,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 
+
+
 </style>
+<link rel="stylesheet" href="/assets/dashboard_ux.css?v=2026-06-25-world-ui">
 </head>
 <body>
 
@@ -473,7 +529,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
     <div class="header-right">
       <div class="live-dot"></div>
       <div class="last-updated" id="lastUpdated">—</div>
-      <button class="export-btn" id="domoRefreshBtn" onclick="refreshFromDomo()" title="Pull the latest CSAT data live from Domo" style="background:var(--blue);color:#fff;border-color:var(--blue)">↻ Refresh from Domo</button>
+      <button class="export-btn" id="domoRefreshBtn" onclick="refreshFromDomo()" title="Manually pull the latest CSAT data live from Domo" style="background:var(--blue);color:#fff;border-color:var(--blue)">↻ Refresh from Domo</button>
     </div>
   </div>
 
@@ -497,6 +553,39 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
     </div>
 
     <div id="csatDataQuality" class="data-quality-banner" aria-live="polite"></div>
+
+    <div class="source-strip" id="csatSourceStrip" aria-live="polite">
+      <div class="source-tile source-main">
+        <div class="label">CSAT source</div>
+        <div class="value" id="csatSourceName">Domo dataset</div>
+        <div class="sub" id="csatSourceSub">Auto-refreshes every 2 hours when Domo credentials are configured</div>
+      </div>
+      <div class="source-tile">
+        <div class="label">Last index build</div>
+        <div class="value" id="csatSourceGenerated">—</div>
+        <div class="sub" id="csatSourceRange">—</div>
+      </div>
+      <div class="source-tile">
+        <div class="label">Rows / coverage</div>
+        <div class="value" id="csatSourceRows">—</div>
+        <div class="sub" id="csatSourceQuality">—</div>
+      </div>
+      <div class="source-tile">
+        <div class="label">Protected drilldowns</div>
+        <div class="value" id="csatAccessState">Aggregate view</div>
+        <div class="brief-actions">
+          <button class="mini-action" onclick="openDomoAccessModal('access')">Admin access</button>
+          <button class="mini-action" onclick="refreshFromDomo()">Refresh Domo</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="executive-brief" id="csatExecutiveBrief">
+      <div class="brief-card info"><div class="label">Executive readout</div><div class="value">Loading…</div><div class="sub">Waiting for Domo-backed CSAT data.</div></div>
+      <div class="brief-card info"><div class="label">Primary risk</div><div class="value">—</div><div class="sub">—</div></div>
+      <div class="brief-card info"><div class="label">Driver to inspect</div><div class="value">—</div><div class="sub">—</div></div>
+      <div class="brief-card info"><div class="label">Data confidence</div><div class="value">—</div><div class="sub">—</div></div>
+    </div>
 
     <!-- ── Global consultant scope bar (overrides the whole page when set) ───── -->
     <div id="csatGlobalScopeBar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px">
@@ -578,7 +667,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
         <div class="chart-controls">
           <div>
             <div class="card-title">Rating distribution</div>
-            <div class="card-sub" id="csatDistSub">How customers rate their calls</div>
+            <div class="card-sub" id="csatDistSub">How customers rate their calls <span class="chart-hint">click a bar</span></div>
           </div>
           <div id="csatDist_controls_placeholder"></div>
         </div>
@@ -673,7 +762,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
             <div>
               <div class="card-title">Call reasons analysis</div>
-              <div class="card-sub" id="callReasonSub">Most frequent call reasons and how they perform</div>
+              <div class="card-sub" id="callReasonSub">Most frequent call reasons and how they perform <span class="chart-hint">click a reason</span></div>
             </div>
             <div id="callReason_controls_placeholder"></div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -722,7 +811,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
       <div class="card" style="padding:0">
         <div style="padding:14px 16px 10px;border-bottom:0.5px solid var(--border)">
           <div class="card-title">Operations intelligence</div>
-          <div class="card-sub" id="opsSub">Call volume, unique opportunities, consultant load</div>
+          <div class="card-sub" id="opsSub">Call volume, unique opportunities, consultant load <span class="chart-hint">use table to find repeat-pressure days</span></div>
         </div>
         <div class="two-col" style="padding:12px 14px 14px;align-items:start">
           <div class="card" style="box-shadow:none;padding:12px">
@@ -926,27 +1015,29 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   <div id="csatDetailContent"></div>
 </div>
 
-<!-- CSAT Upload Modal -->
-<div id="uploadModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:12px;padding:28px 32px;width:420px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.2)">
-    <div style="font-size:16px;font-weight:500;color:var(--text1);margin-bottom:6px">Update CSAT data</div>
-    <div style="font-size:13px;color:var(--text3);margin-bottom:20px">Upload the latest call quality Excel file. The admin token also unlocks this browser session.</div>
-    <div style="margin-bottom:14px">
-      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Excel file (.xlsx)</label>
-      <input type="file" id="csatFileInput" accept=".xlsx,.xls,.csv"
-        style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1)">
+<!-- Domo access modal -->
+<div id="domoAccessModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:2000;align-items:center;justify-content:center">
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="domoAccessTitle">
+    <div class="modal-title" id="domoAccessTitle">Domo refresh & protected access</div>
+    <div class="modal-sub">
+      CSAT data is pulled directly from Domo. Enter the dashboard admin token to manually refresh the Domo dataset or unlock protected call-level drilldowns for this browser session. No Excel upload is part of the normal CSAT workflow.
     </div>
-    <div style="margin-bottom:20px">
+    <div style="padding:12px 14px;border:1px solid var(--border);background:var(--surface2);border-radius:8px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.5">
+      <strong style="color:var(--text1)">Normal operation:</strong> Domo pulls on the backend every 2 hours. Manual refresh should only be used when you know Domo has new rows and need the dashboard updated immediately.
+    </div>
+    <div style="margin-bottom:18px">
       <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Admin token</label>
-      <input type="password" id="csatUploadPwd" placeholder="Enter admin token"
-        style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1);outline:none">
+      <input type="password" id="domoAdminToken" placeholder="Enter admin token"
+        style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1);outline:none">
     </div>
-    <div id="uploadStatus" style="font-size:12px;margin-bottom:16px;min-height:18px"></div>
-    <div style="display:flex;gap:10px;justify-content:flex-end">
-      <button onclick="hideUploadModal()"
+    <div id="domoAccessStatus" style="font-size:12px;margin-bottom:16px;min-height:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+      <button onclick="hideDomoAccessModal()"
         style="padding:8px 18px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer">Cancel</button>
-      <button onclick="submitCSATUpload()"
-        style="padding:8px 18px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:13px;font-weight:500;cursor:pointer" id="uploadBtn">Upload & Update</button>
+      <button onclick="saveDomoAccess(false)"
+        style="padding:8px 18px;border:1px solid var(--blue);border-radius:6px;background:var(--surface);color:var(--blue);font-size:13px;font-weight:600;cursor:pointer">Unlock drilldowns</button>
+      <button onclick="saveDomoAccess(true)"
+        style="padding:8px 18px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:13px;font-weight:600;cursor:pointer" id="domoRefreshModalBtn">Refresh Domo now</button>
     </div>
   </div>
 </div>
@@ -984,8 +1075,9 @@ function escapeHtml(v) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 const _esc = escapeHtml;
+function jsString(v) { return JSON.stringify(String(v == null ? '' : v)); }
 function adminToken() {
-  return sessionStorage.getItem('dashboardAdminToken') || document.getElementById('csatUploadPwd')?.value || '';
+  return sessionStorage.getItem('dashboardAdminToken') || document.getElementById('domoAdminToken')?.value || '';
 }
 function adminHeaders() {
   const token = adminToken();
@@ -1014,6 +1106,127 @@ function renderCsatQualityBanner() {
   el.innerHTML = `<span aria-hidden="true">🧪</span><div>${parts.join(' · ')}</div>`;
   el.style.display = 'flex';
 }
+
+function _sourceFriendlyName(src) {
+  if (!src) return 'Domo index';
+  if (src === 'domo') return 'Domo dataset';
+  if (src === 'manual_break_glass_upload') return 'Break-glass upload';
+  if (src === 'bundled_csv') return 'Bundled fallback CSV';
+  if (src === 'not_loaded') return 'No CSAT source loaded';
+  return src.replace(/_/g, ' ');
+}
+function _fmtTs(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts.replace(/ZZ$/,'Z')).toLocaleString(); } catch { return ts; }
+}
+function renderCsatSourceStrip() {
+  const meta = _csatStatusMeta || {};
+  const src = meta.source || {};
+  const active = src.active || (_csatRaw ? 'domo' : 'not_loaded');
+  const sourceName = document.getElementById('csatSourceName');
+  const sourceSub = document.getElementById('csatSourceSub');
+  const gen = document.getElementById('csatSourceGenerated');
+  const range = document.getElementById('csatSourceRange');
+  const rows = document.getElementById('csatSourceRows');
+  const qual = document.getElementById('csatSourceQuality');
+  const access = document.getElementById('csatAccessState');
+  if (!sourceName) return;
+  sourceName.textContent = _sourceFriendlyName(active);
+  const cadence = src.refresh_cadence_seconds ? Math.round(src.refresh_cadence_seconds / 3600) + 'h auto-refresh' : 'backend auto-refresh';
+  sourceSub.textContent = src.domo_configured ? `Domo configured · ${cadence}` : 'Domo credentials are not configured; fallback source may be in use';
+  gen.textContent = _fmtTs((_csatRaw && _csatRaw.generated) || meta.generated || src.last_success_at || src.loaded_at);
+  range.textContent = `${(_csatRaw?.date_min || meta.date_min || '—')} → ${(_csatRaw?.date_max || meta.date_max || '—')}`;
+  const q = (_csatRaw && _csatRaw.quality) || meta.quality || {};
+  rows.textContent = `${fmt((_csatRaw?.total_rows ?? meta.total_rows) || 0)} indexed`;
+  qual.textContent = `${fmt(q.distinct_teams || 0)} teams · ${fmt(q.distinct_consultants || 0)} consultants`;
+  access.textContent = _csatHasSensitiveAccess ? 'Admin raw drilldowns' : 'Aggregate view';
+  access.style.color = _csatHasSensitiveAccess ? 'var(--green)' : 'var(--text1)';
+}
+function _snapshotForRange(from, to) {
+  const days = _csatScopedDays || _csatRaw?.days || {};
+  let total=0, sumR=0, solved=0, low=0;
+  for (const [d, dm] of Object.entries(days)) {
+    if (d < from || d > to) continue;
+    total += dm.t || 0; sumR += dm.sr || 0; solved += dm.s || 0; low += dm.l || 0;
+  }
+  return {
+    total,
+    avg: total ? Math.round(sumR/total*100)/100 : null,
+    solved: total ? Math.round(solved/total*1000)/10 : null,
+    low: total ? Math.round(low/total*1000)/10 : null,
+  };
+}
+function _deltaText(cur, prev, suffix='') {
+  if (cur == null || prev == null) return 'no comparison baseline';
+  const delta = Math.round((cur - prev) * 10) / 10;
+  const sign = delta > 0 ? '+' : '';
+  return `${sign}${delta}${suffix} vs previous period`;
+}
+function _briefClassFromRisk(d) {
+  if (!d || !d.total) return 'warning';
+  if ((d.low_pct || 0) > 20 || (d.avg_rating || 5) < 3.6) return 'critical';
+  if ((d.low_pct || 0) > 12 || (d.solved_pct || 100) < 65) return 'warning';
+  return 'good';
+}
+function focusReasonByName(reason) {
+  const q = document.getElementById('callReasonFilter');
+  if (q) { q.value = reason || ''; renderCallReasons(csatData?.call_reasons || [], csatData?.total || 0); }
+  document.getElementById('callReasonTableBody')?.scrollIntoView({behavior:'smooth', block:'center'});
+}
+function focusTeamByName(team) {
+  if (!team) return;
+  _csatScope = { type: 'team', value: team };
+  const ts = document.getElementById('csatGlobalTeamFilter'); if (ts) ts.value = team;
+  const cs = document.getElementById('csatGlobalConsultant'); if (cs) cs.value = '';
+  _csatComputeAndRender(state.from, state.to);
+}
+function renderCsatExecutiveBrief(d) {
+  const el = document.getElementById('csatExecutiveBrief');
+  if (!el) return;
+  if (!d || !d.available || !d.total) {
+    el.innerHTML = `<div class="brief-card warning"><div class="label">Executive readout</div><div class="value">No survey volume</div><div class="sub">The selected period has no CSAT responses.</div></div>`;
+    return;
+  }
+  const curDays = Math.max(1, Math.round((new Date(d.date_to) - new Date(d.date_from)) / 86400000) + 1);
+  const prevTo = subtractUnit(d.date_from, 1, 'days');
+  const prevFrom = subtractUnit(prevTo, curDays - 1, 'days');
+  const prev = _snapshotForRange(prevFrom, prevTo);
+  const topRiskReason = [...(d.call_reasons || [])]
+    .filter(r => (r.total || 0) >= Math.max(3, Math.ceil((d.total || 0) * 0.03)))
+    .sort((a,b) => (b.low_pct - a.low_pct) || (b.total - a.total))[0];
+  const lowestTeam = [...(d.teams || [])]
+    .filter(t => (t.total || 0) >= 3)
+    .sort((a,b) => (a.avg_rating - b.avg_rating) || (b.total - a.total))[0];
+  const q = _csatRaw?.quality || {};
+  const missingOpp = q.missing_opportunity_id_rows || 0;
+  const riskClass = _briefClassFromRisk(d);
+  const riskLabel = riskClass === 'good' ? 'Stable' : riskClass === 'warning' ? 'Needs attention' : 'At risk';
+  el.innerHTML = `
+    <div class="brief-card ${riskClass}">
+      <div class="label">Executive readout</div>
+      <div class="value">${riskLabel}: ${d.avg_rating}/5 CSAT</div>
+      <div class="sub">${fmt(d.total)} surveys · solved ${d.solved_pct}% (${_deltaText(d.solved_pct, prev.solved, ' pts')}) · low ratings ${d.low_pct}%.</div>
+    </div>
+    <div class="brief-card ${(topRiskReason && topRiskReason.low_pct > 20) ? 'critical' : 'warning'}">
+      <div class="label">Primary risk</div>
+      <div class="value">${topRiskReason ? _esc(topRiskReason.reason) : 'No dominant risk'}</div>
+      <div class="sub">${topRiskReason ? `${topRiskReason.low_pct}% low ratings · ${fmt(topRiskReason.total)} surveys · ${topRiskReason.solved_pct}% solved.` : 'No reason has enough volume to flag.'}</div>
+      ${topRiskReason ? `<div class="brief-actions"><button class="mini-action" onclick="focusReasonByName(${jsString(topRiskReason.reason)})">Inspect reason</button></div>` : ''}
+    </div>
+    <div class="brief-card ${(lowestTeam && lowestTeam.avg_rating < 3.6) ? 'critical' : 'info'}">
+      <div class="label">Team to inspect</div>
+      <div class="value">${lowestTeam ? _esc(lowestTeam.team) : 'No team signal'}</div>
+      <div class="sub">${lowestTeam ? `${lowestTeam.avg_rating}/5 avg · ${lowestTeam.low_pct}% low · ${fmt(lowestTeam.total)} surveys.` : 'No team has enough volume in this period.'}</div>
+      ${lowestTeam ? `<div class="brief-actions"><button class="mini-action" onclick="focusTeamByName(${jsString(lowestTeam.team)})">Focus team</button></div>` : ''}
+    </div>
+    <div class="brief-card ${missingOpp ? 'warning' : 'good'}">
+      <div class="label">Data confidence</div>
+      <div class="value">${missingOpp ? 'FCR limited' : 'Good'}</div>
+      <div class="sub">${fmt(q.indexed_rows || d.total)} indexed rows · ${fmt(q.distinct_days || 0)} active days · ${missingOpp ? fmt(missingOpp) + ' rows missing opportunity IDs.' : 'True-FCR inputs available.'}</div>
+      <div class="brief-actions"><button class="mini-action" onclick="openDomoAccessModal('access')">Unlock raw drilldowns</button></div>
+    </div>`;
+}
+
 function setStatus(id, st, text) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -1180,9 +1393,11 @@ function isChartCompare(id)  { return _chartCtrl[id]?.compare || false; }
 
 // ── CSAT Engine ───────────────────────────────────────────────────────────────
 // ── CSAT — client-side engine ─────────────────────────────────────────────────
-// csat_index.json is served from GitHub raw CDN (Fastly) — no Render cold start.
+// Domo-backed aggregate index is loaded first; protected raw data is opt-in with admin access.
 // Loaded ONCE, then all date filtering runs in JS in <5ms.
-const CSAT_DATA_URL = '/api/csat/raw';
+const CSAT_DATA_URL = '/api/csat/view';
+const CSAT_RAW_DATA_URL = '/api/csat/raw';
+const CSAT_STATUS_URL = '/api/csat/status';
 
 function subtractUnit(isoDate, n, unit) {
   const d = new Date(isoDate + 'T00:00:00');
@@ -1299,42 +1514,72 @@ function getCsatTrendDateRange() {
   }
   return { from: state.from, to: state.to };
 }
-function csatUrl() { return CSAT_DATA_URL + '?v=' + Date.now(); }  // cache-bust on every load
-
 let _csatRaw  = null;
 let csatData  = null;
+let _csatHasSensitiveAccess = false;
+let _csatStatusMeta = null;
+
+async function loadCsatStatus() {
+  try {
+    const r = await fetch(CSAT_STATUS_URL + '?v=' + Date.now());
+    if (r.ok) _csatStatusMeta = await r.json();
+  } catch (e) {
+    console.warn('CSAT status load failed:', e);
+  }
+  renderCsatSourceStrip();
+}
+
+function csatUrl(raw = false) {
+  return (raw ? CSAT_RAW_DATA_URL : CSAT_DATA_URL) + '?v=' + Date.now();
+}
+
+async function fetchCsatIndex(preferRaw) {
+  const rawWanted = !!preferRaw && !!adminToken();
+  const firstUrl = csatUrl(rawWanted);
+  const first = await fetch(firstUrl, { headers: rawWanted ? adminHeaders() : {} });
+  if (first.ok) {
+    _csatHasSensitiveAccess = rawWanted;
+    return await first.json();
+  }
+  if (rawWanted && (first.status === 401 || first.status === 403 || first.status === 503)) {
+    const fallback = await fetch(csatUrl(false));
+    if (fallback.ok) {
+      _csatHasSensitiveAccess = false;
+      return await fallback.json();
+    }
+  }
+  const err = new Error('CSAT data unavailable (' + first.status + ')');
+  err.status = first.status;
+  throw err;
+}
 
 async function loadCSAT(forceRefresh = false) {
   if (_csatRaw && !forceRefresh) {
     _csatComputeAndRender(state.from, state.to);
     return;
   }
-  setStatus('csatStatus', 'loading', 'Loading survey data…');
+  setStatus('csatStatus', 'loading', 'Loading Domo survey data…');
+  await loadCsatStatus();
   try {
-    const r = await fetch(csatUrl(), { headers: adminHeaders() });
-    if (!r.ok) {
-      const lockMsg = (r.status === 401 || r.status === 403 || r.status === 503)
-        ? 'CSAT data is locked. Open Update CSAT and enter the admin token.'
-        : 'Survey data unavailable (' + r.status + ')';
-      setStatus('csatStatus', 'error', lockMsg);
-      document.getElementById('csatSection').style.opacity = '0.65';
-      return;
-    }
-    _csatRaw = await r.json();
+    _csatRaw = await fetchCsatIndex(!!adminToken());
     if (!_csatRaw.available) {
-      setStatus('csatStatus', 'error', _csatRaw.note || 'No data');
-      document.getElementById('csatSection').style.opacity = '0.5';
+      setStatus('csatStatus', 'error', _csatRaw.note || 'No Domo CSAT data available');
+      document.getElementById('csatSection').style.opacity = '0.72';
+      renderCsatSourceStrip();
       return;
     }
-    setStatus('csatStatus', 'loaded', `${fmt(_csatRaw.total_rows)} surveys loaded`);
+    setStatus('csatStatus', 'loaded', `${fmt(_csatRaw.total_rows)} surveys loaded from Domo index`);
     document.getElementById('csatSection').style.opacity = '1';
     renderCsatQualityBanner();
+    renderCsatSourceStrip();
     _csatComputeAndRender(state.from, state.to);
   } catch(e) {
-    setStatus('csatStatus', 'error', 'Error: ' + e.message);
+    setStatus('csatStatus', 'error', 'Could not load Domo CSAT index: ' + e.message);
+    document.getElementById('csatSection').style.opacity = '0.72';
     console.warn('CSAT load failed:', e);
   }
 }
+
 
 // ── Global CSAT scope ─────────────────────────────────────────────────────────
 // When a team or member is selected in the By Team / By Member views, the WHOLE
@@ -1532,7 +1777,12 @@ function _syncGlobalScopeBar() {
       _globalCallsCache = (c.calls || []);
       document.getElementById('csatGlobalCallsTitle').textContent = `Individual calls — ${c.name} (${fmt(_globalCallsCache.length)})`;
       callsCard.style.display = '';
-      _renderGlobalCalls();
+      if (!_globalCallsCache.length && !_csatHasSensitiveAccess) {
+        const body = document.getElementById('csatGlobalCallsBody');
+        if (body) body.innerHTML = `<tr><td colspan="5" style="padding:24px"><div class="protected-note">Individual call IDs and summaries are protected. <button class="mini-action" onclick="openDomoAccessModal('access')">Unlock protected drilldowns</button></div></td></tr>`;
+      } else {
+        _renderGlobalCalls();
+      }
     } else {
       statusEl.textContent = 'No data for this consultant in the selected period';
       _globalCallsCache = [];
@@ -1956,6 +2206,8 @@ function renderCSAT(d) {
   document.getElementById('csatLow').textContent = (d.low_pct ?? '—') + '%';
   document.getElementById('csatSub').textContent =
     `${fmt(d.total)} surveys · ${d.date_from} → ${d.date_to} · ${d.avg_rating}/5 avg · ${d.solved_pct}% solved`;
+  renderCsatExecutiveBrief(d);
+  renderCsatSourceStrip();
 
   // Trend chart — aggregate daily data according to _csatGraphBy
   const dailyData = d.weekly_trend || [];  // named 'weekly_trend' but actually daily entries
@@ -2067,6 +2319,16 @@ function renderCSAT(d) {
     prevDist = [1,2,3,4,5].map(r => ({ rating:r, count: prevD[r]||0, pct: prevT.t > 0 ? Math.round((prevD[r]||0)/prevT.t*1000)/10 : 0 }));
   }
 
+  [1,2,3,4,5].forEach(rating => {
+    const bucket = dist.find(x => x.rating === rating) || { rating, count:0, pct:0 };
+    _csatDetailData['rating_' + rating] = {
+      reason: rating + '★ responses', total: bucket.count, share_pct: bucket.pct, avg_rating: rating,
+      solved_pct: '—', low_pct: rating <= 2 ? 100 : 0,
+      dist: [1,2,3,4,5].map(r => ({ r, count: r === rating ? bucket.count : 0, pct: r === rating && bucket.count ? 100 : 0 })),
+      show_summaries: _csatHasSensitiveAccess, summaries: collectRatingSummaries(rating),
+    };
+  });
+
   const distDatasets = [{
     label: 'Current period',
     data: dist.map(d => d.count),
@@ -2110,6 +2372,11 @@ function renderCSAT(d) {
       scales: {
         x: { ticks: { font: { size: 11 } }, grid: { display: false } },
         y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
+      },
+      onClick: (evt, els) => {
+        if (!els.length) return;
+        const rating = (els[0].index || 0) + 1;
+        openCsatDetail('reason', 'rating_' + rating);
       },
     },
   });
@@ -2474,7 +2741,7 @@ function renderCallReasons(reasons, totalSurveys) {
 
   body.innerHTML = rows.slice(0, 25).map(r => {
     const reasonKey = 'reason_' + String(r.reason || '').replace(/[^a-z0-9]/gi,'_').slice(0, 120);
-    _csatDetailData[reasonKey] = { ...r, show_summaries: false, summaries: [] };
+    _csatDetailData[reasonKey] = { ...r, show_summaries: _csatHasSensitiveAccess, summaries: r.summaries || [] };
     const ratingColor = r.avg_rating >= 4.5 ? 'var(--green)' : r.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
     const solvedColor = r.solved_pct >= 74 ? 'var(--green)' : r.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)';
     const lowPill = r.low_pct > 20 ? 'red' : r.low_pct > 10 ? 'amber' : 'green';
@@ -2554,6 +2821,14 @@ function renderCallReasons(reasons, totalSurveys) {
         x: { ticks: { maxRotation: 35, minRotation: 0, font: { size: 10 } }, grid: { display: false } },
         y: { position: 'left', ticks: { font: { size: 10 }, callback: v => v + '%' }, grid: gridOpts, beginAtZero: true, suggestedMax: Math.max(10, ...top.map(r => r.share_pct)) + 2 },
         y2: { position: 'right', min: 1, max: 5, ticks: { font: { size: 10 }, stepSize: 1 }, grid: { display: false } },
+      },
+      onClick: (evt, els) => {
+        if (!els.length) return;
+        const item = top[els[0].index];
+        if (!item) return;
+        const key = 'reason_' + String(item.reason || '').replace(/[^a-z0-9]/gi,'_').slice(0, 120);
+        _csatDetailData[key] = { ...item, show_summaries: _csatHasSensitiveAccess, summaries: item.summaries || [] };
+        openCsatDetail('reason', key);
       },
     },
   });
@@ -3320,6 +3595,22 @@ function formatCallSummaryText(rawValue) {
   }
 }
 
+
+function collectRatingSummaries(rating) {
+  if (!_csatHasSensitiveAccess) return [];
+  const out = [];
+  const days = _csatScopedDays || _csatRaw?.days || {};
+  for (const dm of Object.values(days)) {
+    for (const rv of Object.values((dm && dm.rs) || {})) {
+      for (const sm of (rv && rv.sm) || []) {
+        if (out.length >= 40) return out;
+        if (Number(sm?.rat) === Number(rating)) out.push(sm);
+      }
+    }
+  }
+  return out;
+}
+
 function openCsatDetail(type, key) {
   const data = _csatDetailData[key];
   if (!data) return;
@@ -3409,7 +3700,14 @@ function openCsatDetail(type, key) {
       ` : `<div style="padding:16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;text-align:center;color:var(--text3);font-size:11px">No call summaries available for this reason</div>`}
     </div>` : '';
 
+  const protectedHtml = (!_csatHasSensitiveAccess && (type === 'reason' || data.selected_call_id)) ? `
+    <div class="protected-note" style="margin-bottom:16px">
+      Call IDs and call summaries are protected. The aggregate metrics above remain available, but raw drilldowns require admin access.
+      <div class="brief-actions"><button class="mini-action" onclick="openDomoAccessModal('access')">Unlock protected drilldowns</button></div>
+    </div>` : '';
+
   body.innerHTML = `
+    ${protectedHtml}
     <div style="margin-bottom:20px">
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:12px">Rating breakdown</div>
       ${dist.map(d => `
@@ -3489,11 +3787,11 @@ async function init() {
   }
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChartModal(); });
 
-  // Upload modal backdrop click
-  const _uploadModal = document.getElementById('uploadModal');
-  if (_uploadModal) {
-    _uploadModal.addEventListener('click', function(e) {
-      if (e.target === this) hideUploadModal();
+  // Domo access modal backdrop click
+  const _domoAccessModal = document.getElementById('domoAccessModal');
+  if (_domoAccessModal) {
+    _domoAccessModal.addEventListener('click', function(e) {
+      if (e.target === this) hideDomoAccessModal();
     });
   }
 
@@ -3505,113 +3803,94 @@ async function init() {
 }
 
 
-// ── CSAT Upload Modal ─────────────────────────────────────────────────────────
-function showUploadModal() {
-  document.getElementById('uploadModal').style.display = 'flex';
-  document.getElementById('uploadStatus').textContent = '';
-  document.getElementById('csatFileInput').value = '';
+// ── Domo Admin Access ────────────────────────────────────────────────────────
+function openDomoAccessModal(mode = 'access') {
+  const modal = document.getElementById('domoAccessModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  const status = document.getElementById('domoAccessStatus');
+  if (status) {
+    status.style.color = 'var(--text3)';
+    status.textContent = mode === 'refresh'
+      ? 'Enter the admin token to pull the latest Domo CSAT dataset now.'
+      : 'Enter the admin token to unlock protected call IDs and summaries in this browser session.';
+  }
+  const input = document.getElementById('domoAdminToken');
+  if (input) {
+    input.value = adminToken();
+    setTimeout(() => input.focus(), 50);
+  }
 }
-function hideUploadModal() {
-  document.getElementById('uploadModal').style.display = 'none';
+function hideDomoAccessModal() {
+  const modal = document.getElementById('domoAccessModal');
+  if (modal) modal.style.display = 'none';
+}
+async function saveDomoAccess(refreshNow = false) {
+  const token = document.getElementById('domoAdminToken')?.value || '';
+  const statusEl = document.getElementById('domoAccessStatus');
+  if (!token) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = '✗ Please enter the admin token'; }
+    return;
+  }
+  rememberAdminToken(token);
+  if (!refreshNow) {
+    if (statusEl) { statusEl.style.color = 'var(--text3)'; statusEl.textContent = 'Unlocking protected drilldowns…'; }
+    await loadCSAT(true);
+    if (_csatHasSensitiveAccess) {
+      if (statusEl) { statusEl.style.color = 'var(--green)'; statusEl.textContent = '✓ Protected drilldowns unlocked'; }
+      setTimeout(hideDomoAccessModal, 700);
+    } else if (statusEl) {
+      statusEl.style.color = 'var(--amber)'; statusEl.textContent = 'Token saved, but protected raw data was not accepted. Check the token.';
+    }
+    return;
+  }
+  hideDomoAccessModal();
+  await refreshFromDomo(true);
 }
 
 // Pull the latest CSAT data live from Domo, then reload the page data.
-async function refreshFromDomo() {
+async function refreshFromDomo(tokenAlreadyCaptured = false) {
+  if (!adminToken() && !tokenAlreadyCaptured) {
+    openDomoAccessModal('refresh');
+    return;
+  }
   const btn = document.getElementById('domoRefreshBtn');
+  const modalBtn = document.getElementById('domoRefreshModalBtn');
   const orig = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '↻ Pulling from Domo…'; }
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Pulling Domo…'; }
+  if (modalBtn) { modalBtn.disabled = true; modalBtn.textContent = 'Refreshing…'; }
   try {
     const r = await fetch('/api/refresh/csat', { headers: adminHeaders() });
     const j = await r.json().catch(() => ({}));
     if (r.ok && (j.status || '').includes('refreshed')) {
-      if (btn) btn.textContent = '✓ Updated';
-      await loadCSAT(true);                 // re-fetch the rebuilt index
+      if (btn) btn.textContent = '✓ Domo updated';
+      _csatRaw = null;
+      await loadCSAT(true);
+      await loadCsatStatus();
       _populateGlobalConsultantBar();
       document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
     } else if (r.status === 401 || r.status === 403 || r.status === 503) {
       if (btn) btn.textContent = 'Admin token needed';
-      showUploadModal();
+      openDomoAccessModal('refresh');
       return;
     } else if (r.status === 400) {
-      // Domo not configured on the server — fall back to manual upload.
-      if (btn) btn.textContent = orig;
-      showUploadModal();
+      if (btn) btn.textContent = 'Domo not configured';
+      openDomoAccessModal('refresh');
+      const status = document.getElementById('domoAccessStatus');
+      if (status) { status.style.color = 'var(--amber)'; status.textContent = j.note || 'Domo is not configured on the server.'; }
       return;
     } else {
-      if (btn) btn.textContent = '✕ Pull failed';
+      if (btn) btn.textContent = '✕ Domo pull failed';
       console.warn('Domo refresh failed:', j);
     }
   } catch (e) {
-    if (btn) btn.textContent = '✕ Error';
+    if (btn) btn.textContent = '✕ Domo error';
     console.warn('Domo refresh error:', e);
   } finally {
     if (btn) setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
+    if (modalBtn) { modalBtn.disabled = false; modalBtn.textContent = 'Refresh Domo now'; }
   }
 }
-
-async function submitCSATUpload() {
-  const fileInput = document.getElementById('csatFileInput');
-  const pwd       = document.getElementById('csatUploadPwd').value;
-  const statusEl  = document.getElementById('uploadStatus');
-  const btn       = document.getElementById('uploadBtn');
-
-  if (!fileInput.files.length) {
-    statusEl.style.color = 'var(--red)';
-    statusEl.textContent = '✗ Please select a file';
-    return;
-  }
-  if (!pwd) {
-    statusEl.style.color = 'var(--red)';
-    statusEl.textContent = '✗ Please enter the admin token';
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = 'Uploading…';
-  statusEl.style.color = 'var(--text3)';
-  statusEl.textContent = 'Reading file and rebuilding index…';
-
-  try {
-    const form = new FormData();
-    form.append('file', fileInput.files[0]);
-
-    rememberAdminToken(pwd);
-    const r = await fetch('/upload/csat', {
-      method: 'POST',
-      headers: adminHeaders(),
-      body: form,
-    });
-    const data = await r.json();
-
-    if (r.ok && data.success) {
-      statusEl.style.color = 'var(--green)';
-      statusEl.textContent = `✓ ${data.message} · ${data.date_min} → ${data.date_max}`;
-      btn.textContent = 'Done!';
-      // Reload CSAT data in the dashboard
-      _csatRaw = null;  // clear stale cache so fresh data is fetched
-      _csatLastFrom = null;
-      _csatLastTo = null;
-      setTimeout(async () => {
-        hideUploadModal();
-        btn.disabled = false;
-        btn.textContent = 'Upload & Update';
-        await loadCSAT(true);  // force re-fetch — never serve old cached data
-      }, 1500);
-    } else {
-      statusEl.style.color = 'var(--red)';
-      statusEl.textContent = '✗ ' + (data.detail || 'Upload failed');
-      btn.disabled = false;
-      btn.textContent = 'Upload & Update';
-    }
-  } catch(e) {
-    statusEl.style.color = 'var(--red)';
-    statusEl.textContent = '✗ Network error: ' + e.message;
-    btn.disabled = false;
-    btn.textContent = 'Upload & Update';
-  }
-}
-
-// uploadModal listener — moved to init() so DOM exists when it runs
 
 
 // Register service worker for offline caching
@@ -3787,5 +4066,8 @@ waitForChart(init);
 </div>
 
 
+
+
+<script defer src="/assets/dashboard_ux.js?v=2026-06-25-world-ui"></script>
 </body>
 </html>

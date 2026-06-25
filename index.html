@@ -168,6 +168,52 @@ input[type=date] {
 .down { color: var(--red)   }
 .flat { color: var(--text3) }
 
+
+/* ── Executive command center ── */
+.command-center {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr 1fr;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+.command-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 15px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+.command-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--blue);
+}
+.command-card.good::before { background: var(--green); }
+.command-card.warning::before { background: var(--amber); }
+.command-card.critical::before { background: var(--red); }
+.command-card.info::before { background: var(--blue); }
+.command-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); margin-bottom: 5px; }
+.command-value { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; color: var(--text1); line-height: 1.15; margin-bottom: 5px; }
+.command-sub { font-size: 12px; color: var(--text3); line-height: 1.45; }
+.command-actions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.mini-action {
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text2);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.mini-action:hover { border-color: var(--border2); color: var(--text1); }
+@media (max-width: 980px) { .command-center { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .command-center { grid-template-columns: 1fr; } }
+
 /* ── Sections ── */
 .section { margin-bottom: 24px }
 .section-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap }
@@ -455,7 +501,10 @@ thead th:hover .sort-arrow { color:var(--text2) }
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 
+
+
 </style>
+<link rel="stylesheet" href="/assets/dashboard_ux.css?v=2026-06-25-world-ui">
 </head>
 <body>
 
@@ -531,6 +580,10 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
   <!-- Alerts -->
   <!-- alerts bar removed -->
+
+
+  <!-- Executive command center -->
+  <div class="command-center" id="portalCommandCenter" aria-live="polite"></div>
 
   <!-- KPI row -->
   <div class="kpi-row" id="kpiRow"></div>
@@ -1118,7 +1171,7 @@ function getWoW(key) {
 
 // ── CSAT — moved to /csat page ────────────────────────────────────────────────
 // These stubs prevent any lingering calls from crashing the page.
-const CSAT_DATA_URL = '/api/csat/raw';
+const CSAT_DATA_URL = '/api/csat/view';
 let _csatRaw = null;
 let _csatLastFrom = null;
 let _csatLastTo = null;
@@ -1231,6 +1284,64 @@ function renderAlerts() {
   }).join('');
 }
 
+// ── Portal command center ───────────────────────────────────────────────────
+
+function _portalTrendClass(wow) {
+  if (wow === null || wow === undefined || Number.isNaN(wow)) return 'info';
+  if (wow <= -20) return 'critical';
+  if (wow < -5) return 'warning';
+  if (wow > 5) return 'good';
+  return 'info';
+}
+function _portalTrendText(wow) {
+  if (wow === null || wow === undefined || Number.isNaN(wow)) return 'No comparison baseline yet';
+  const arrow = wow > 0 ? 'up' : wow < 0 ? 'down' : 'flat';
+  return `${Math.abs(wow)}% ${arrow} vs the comparable previous period`;
+}
+function renderPortalCommandCenter(totalViews, avgViews, totalViewsWow) {
+  const el = document.getElementById('portalCommandCenter');
+  if (!el) return;
+  const logins = getTotal('auth.login') || 0;
+  const articles = getTotal('article.viewed') || 0;
+  const searches = getTotal('search.performed') || 0;
+  const videos = getTotal('video.watched') || 0;
+  const channelRows = [
+    { key:'article.viewed', label:'Articles', value:articles },
+    { key:'search.performed', label:'Search', value:searches },
+    { key:'video.watched', label:'Videos', value:videos },
+  ].sort((a,b)=>b.value-a.value);
+  const top = channelRows[0] || { key:'article.viewed', label:'Articles', value:0 };
+  const viewsPerLogin = logins ? Math.round((totalViews / logins) * 10) / 10 : null;
+  const searchPerLogin = logins ? Math.round((searches / logins) * 10) / 10 : null;
+  const active = filters.event ? (EVENTS.find(e => e.key === filters.event)?.label || filters.event) : 'All events';
+  const riskClass = _portalTrendClass(totalViewsWow);
+  const filterCopy = filters.event ? `Filtered to ${escapeHtml(active)}. Clear the filter to return to the executive view.` : `Showing the full engagement mix for ${state.days} selected day${state.days === 1 ? '' : 's'}.`;
+  el.innerHTML = `
+    <div class="command-card ${riskClass}">
+      <div class="command-label">Executive readout</div>
+      <div class="command-value">${fmt(totalViews)} total views</div>
+      <div class="command-sub">${escapeHtml(_portalTrendText(totalViewsWow))} · ${fmt(avgViews)}/day. ${filterCopy}</div>
+      <div class="command-actions"><button class="mini-action" onclick="clearAllFilters()">Clear filters</button><button class="mini-action" onclick="document.getElementById('trendChart')?.scrollIntoView({behavior:'smooth',block:'center'})">Inspect trend</button></div>
+    </div>
+    <div class="command-card info">
+      <div class="command-label">Dominant behavior</div>
+      <div class="command-value">${escapeHtml(top.label)}</div>
+      <div class="command-sub">${fmt(top.value)} events in the selected period. Use this as the first place to inspect adoption shifts.</div>
+      <div class="command-actions"><button class="mini-action" onclick="setFilter('event',${jsString(top.key)})">Focus</button></div>
+    </div>
+    <div class="command-card ${viewsPerLogin && viewsPerLogin < 2 ? 'warning' : 'good'}">
+      <div class="command-label">Depth signal</div>
+      <div class="command-value">${viewsPerLogin == null ? '—' : viewsPerLogin + ' views/login'}</div>
+      <div class="command-sub">${fmt(logins)} logins · ${searchPerLogin == null ? '—' : searchPerLogin} searches/login. Low depth can mean users are not finding enough value after login.</div>
+    </div>
+    <div class="command-card info">
+      <div class="command-label">Analyst note</div>
+      <div class="command-value">Use exact vs estimated carefully</div>
+      <div class="command-sub">Daily event totals are exact from the metrics source. Selected-period article-level splits may be directional when article-day facts are unavailable.</div>
+      <div class="command-actions"><button class="mini-action" onclick="document.getElementById('articleTable')?.scrollIntoView({behavior:'smooth',block:'start'})">Review content</button></div>
+    </div>`;
+}
+
 // ── KPIs ─────────────────────────────────────────────────────────────────────
 function renderKPIs() {
   const activeEvent = filters.event;
@@ -1268,6 +1379,7 @@ function renderKPIs() {
   }).join('');
 
   document.getElementById('kpiRow').innerHTML = totalViewsHtml + rest;
+  renderPortalCommandCenter(totalViews, avgViews, wow);
 }
 
 // ── Trend chart ──────────────────────────────────────────────────────────────
@@ -3040,11 +3152,8 @@ async function loadCategories() {
   }
 }
 
-// ── CSAT Upload Modal — lives on /csat page ───────────────────────────────────
-// Stubs prevent crashes if button is somehow triggered on this page
-function showUploadModal() { window.location.href = '/csat'; }
-function hideUploadModal() {}
-async function submitCSATUpload() {}
+// ── CSAT is owned by the dedicated Domo-backed /csat page ───────────────────
+function openCSATPage() { window.location.href = '/csat'; }
 
 
 // Register service worker for offline caching
@@ -3228,5 +3337,8 @@ waitForChart(init);
 </div>
 
 
+
+
+<script defer src="/assets/dashboard_ux.js?v=2026-06-25-world-ui"></script>
 </body>
 </html>

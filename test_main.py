@@ -346,6 +346,47 @@ class TestSecurityControls:
         assert d["csat"]["schema_version"] >= 2
         assert "TEST-ADMIN-TOKEN" not in r.text
 
+    def test_csat_view_public_sanitizes_call_level_payloads(self):
+        """Aggregate CSAT view should power charts without exposing raw call payloads."""
+        import main as m
+        _build_csat_index([
+            {
+                "rating": 1,
+                "cid": "c_private",
+                "name": "Private Person",
+                "team": "Team A",
+                "date": "2026-05-04",
+                "solved": False,
+                "call_id": "SECRET-CALL-1",
+                "opp_id": "SECRET-OPP-1",
+                "reason": "Billing",
+                "summary": "SECRET SUMMARY TEXT",
+                "summary_raw": "SECRET RAW TEXT",
+                "response_id": "SECRET-RESPONSE",
+                "created_by_id": "SECRET-CREATED-BY",
+                "owner_id": "SECRET-OWNER",
+            }
+        ])
+        if os.path.exists(m.CSAT_JSON_PATH):
+            os.remove(m.CSAT_JSON_PATH)
+
+        r = client.get("/api/csat/view")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["available"] is True
+        assert d["access"]["sensitive_fields_removed"] is True
+        day = d["days"]["2026-05-04"]
+        assert "sm" not in day["rs"]["Billing"]
+        assert "c" not in day["cn"]["c_private"]
+        assert "SECRET" not in r.text
+
+    def test_csat_status_exposes_source_metadata(self):
+        r = client.get("/api/csat/status")
+        assert r.status_code == 200
+        d = r.json()
+        assert "source" in d
+        assert "refresh_cadence_seconds" in d["source"]
+
 
 
 class TestApiArticlesEndpoint:

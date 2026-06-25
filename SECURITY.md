@@ -2,7 +2,7 @@
 
 ## Admin token
 
-Set `DASHBOARD_ADMIN_TOKEN` in every deployed environment. The dashboard will return `503` for protected endpoints if admin auth is required but no token is configured.
+Set `DASHBOARD_ADMIN_TOKEN` in every deployed environment. Protected endpoints return `503` when admin auth is required but no token is configured.
 
 Accepted request formats:
 
@@ -11,7 +11,22 @@ X-Admin-Token: <token>
 Authorization: Bearer <token>
 ```
 
-The browser upload flow stores the token in `sessionStorage` for the current browser session and sends it in `X-Admin-Token`. Tokens are no longer sent in query strings.
+The browser stores the token only in `sessionStorage` for the current session and sends it through `X-Admin-Token`. Tokens are never sent in query strings.
+
+## CSAT data exposure model
+
+CSAT is Domo-first:
+
+```text
+Domo -> backend index -> /api/csat/view for aggregate dashboard rendering
+                     -> /api/csat/raw for protected call-level drilldowns
+```
+
+`/api/csat/view` is public and sanitized. It removes call IDs, call summaries, opportunity/customer identifiers, response details, and consultant call caches.
+
+`/api/csat/raw` is protected and should be treated as sensitive operational data.
+
+`/upload/csat` remains available only as a protected break-glass backend path. It is not exposed in the browser UI.
 
 ## Protected surfaces
 
@@ -19,9 +34,9 @@ Protect or restrict these surfaces in production:
 
 - `/api/csat/raw`
 - `/api/csat`
-- `/upload/csat`
-- `/api/refresh`
 - `/api/refresh/csat`
+- `/api/refresh`
+- `/upload/csat`
 - `/cache/clear`
 - `/debug/*`
 
@@ -46,4 +61,4 @@ Do not commit or expose:
 
 ## Frontend safety
 
-Every API/upload/CMS/Supabase/Domo value must be treated as untrusted. Prefer `textContent` for plain text. When a string must be inserted via `innerHTML`, escape it first.
+Every API/CMS/Supabase/Domo/break-glass value must be treated as untrusted. Prefer `textContent` for plain text. When a string must be inserted via `innerHTML`, escape it first.
