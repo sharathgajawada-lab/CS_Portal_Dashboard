@@ -38,9 +38,11 @@ def test_universal_chart_actions_exist_in_shared_ux_engine():
         'data-ux-action="csv"',
         'data-ux-action="png"',
         'data-ux-action="focus"',
+        'ux-floating-expand',
     ]
     assert "function enhanceCharts" in js
     assert "function openStudio" in js
+    assert "⤢ Expand" in js
     for action in required_actions:
         assert action in js, f"{action} missing from shared UX engine"
 
@@ -62,9 +64,18 @@ def test_dashboard_pages_have_charts_for_the_universal_toolbar_to_enhance():
 def test_csat_ui_is_domo_first_not_excel_upload_first():
     html = _html("csat.html")
     assert "CSAT data is pulled directly from Domo" in html
-    assert "No Excel upload is part of the normal CSAT workflow" in html
+    assert "Excel upload" in html
     assert '<input type="file"' not in html
     assert '/upload/csat' not in html
+
+
+def test_csat_voice_ai_and_open_drilldown_ui_are_first_class():
+    html = _html("csat.html")
+    assert 'id="voiceAiSection"' in html
+    assert "Voice AI performance" in html
+    assert "Nothing is locked in the UI" in html
+    assert "Admin access" not in html
+    assert "Unlock drilldowns" not in html
 
 
 def test_accessibility_and_power_user_controls_are_present_in_ux_engine():

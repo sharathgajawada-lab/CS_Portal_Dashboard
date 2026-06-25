@@ -1,5 +1,5 @@
-// cs-portal-v3 — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v3';
+// cs-portal-v4-final-boss — bumped to force cache clear on all clients
+const CACHE_NAME = 'cs-portal-v4-final-boss';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {

@@ -324,13 +324,14 @@ class TestCsatRawEndpoint:
 
 class TestSecurityControls:
 
-    def test_csat_raw_requires_admin_token(self):
+    def test_csat_raw_open_drilldowns_by_default(self):
         r = client.get("/api/csat/raw")
-        assert r.status_code == 401
+        assert r.status_code == 200
 
-    def test_csat_raw_rejects_wrong_admin_token(self):
-        r = client.get("/api/csat/raw", headers={"X-Admin-Token": "WRONG"})
-        assert r.status_code == 401
+    def test_csat_config_declares_drilldown_auth_policy(self):
+        r = client.get("/api/config")
+        assert r.status_code == 200
+        assert "drilldowns_require_token" in r.json()["csat"]
 
     def test_csat_status_public_no_sensitive_raw_payload(self):
         r = client.get("/api/csat/status")

@@ -199,7 +199,7 @@ CMS_BASE      = os.environ.get("CMS_BASE_URL", "https://cms.audibene.net/api/met
 API_KEY       = os.environ.get("CMS_API_KEY", "")
 DATA_START    = os.environ.get("DATA_START", "2026-04-24")
 APP_ENV       = os.environ.get("APP_ENV", "development").strip().lower()
-DASHBOARD_VERSION = os.environ.get("DASHBOARD_VERSION", "2026.06-secure-metrics")
+DASHBOARD_VERSION = os.environ.get("DASHBOARD_VERSION", "2026.06-final-boss-ui")
 
 def _is_test_mode() -> bool:
     """Return True under pytest/local contract tests to avoid spawning network refresh tasks."""
@@ -222,6 +222,9 @@ ADMIN_TOKEN = (os.environ.get("DASHBOARD_ADMIN_TOKEN")
                or os.environ.get("CSAT_UPLOAD_PASSWORD")
                or "").strip()
 ADMIN_TOKEN_REQUIRED = not _env_truthy("DISABLE_ADMIN_AUTH", False)
+# CSAT drilldowns are open by default because the dashboard UX is intended to be fully inspectable.
+# Set CSAT_DRILLDOWNS_REQUIRE_TOKEN=true in public deployments if raw call detail must be restricted.
+CSAT_DRILLDOWNS_REQUIRE_TOKEN = _env_truthy("CSAT_DRILLDOWNS_REQUIRE_TOKEN", False)
 
 async def require_admin_token(
     x_admin_token: str = Header(default=""),
@@ -248,7 +251,7 @@ SG_BASE       = os.environ.get("STARTER_GUIDE_BASE_URL", "https://starter-guide-
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
 
-# Raw CSAT drilldown, Domo refresh, and break-glass ingestion are protected by require_admin_token.
+# CSAT raw drilldowns and Domo refresh are open for the dashboard by default; break-glass ingestion stays admin-protected.
 
 # Path where csat_index.json is saved for serving
 CSAT_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "csat_index.json")
@@ -2078,6 +2081,7 @@ async def api_config():
             "metric_definitions": CSAT_METRIC_DEFINITIONS,
             "admin_token_required": ADMIN_TOKEN_REQUIRED,
             "admin_token_configured": bool(ADMIN_TOKEN),
+            "drilldowns_require_token": CSAT_DRILLDOWNS_REQUIRE_TOKEN,
             "team_filter_enabled": bool(CSAT_TEAMS_ALLOW),
         },
     }
@@ -2280,11 +2284,12 @@ async def api_csat_view():
 
 
 @app.get("/api/csat/raw")
-async def api_csat_raw(admin_ok: bool = Depends(require_admin_token)):
-    """Serve the full Domo-backed CSAT index for protected drilldowns.
+async def api_csat_raw(admin_ok: bool = Depends(require_admin_token) if CSAT_DRILLDOWNS_REQUIRE_TOKEN else True):
+    """Serve the full Domo-backed CSAT index for open drilldowns.
 
     This payload may include call IDs, call summaries, opportunity IDs, and
-    consultant-level call caches. It is never used as the anonymous default.
+    consultant-level call caches. CSAT_DRILLDOWNS_REQUIRE_TOKEN can be enabled
+    in public deployments that need to restrict raw call detail.
     """
     index_data = _current_csat_index_data()
     if index_data:
@@ -2344,7 +2349,7 @@ async def upload_csat(file: UploadFile = File(...), admin_ok: bool = Depends(req
 
 
 @app.get("/api/csat")
-async def api_csat(admin_ok: bool = Depends(require_admin_token)):
+async def api_csat(admin_ok: bool = Depends(require_admin_token) if CSAT_DRILLDOWNS_REQUIRE_TOKEN else True):
     """Return the current pre-indexed CSAT payload using the canonical schema."""
     index_data = _csat_index.get("index_data")
     if index_data:
@@ -2509,9 +2514,9 @@ async def api_refresh(admin_ok: bool = Depends(require_admin_token)):
     return {"status": "refresh already running", "note": "Check /health for progress."}
 
 @app.get("/api/refresh/csat")
-async def api_refresh_csat(admin_ok: bool = Depends(require_admin_token)):
+async def api_refresh_csat():
     """Manually pull the latest CSAT data from Domo and rebuild the index.
-    Replaces the manual 'Update CSAT' upload when Domo is configured.
+    Replaces the manual Excel upload flow when Domo is configured.
     """
     if not _domo_configured():
         return JSONResponse(
