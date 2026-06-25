@@ -504,9 +504,9 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
 
 </style>
-<link rel="stylesheet" href="/assets/dashboard_ux.css?v=2026-06-25-final-boss-ui">
+<link rel="stylesheet" href="portal-overrides.css?v=2026-06-25-v6-voice-ai-expand">
 </head>
-<body>
+<body data-dashboard-page="/">
 
 <!-- Loading overlay -->
 <div id="loading">
@@ -1227,6 +1227,10 @@ function applyFilters() {
   renderTrend();
   renderTableIfArticleData();
   // NOTE: loadCSAT is NOT called here — only date changes trigger it
+}
+
+function renderTableIfArticleData() {
+  if (articleData) renderArticleTable();
 }
 
 // ── CSAT date-aware loader — stubs defined above ──────────────────────────────
@@ -3339,6 +3343,6 @@ waitForChart(init);
 
 
 
-<script defer src="/assets/dashboard_ux.js?v=2026-06-25-final-boss-ui"></script>
+<script defer src="portal-system.js?v=2026-06-25-v6-voice-ai-expand"></script>
 </body>
 </html>

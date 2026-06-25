@@ -324,14 +324,13 @@ class TestCsatRawEndpoint:
 
 class TestSecurityControls:
 
-    def test_csat_raw_open_drilldowns_by_default(self):
+    def test_csat_raw_is_public_for_unlocked_drilldown_ux(self):
         r = client.get("/api/csat/raw")
         assert r.status_code == 200
 
-    def test_csat_config_declares_drilldown_auth_policy(self):
-        r = client.get("/api/config")
+    def test_csat_raw_ignores_wrong_admin_token_when_public(self):
+        r = client.get("/api/csat/raw", headers={"X-Admin-Token": "WRONG"})
         assert r.status_code == 200
-        assert "drilldowns_require_token" in r.json()["csat"]
 
     def test_csat_status_public_no_sensitive_raw_payload(self):
         r = client.get("/api/csat/status")
@@ -346,6 +345,20 @@ class TestSecurityControls:
         d = r.json()
         assert d["csat"]["schema_version"] >= 2
         assert "TEST-ADMIN-TOKEN" not in r.text
+
+
+    def test_voice_ai_team_name_is_canonicalized(self):
+        import main as m
+        _build_csat_index([
+            {
+                "rating": 5, "cid": "v1", "name": "Voice Tester",
+                "team": "VoiceAI", "date": "2026-05-05", "solved": True,
+                "call_id": "CALL-VAI", "opp_id": "OPP-VAI", "reason": "Voice AI",
+                "summary": "Voice AI summary",
+            }
+        ])
+        day = m._csat_index["index_data"]["days"]["2026-05-05"]
+        assert "Voice AI" in day["tm"]
 
     def test_csat_view_public_sanitizes_call_level_payloads(self):
         """Aggregate CSAT view should power charts without exposing raw call payloads."""

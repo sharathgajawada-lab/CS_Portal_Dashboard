@@ -1,5 +1,5 @@
-// cs-portal-v4-final-boss — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v4-final-boss';
+// cs-portal-v6-voice-ai-expand-root — bumped to force cache clear on all clients
+const CACHE_NAME = 'cs-portal-v6-voice-ai-expand-root';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {
@@ -50,13 +50,24 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Other static assets — cache with network fallback
+  // Root dashboard shell assets — always network-first so GitHub uploads show immediately.
+  if (url.pathname === '/portal-overrides.css' || url.pathname === '/portal-system.js' || url.pathname === '/dashboard_ux.js' || url.pathname.startsWith('/assets/')) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }).catch(() => caches.match(e.request)));
+    return;
+  }
+
+  // Static assets — network-first so UI fixes are visible immediately.
   if (e.request.destination === 'script' || e.request.destination === 'style') {
     e.respondWith(
       caches.open(CACHE_NAME).then(async cache => {
         const cached = await cache.match(e.request);
-        const fresh  = fetch(e.request).then(r => { cache.put(e.request, r.clone()); return r; });
-        return cached || fresh;
+        try {
+          const fresh = await fetch(e.request, { cache: 'no-store' });
+          cache.put(e.request, fresh.clone());
+          return fresh;
+        } catch (_) {
+          return cached || fetch(e.request);
+        }
       })
     );
   }

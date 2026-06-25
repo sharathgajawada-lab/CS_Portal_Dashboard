@@ -23,7 +23,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from collections import defaultdict, Counter
-import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
+import httpx, os, asyncio, time, json, hashlib, csv, secrets, io, re
 
 def _utcnow() -> datetime:
     """Naive UTC timestamp helper for legacy cache payload compatibility."""
@@ -199,7 +199,7 @@ CMS_BASE      = os.environ.get("CMS_BASE_URL", "https://cms.audibene.net/api/met
 API_KEY       = os.environ.get("CMS_API_KEY", "")
 DATA_START    = os.environ.get("DATA_START", "2026-04-24")
 APP_ENV       = os.environ.get("APP_ENV", "development").strip().lower()
-DASHBOARD_VERSION = os.environ.get("DASHBOARD_VERSION", "2026.06-final-boss-ui")
+DASHBOARD_VERSION = os.environ.get("DASHBOARD_VERSION", "2026.06-secure-metrics")
 
 def _is_test_mode() -> bool:
     """Return True under pytest/local contract tests to avoid spawning network refresh tasks."""
@@ -222,9 +222,11 @@ ADMIN_TOKEN = (os.environ.get("DASHBOARD_ADMIN_TOKEN")
                or os.environ.get("CSAT_UPLOAD_PASSWORD")
                or "").strip()
 ADMIN_TOKEN_REQUIRED = not _env_truthy("DISABLE_ADMIN_AUTH", False)
-# CSAT drilldowns are open by default because the dashboard UX is intended to be fully inspectable.
-# Set CSAT_DRILLDOWNS_REQUIRE_TOKEN=true in public deployments if raw call detail must be restricted.
-CSAT_DRILLDOWNS_REQUIRE_TOKEN = _env_truthy("CSAT_DRILLDOWNS_REQUIRE_TOKEN", False)
+# Product decision for this dashboard: CSAT raw drilldowns are visible in the UI
+# without an extra unlock step. Keep the global admin guard for debug/cache/full
+# refresh endpoints, but do not block CSAT drilldown UX behind a modal.
+CSAT_RAW_PUBLIC = _env_truthy("CSAT_RAW_PUBLIC", True)
+CSAT_REFRESH_REQUIRES_ADMIN = _env_truthy("CSAT_REFRESH_REQUIRES_ADMIN", False)
 
 async def require_admin_token(
     x_admin_token: str = Header(default=""),
@@ -251,7 +253,8 @@ SG_BASE       = os.environ.get("STARTER_GUIDE_BASE_URL", "https://starter-guide-
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
 
-# CSAT raw drilldowns and Domo refresh are open for the dashboard by default; break-glass ingestion stays admin-protected.
+# Raw CSAT drilldown and Domo refresh are open by default for internal dashboard use;
+# break-glass upload/debug/cache endpoints remain admin-token protected.
 
 # Path where csat_index.json is saved for serving
 CSAT_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "csat_index.json")
@@ -263,6 +266,12 @@ _DEFAULT_CSAT_TEAMS = ""
 CSAT_TEAMS_ALLOW = [
     t.strip() for t in os.getenv("CSAT_TEAMS", _DEFAULT_CSAT_TEAMS).split(",") if t.strip()
 ]
+# Voice AI is a first-class CS team. If an allow-list is configured in Render,
+# keep it from being accidentally filtered out by older environment values.
+if CSAT_TEAMS_ALLOW:
+    _voice_ai_seen = any("".join(ch for ch in t.lower() if ch.isalnum()) in {"voiceai", "teamvoiceai"} for t in CSAT_TEAMS_ALLOW)
+    if not _voice_ai_seen:
+        CSAT_TEAMS_ALLOW.append("Voice AI")
 _CSAT_TEAMS_ALLOW_LC = {t.lower() for t in CSAT_TEAMS_ALLOW}
 CSAT_INCLUDE_BOT_CONSULTANTS = _env_truthy("CSAT_INCLUDE_BOT_CONSULTANTS", False)
 
@@ -302,6 +311,40 @@ CSAT_METRIC_DEFINITIONS = {
 }
 
 
+def _canonical_csat_team(team: str) -> str:
+    """Normalize common Domo/team-label variants without dropping new teams.
+
+    This prevents Voice AI from disappearing when the source sends variants like
+    VoiceAI, Voice-AI, or voice ai, while leaving unknown future teams intact.
+    """
+    raw = str(team or "").strip()
+    if not raw:
+        return ""
+    compact = re.sub(r"[^a-z0-9]+", "", raw.lower())
+    known = {
+        "voiceai": "Voice AI",
+        "teamvoiceai": "Voice AI",
+        "hear4life": "Team Hear4Life",
+        "teamhear4life": "Team Hear4Life",
+        "amplifiers": "Team Amplifiers",
+        "teamamplifiers": "Team Amplifiers",
+        "soundcheck": "Team Sound Check",
+        "teamsoundcheck": "Team Sound Check",
+    }
+    return known.get(compact, raw)
+
+
+def _normalize_csat_rows(rows: list) -> list:
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        r = dict(row)
+        r["team"] = _canonical_csat_team(r.get("team"))
+        out.append(r)
+    return out
+
+
 def _filter_allowed_teams(rows: list) -> list:
     """Keep only rows whose CONSULTANT_TEAM is in the allow-list (case-insensitive)."""
     if not _CSAT_TEAMS_ALLOW_LC:
@@ -321,7 +364,7 @@ def _build_csat_index(rows: list) -> dict:
     """
     global _csat_rows, _csat_index
 
-    raw_rows = list(rows or [])
+    raw_rows = _normalize_csat_rows(list(rows or []))
     raw_row_count = len(raw_rows)
 
     # Drop teams/departments outside the CS allow-list only when CSAT_TEAMS is
@@ -712,7 +755,7 @@ def _parse_csv_text(text: str) -> list:
                 "rating": int(float(_gv("RATING"))),  # handles "5.0" and "5"
                 "cid":    str(_gv("CONSULTANT_ID")).strip(),
                 "name":   str(_gv("CONSULTANT_NAME")).strip(),
-                "team":   str(_gv("CONSULTANT_TEAM")).strip(),
+                "team":   _canonical_csat_team(_gv("CONSULTANT_TEAM")),
                 "date":   date_str,
                 "datetime": str(raw_date).strip(),  # full timestamp for FCR ordering
                 "solved": str(_gv("SOLVED")).strip().lower() == "true",
@@ -975,7 +1018,7 @@ def _parse_excel_bytes(data: bytes) -> list:
             rating  = int(float(_cell_value(row, "RATING") or 0))
             cid     = str(_cell_value(row, "CONSULTANT_ID") or "").strip()
             name    = str(_cell_value(row, "CONSULTANT_NAME") or "").strip()
-            team    = str(_cell_value(row, "CONSULTANT_TEAM") or "").strip()
+            team    = _canonical_csat_team(_cell_value(row, "CONSULTANT_TEAM") or "")
             dt_val  = _cell_value(row, "DATETIME", "DATE")
             solved  = str(_cell_value(row, "SOLVED") or "").strip().lower() == "true"
             call_id = str(_cell_value(row, "CALL_ID") or "").strip()
@@ -2081,7 +2124,8 @@ async def api_config():
             "metric_definitions": CSAT_METRIC_DEFINITIONS,
             "admin_token_required": ADMIN_TOKEN_REQUIRED,
             "admin_token_configured": bool(ADMIN_TOKEN),
-            "drilldowns_require_token": CSAT_DRILLDOWNS_REQUIRE_TOKEN,
+            "raw_drilldowns_public": CSAT_RAW_PUBLIC,
+            "refresh_requires_admin": CSAT_REFRESH_REQUIRES_ADMIN,
             "team_filter_enabled": bool(CSAT_TEAMS_ALLOW),
         },
     }
@@ -2276,20 +2320,20 @@ async def api_csat_view():
     """Public aggregate CSAT index used by the dashboard by default.
 
     It is sourced from the same Domo-built index as /api/csat/raw, but strips
-    call-level payloads. Admin drilldowns can opt into /api/csat/raw with an
-    admin token.
+    call-level payloads. The CSAT page now uses /api/csat/raw directly so users
+    can drill without an unlock modal.
     """
     index_data = _current_csat_index_data()
     return JSONResponse(_sanitize_csat_index_for_dashboard(index_data), headers=_csat_no_cache_headers())
 
 
 @app.get("/api/csat/raw")
-async def api_csat_raw(admin_ok: bool = Depends(require_admin_token) if CSAT_DRILLDOWNS_REQUIRE_TOKEN else True):
-    """Serve the full Domo-backed CSAT index for open drilldowns.
+async def api_csat_raw():
+    """Serve the full Domo-backed CSAT index for open in-dashboard drilldowns.
 
-    This payload may include call IDs, call summaries, opportunity IDs, and
-    consultant-level call caches. CSAT_DRILLDOWNS_REQUIRE_TOKEN can be enabled
-    in public deployments that need to restrict raw call detail.
+    The product requirement is no locked CSAT drilldown state. This endpoint may
+    include call IDs, call summaries, opportunity IDs, and consultant-level call
+    caches, so deploy this dashboard only inside the intended internal network.
     """
     index_data = _current_csat_index_data()
     if index_data:
@@ -2349,7 +2393,7 @@ async def upload_csat(file: UploadFile = File(...), admin_ok: bool = Depends(req
 
 
 @app.get("/api/csat")
-async def api_csat(admin_ok: bool = Depends(require_admin_token) if CSAT_DRILLDOWNS_REQUIRE_TOKEN else True):
+async def api_csat(admin_ok: bool = Depends(require_admin_token)):
     """Return the current pre-indexed CSAT payload using the canonical schema."""
     index_data = _csat_index.get("index_data")
     if index_data:
@@ -2388,6 +2432,8 @@ async def api_csat_status():
             "loaded_at": CSAT_REFRESH_SOURCE.get("loaded_at", ""),
             "last_error": CSAT_REFRESH_SOURCE.get("last_error", ""),
             "refresh_cadence_seconds": REFRESH_SEC,
+            "raw_drilldowns_public": CSAT_RAW_PUBLIC,
+            "refresh_requires_admin": CSAT_REFRESH_REQUIRES_ADMIN,
         },
         "quality": {
             "indexed_rows": quality.get("indexed_rows"),
@@ -2514,10 +2560,14 @@ async def api_refresh(admin_ok: bool = Depends(require_admin_token)):
     return {"status": "refresh already running", "note": "Check /health for progress."}
 
 @app.get("/api/refresh/csat")
-async def api_refresh_csat():
+async def api_refresh_csat(x_admin_token: str = Header(default=""), authorization: str = Header(default="")):
     """Manually pull the latest CSAT data from Domo and rebuild the index.
-    Replaces the manual Excel upload flow when Domo is configured.
+
+    CSAT refresh is not locked by default so the UI can refresh Domo without an
+    admin modal. Set CSAT_REFRESH_REQUIRES_ADMIN=true to restore the guard.
     """
+    if CSAT_REFRESH_REQUIRES_ADMIN:
+        await require_admin_token(x_admin_token=x_admin_token, authorization=authorization)
     if not _domo_configured():
         return JSONResponse(
             {"status": "domo not configured",
@@ -2964,9 +3014,41 @@ async def csat_page():
 
 
 
+def _dashboard_asset_response(filename: str, media_type: str):
+    """Serve dashboard UI assets from root first, with /assets fallback for older deploys."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base, filename),
+        os.path.join(base, "assets", filename),
+    ]
+    # Compatibility aliases: older HTML may still request /assets/dashboard_ux.*.
+    if filename == "dashboard_ux.css":
+        candidates.insert(0, os.path.join(base, "portal-overrides.css"))
+    elif filename == "dashboard_ux.js":
+        candidates.insert(0, os.path.join(base, "portal-system.js"))
+    for asset_path in candidates:
+        if os.path.exists(asset_path):
+            with open(asset_path, encoding="utf-8") as f:
+                content = f.read()
+            return Response(content=content, media_type=media_type,
+                headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                         "Pragma": "no-cache"})
+    raise HTTPException(status_code=404, detail="Asset not found")
+
+
+@app.get("/portal-overrides.css")
+async def portal_overrides_css():
+    return _dashboard_asset_response("portal-overrides.css", "text/css")
+
+
+@app.get("/portal-system.js")
+async def portal_system_js():
+    return _dashboard_asset_response("portal-system.js", "application/javascript")
+
+
 @app.get("/assets/{asset_name}")
 async def dashboard_asset(asset_name: str):
-    """Serve shared dashboard UX assets with a whitelist."""
+    """Serve shared dashboard UX assets with a whitelist and root-level fallback."""
     allowed = {
         "dashboard_ux.css": "text/css",
         "dashboard_ux.js": "application/javascript",
@@ -2974,16 +3056,11 @@ async def dashboard_asset(asset_name: str):
     media_type = allowed.get(asset_name)
     if not media_type:
         raise HTTPException(status_code=404, detail="Asset not found")
-    asset_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", asset_name)
-    if not os.path.exists(asset_path):
-        raise HTTPException(status_code=404, detail="Asset not found")
-    with open(asset_path, encoding="utf-8") as f:
-        content = f.read()
-    return Response(content=content, media_type=media_type,
-        headers={"Cache-Control": "public, max-age=86400"})
+    return _dashboard_asset_response(asset_name, media_type)
 
 @app.get("/sw.js")
 async def service_worker():
     with open("sw.js") as f: content = f.read()
     return Response(content=content, media_type="application/javascript",
-        headers={"Cache-Control":"public, max-age=86400"})
+        headers={"Cache-Control":"no-store, no-cache, must-revalidate",
+                 "Pragma":"no-cache"})

@@ -1,42 +1,64 @@
-# Security Notes
-
-This dashboard is Domo-first for CSAT and open-drilldown by default in the UI because the requested product behavior is that no CSAT chart/table/detail path appears locked.
+# Security checklist
 
 ## Admin token
 
-Set `DASHBOARD_ADMIN_TOKEN` in deployed environments. It still protects admin/debug/cache/break-glass routes such as:
+Set `DASHBOARD_ADMIN_TOKEN` in deployed environments for break-glass, cache, debug, and legacy protected endpoints. Raw CSAT and CSAT refresh are open by default in this internal-dashboard build per product requirement.
 
-- `/api/refresh`
-- `/cache/clear`
-- `/debug/*`
-- `/upload/csat`
-
-`CSAT_UPLOAD_PASSWORD` is accepted only as a backwards-compatible alias. New deployments should use `DASHBOARD_ADMIN_TOKEN`.
-
-## CSAT drilldowns
-
-Default behavior:
+Accepted request formats:
 
 ```text
-Domo dataset -> backend CSAT index -> /api/csat/raw -> open dashboard drilldowns
+X-Admin-Token: <token>
+Authorization: Bearer <token>
 ```
 
-`/api/csat/raw` is open by default so the CSAT page can show call-level drilldowns without admin locks. For a public or external deployment, set:
+Tokens are never sent in query strings. The current CSAT UI does not show an admin unlock modal.
 
-```bash
-CSAT_DRILLDOWNS_REQUIRE_TOKEN=true
+## CSAT data exposure model
+
+CSAT is Domo-first:
+
+```text
+Domo -> backend index -> /api/csat/view for sanitized aggregate rendering
+                     -> /api/csat/raw for open internal call-level drilldowns
 ```
 
-When that flag is enabled, `/api/csat/raw` and the backwards-compatible `/api/csat` alias require `X-Admin-Token` or `Authorization: Bearer <token>`.
+`/api/csat/view` is public and sanitized. It removes call IDs, call summaries, opportunity/customer identifiers, response details, and consultant call caches.
 
-## Domo refresh
+`/api/csat/raw` is open by default for the internal dashboard and should be treated as sensitive operational data. Keep the deployment internal, or set `CSAT_RAW_PUBLIC=false` and add a proper permission layer before broader exposure.
 
-`/api/refresh/csat` is callable from the CSAT page and pulls directly from Domo when `DOMO_CLIENT_ID`, `DOMO_CLIENT_SECRET`, and `DOMO_DATASET_ID` are configured.
+`/upload/csat` remains available only as a protected break-glass backend path. It is not exposed in the browser UI.
+
+## Protected surfaces
+
+Protect or restrict these surfaces in production according to deployment context:
+
+- `/api/csat/raw` when the dashboard is not strictly internal
+- `/api/refresh/csat` when refresh should be admin-only (`CSAT_REFRESH_REQUIRES_ADMIN=true`)
+- `/api/csat`
+- `/api/refresh`
+- `/upload/csat`
+- `/cache/clear`
+- `/debug/*`
 
 ## CORS
 
-Leave `ALLOWED_ORIGINS` blank for same-origin deployment. Set it to an explicit comma-separated allow-list if the API is called from another origin.
+CORS is not opened by default. Configure `ALLOWED_ORIGINS` only when the dashboard must be called from another origin.
 
-## Break-glass ingestion
+Example:
 
-`POST /upload/csat` remains available only as a backend recovery/backfill path and is not exposed in the browser UI. Keep it protected with `DASHBOARD_ADMIN_TOKEN`.
+```bash
+export ALLOWED_ORIGINS=https://cs-portal-dashboard.onrender.com,https://internal.example.com
+```
+
+## Secrets
+
+Do not commit or expose:
+
+- `CMS_API_KEY`
+- `SUPABASE_KEY`
+- `DASHBOARD_ADMIN_TOKEN`
+- `DOMO_CLIENT_SECRET`
+
+## Frontend safety
+
+Every API/CMS/Supabase/Domo/break-glass value must be treated as untrusted. Prefer `textContent` for plain text. When a string must be inserted via `innerHTML`, escape it first.
