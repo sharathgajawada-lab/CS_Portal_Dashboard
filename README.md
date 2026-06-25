@@ -1,9 +1,8 @@
 # CS Portal Analytics Dashboard
 
-FastAPI + Vanilla JS analytics dashboard for the hear.com Customer Support Portal.
+FastAPI + vanilla JavaScript analytics dashboard for the hear.com Customer Support Portal.
 
-**Live:** https://cs-portal-dashboard.onrender.com  
-**Stack:** FastAPI (Python 3.11) · Vanilla JS · Chart.js 4.4 · Supabase · Render
+**Stack:** FastAPI · Chart.js · Supabase optional session storage · Render-ready deployment
 
 ---
 
@@ -11,111 +10,169 @@ FastAPI + Vanilla JS analytics dashboard for the hear.com Customer Support Porta
 
 | URL | Description |
 |-----|-------------|
-| `/` | Portal Activity — logins, articles, searches, videos, sessions, heatmap |
-| `/csat` | Call Quality & CSAT — ratings, FCR, team/consultant leaderboard |
+| `/` | Portal Activity: logins, logouts, article views, searches, videos, sessions, heatmap, content health |
+| `/csat` | Call Quality & CSAT: ratings, solved rate, true FCR, teams, consultants, call-level drill-down |
+| `/starter-guides` | Starter Guide journeys, guide instances, answers, slides, and completion metrics |
 
 ---
 
-## Setup
+## What changed in the hardened version
 
-### Local development
+This version addresses the main findings from the dashboard critique:
+
+- Admin-only controls are protected by `DASHBOARD_ADMIN_TOKEN` instead of a hard-coded default password.
+- Raw CSAT, uploads, refresh, cache clearing, and debug endpoints now require an admin token.
+- Uploads send the admin token in the `X-Admin-Token` header, not in the query string.
+- CORS is same-origin by default and only opens to explicit `ALLOWED_ORIGINS`.
+- CSAT team filtering is configurable instead of hard-coded, so new teams are not silently dropped.
+- The CSAT metric previously labeled “First-call resolution” is now labeled “Solved rate.” True FCR is tracked separately when opportunity IDs are available.
+- CSAT responses include schema version, key legend, metric definitions, and data-quality metadata.
+- Frontend rendering now escapes high-risk CMS/upload fields in the portal, CSAT, and starter-guide pages.
+- Tests have been updated around the new security model and pass locally.
+
+---
+
+## Local development
 
 ```bash
-git clone https://github.com/sharathgajawada-lab/cs-portal-dashboard
-cd cs-portal-dashboard
 pip install -r requirements.txt
 
 export CMS_API_KEY=your-cms-api-key
-export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co   # optional
-export SUPABASE_KEY=your-service-role-jwt              # optional
-export CSAT_UPLOAD_PASSWORD=hearcom2024                # optional
+export DASHBOARD_ADMIN_TOKEN=choose-a-long-random-token
+export DATA_START=2026-04-24
+
+# Optional
+export SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
+export SUPABASE_KEY=your-service-role-jwt
+export DOMO_CLIENT_ID=your-domo-client-id
+export DOMO_CLIENT_SECRET=your-domo-client-secret
+export DOMO_DATASET_ID=your-domo-dataset-id
 
 uvicorn main:app --reload
-# Open http://localhost:8000
 ```
 
-### Deploy to Render
+Open `http://localhost:8000`.
 
-1. Push to GitHub
-2. Create new **Web Service** on render.com → connect repo
-3. Set environment variables (see `render.yaml` for the full list):
-   - `CMS_API_KEY` — hear.com CMS API key (required)
-   - `SUPABASE_URL` — Supabase project URL (optional, enables full session analytics)
-   - `SUPABASE_KEY` — Supabase service_role JWT (optional)
-   - `CSAT_UPLOAD_PASSWORD` — password for CSAT upload endpoint (default: `hearcom2024`)
-4. Deploy
+For local-only experiments, you may set `DISABLE_ADMIN_AUTH=true`, but do not use that setting in production.
 
-UptimeRobot pings `/health` every 5 minutes to keep the free-tier instance warm.
+---
+
+## Required production environment variables
+
+| Variable | Required | Description |
+|---|---:|---|
+| `CMS_API_KEY` | Yes | CMS metrics API key |
+| `DASHBOARD_ADMIN_TOKEN` | Yes | Admin token required for raw CSAT, uploads, refresh, cache, and debug endpoints |
+| `APP_ENV` | Recommended | Use `production` for deployments |
+| `DATA_START` | Recommended | Earliest portal data date, default `2026-04-24` |
+| `ALLOWED_ORIGINS` | Optional | Comma-separated origins for CORS. Leave blank for same-origin dashboard use |
+| `SUPABASE_URL` | Optional | Enables stored session timeline analytics |
+| `SUPABASE_KEY` | Optional | Supabase service-role key |
+| `DOMO_CLIENT_ID` | Optional | Enables direct CSAT refresh from Domo |
+| `DOMO_CLIENT_SECRET` | Optional | Enables direct CSAT refresh from Domo |
+| `DOMO_DATASET_ID` | Optional | CSAT dataset to pull from Domo |
+| `CSAT_TEAMS` | Optional | Comma-separated allow-list. Leave blank to include all teams |
+| `CSAT_INCLUDE_BOT_CONSULTANTS` | Optional | Defaults to `false` |
+
+`CSAT_UPLOAD_PASSWORD` is still accepted as a backwards-compatible alias for `DASHBOARD_ADMIN_TOKEN`, but new deployments should use `DASHBOARD_ADMIN_TOKEN`.
+
+---
+
+## Protected endpoints
+
+The following endpoints require `X-Admin-Token: <token>` or `Authorization: Bearer <token>`:
+
+| Method | Path | Reason |
+|---|---|---|
+| `GET` | `/api/csat/raw` | Contains call-level CSAT data and summaries |
+| `GET` | `/api/csat` | Backwards-compatible CSAT raw alias |
+| `POST` | `/upload/csat` | Replaces CSAT source data |
+| `GET` | `/api/refresh` | Starts upstream refresh jobs |
+| `GET` | `/api/refresh/csat` | Pulls CSAT data from Domo |
+| `GET` | `/cache/clear` | Can affect served data |
+| `GET` | `/debug/*` | Operational/debug information |
+
+Public alternatives:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health and cache status without sensitive data |
+| `GET` | `/api/config` | Public dashboard config and schema metadata |
+| `GET` | `/api/csat/status` | Non-sensitive CSAT availability and quality summary |
 
 ---
 
 ## Architecture
 
-```
+```text
 Browser
-  ├── GET /              → index.html  (Portal Activity)
-  ├── GET /csat          → csat.html   (Call Quality)
-  ├── GET /api/metrics/batch   → KPI time-series (cached 2h)
-  ├── GET /api/articles        → Article performance
-  ├── GET /api/search          → Search query intelligence
-  ├── GET /api/sessions/full   → Session analytics (Supabase)
-  ├── GET /api/csat/raw        → Full CSAT index (client-side filtered)
-  └── POST /upload/csat        → Upload new call_quality CSV/XLSX
+  ├── GET /                         -> index.html
+  ├── GET /csat                     -> csat.html
+  ├── GET /starter-guides           -> starter_guides.html
+  ├── GET /api/metrics/batch        -> KPI time series
+  ├── GET /api/articles             -> article performance and health scoring
+  ├── GET /api/search               -> search query intelligence
+  ├── GET /api/sessions/full        -> session analytics when Supabase is enabled
+  ├── GET /api/csat/status          -> public CSAT health summary
+  ├── GET /api/csat/raw             -> protected CSAT index
+  └── POST /upload/csat             -> protected CSV/XLSX CSAT upload
 ```
 
-**Cache:** 2h fresh / 24h stale. Persisted to `/tmp` so it survives Render restarts.  
-**Refresh:** Background loop every 2 hours — 15 fixed CMS calls + up to 12 timeline calls.  
-**CSAT data:** Loaded from `call_quality.csv` at startup; re-uploadable via dashboard UI.
+The backend still intentionally serves a simple HTML/JS application, but the data contract is now more explicit. CSAT index payloads include:
+
+- `schema_version`
+- `key_legend`
+- `metric_definitions`
+- `quality`
+- `date_min` / `date_max`
+- indexed day, team, consultant, reason, and call-level structures
+
+See `docs/METRICS_REGISTRY.md` and `metrics_registry.json` for metric definitions that should be kept in sync with future dashboard changes.
 
 ---
 
-## CSAT Data
+## CSAT source data
 
-`call_quality.csv` — required columns:
+Accepted upload formats: `.csv`, `.xlsx`, `.xls`.
 
-| Column | Type | Example |
-|--------|------|---------|
-| `RATING` | float | `4.0` |
-| `CONSULTANT_ID` | string | `user_abc` |
-| `CONSULTANT_NAME` | string | `Jane Smith` |
-| `CONSULTANT_TEAM` | string | `Team Amplifiers` |
-| `DATETIME` | datetime | `2026-05-01 09:30:00` |
-| `SOLVED` | boolean | `True` |
+Recommended columns:
 
-Upload a new file via the **Update CSAT** button on the `/csat` page (password-protected).
+| Column | Type | Purpose |
+|---|---|---|
+| `RATING` | number | Survey rating, usually 1-5 |
+| `SOLVED` | boolean/text | Survey solved flag used for solved rate |
+| `CONSULTANT_ID` | string | Stable consultant key |
+| `CONSULTANT_NAME` | string | Display name |
+| `CONSULTANT_TEAM` | string | Team dimension |
+| `DATETIME` | datetime | Survey/call timestamp |
+| `CALL_ID` | string | Deep-link to UCJ call record |
+| `OPPORTUNITY_ID` | string | Enables true FCR and repeat-call analysis |
+| `CALL_SUMMARY` | text | Used in call-level drill-downs |
+| `CALL_REASON` | text | Used in reason distribution and low-CSAT drivers |
 
----
-
-## Key endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check (UptimeRobot) |
-| `GET` | `/api/refresh` | Trigger manual data refresh |
-| `GET` | `/api/metrics/batch` | All KPI time-series |
-| `GET` | `/api/articles` | Article performance + health scores |
-| `GET` | `/api/sessions/full` | Full-team session analytics |
-| `GET` | `/api/csat/raw` | CSAT index for client-side filtering |
-| `POST` | `/upload/csat` | Upload new CSAT CSV/XLSX |
-| `GET` | `/debug/csat` | Verify CSAT data loaded |
-| `GET` | `/debug/cms` | Test CMS connectivity |
+Rows without optional fields are still counted where possible. The dashboard surfaces missing opportunity IDs and summaries in the CSAT data-quality banner.
 
 ---
 
-## CSAT views & per-call drill-down (Call ID → UCJ)
+## Running tests
 
-The `/csat` page has three synchronized subpages, switched via the Overview / By Team / By Member toggle:
+```bash
+pytest -q
+```
 
-- **Overview** — unscoped: all teams and consultants.
-- **By Team** — a team selector at the top. Picking a team re-scopes the *entire page* (KPIs, rating distribution, CSAT trend, FCR trend, leaderboards) to that team, and shows a per-team breakdown with its consultants. The CS Teams comparison cards always stay unscoped so they keep comparing all teams.
-- **By Member** — team filter + search + a consultant selector. Picking a consultant re-scopes the whole page to that member and renders an **individual-calls table**: each row shows the **Call ID** (a clickable deep link into the Unified Comm Journal, filtered to that call via `globalFilter`), the date, the star rating, and solved/unsolved.
+Current hardened baseline: `65 passed`.
 
-### Required CSV column
+---
 
-`call_quality.csv` now includes a `CALL_ID` column. It is captured by the startup CSV loader, the `.xlsx` parser, and the upload endpoint, and stored per-call under `days[date].cn[cid].c` as `{i: call_id, r: rating, s: solved}`. Rows without a `CALL_ID` are still counted in the aggregates but produce no per-call row.
+## Future-proofing rules for new data
 
-| Column | Type | Example |
-|--------|------|---------|
-| `CALL_ID` | string | `CAa9b4e29c07c03415649b92bdabb227e8` |
+When adding a new metric or source, update these in order:
 
-UCJ base: `https://comm-journal.audibene.net/table` — the Call ID is passed as the `globalFilter` query param.
+1. Add or revise the metric definition in `metrics_registry.json`.
+2. Add backend parsing/aggregation in one place.
+3. Expose a typed API response with schema/version metadata.
+4. Add tests for normal, empty, malformed, and missing-field cases.
+5. Render the metric with a visible definition, data freshness, and sample-size caveat.
+6. Escape all frontend values that originate from APIs, uploaded files, CMS content, Domo, or Supabase.
+
+Do not hard-code new teams, event names, or business rules in multiple frontend and backend locations. Prefer environment configuration or a dimension table/registry.

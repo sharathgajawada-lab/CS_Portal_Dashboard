@@ -92,6 +92,11 @@ html, body {
 }
 .qbtn:hover { border-color: var(--border2); color: var(--text1) }
 .qbtn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue) }
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, .kpi:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.kpi { cursor: pointer }
 .date-sep { color: var(--text3); font-size: 12px; padding: 0 2px }
 input[type=date] {
   height: 28px; padding: 0 8px; border-radius: var(--r-sm);
@@ -492,7 +497,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <a href="/" class="active">📊 Portal Activity</a>
       <a href="/csat">📞 Call Quality</a>
       <a href="/starter-guides">🗺️ Starter Guides</a>
-      <a href="/ai-bots">🤖 AI Bots</a>
     </nav>
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
@@ -900,7 +904,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 'use strict';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const DATA_START = '2023-06-22';
+const DATA_START = '2026-04-24';
 let _isAllTime = false;
 function getEarliestDataStart() {
   let earliest = DATA_START;
@@ -917,6 +921,7 @@ const _graphBy = { trend: 'day', csat: 'day' };  // true when 'All time' is sele
 const ARTICLE_BASE_URL = 'https://cs.hear.com/article/';
 const EVENTS = [
   {key:'auth.login',             label:'Logins',         color:'#0e6e45'},
+  {key:'auth.logout',            label:'Logouts',        color:'#64748b'},
   {key:'article.viewed',         label:'Articles viewed',color:'#c47a0a'},
   {key:'search.performed',       label:'Searches',       color:'#5b3fbf'},
   {key:'video.watched',          label:'Videos watched', color:'#c03030'},
@@ -966,6 +971,24 @@ function fmtDur(s) {
 function fmt(n) {
   if (n == null) return '—';
   return n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+function escapeAttr(value) { return escapeHtml(value); }
+function jsString(value) { return JSON.stringify(String(value ?? '')); }
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.origin);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) {
+    return '';
+  }
+}
+function safeArticleUrl(id) {
+  return ARTICLE_BASE_URL + encodeURIComponent(String(id ?? ''));
 }
 
 // ── Date filter ──────────────────────────────────────────────────────────────
@@ -1041,7 +1064,8 @@ function updateFilterBar() {
     else if (type === 'dow') label = `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][val]}s`;
     else if (type === 'category') label = (val || '').toString().replace('/ ', ' ');
     else label = String(val);
-    return `<span class="filter-chip">${label}<button onclick="clearFilter('${type}')">✕</button></span>`;
+    const safeType = ['event','dow','category'].includes(type) ? type : 'event';
+    return `<span class="filter-chip">${escapeHtml(label)}<button type="button" aria-label="Remove ${escapeAttr(label)} filter" onclick="clearFilter('${safeType}')">✕</button></span>`;
   }).join('');
 }
 
@@ -1196,12 +1220,15 @@ function renderAlerts() {
   if (schedTotal < 5 && state.days >= 7)
     alerts.push({ type: 'info', icon: '📅', msg: 'Scheduling feature has very low usage — may need visibility improvements' });
 
-  document.getElementById('alertsRow').innerHTML = alerts.slice(0, 5).map(a => `
-    <div class="alert ${a.type}" onclick="${a.eventKey ? `setFilter('event','${a.eventKey}')` : a.articleId ? `openDrawerById('${a.articleId}')` : ''}">
-      <span class="badge">${a.icon}</span>
-      <span class="msg">${a.msg}</span>
+  document.getElementById('alertsRow').innerHTML = alerts.slice(0, 5).map(a => {
+    const action = a.eventKey ? `setFilter('event',${jsString(a.eventKey)})` : a.articleId ? `openDrawerById(${jsString(a.articleId)})` : '';
+    return `
+    <div class="alert ${escapeAttr(a.type || 'info')}" onclick="${escapeAttr(action)}">
+      <span class="badge">${escapeHtml(a.icon)}</span>
+      <span class="msg">${escapeHtml(a.msg)}</span>
       ${a.eventKey || a.articleId ? '<span class="arrow">→</span>' : ''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ── KPIs ─────────────────────────────────────────────────────────────────────
@@ -1216,7 +1243,7 @@ function renderKPIs() {
   const wowLabel = wow === null ? '—' : (wow > 0 ? '↑ ' : '↓ ') + Math.abs(wow) + '% ' + periodLabel;
   const isActiveTotal = activeEvent === 'total.views';
   const isFadedTotal  = activeEvent !== null && !isActiveTotal;
-  const totalViewsHtml = `<div class="kpi${isActiveTotal? ' active' : ''}${isFadedTotal? ' faded' : ''}" style="--kpi-accent:#2563eb" onclick="setFilter('event','total.views')">
+  const totalViewsHtml = `<div class="kpi${isActiveTotal? ' active' : ''}${isFadedTotal? ' faded' : ''}" role="button" tabindex="0" aria-label="Filter to total views" style="--kpi-accent:#2563eb" onclick="setFilter('event','total.views')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">
       <div class="kpi-label">Total views</div>
       <div class="kpi-value">${fmt(totalViews)}</div>
       <div class="kpi-sub">~${fmt(avgViews)}/day</div>
@@ -1232,7 +1259,7 @@ function renderKPIs() {
     const wowLabel = wow === null ? '—' : (wow > 0 ? '↑ ' : '↓ ') + Math.abs(wow) + '% ' + periodLabel;
     const isActive = activeEvent === ev.key;
     const isFaded  = activeEvent !== null && !isActive;
-    return `<div class="kpi${isActive?' active':''}${isFaded?' faded':''}" style="--kpi-accent:${ev.color}" onclick="setFilter('event','${ev.key}')">
+    return `<div class="kpi${isActive?' active':''}${isFaded?' faded':''}" role="button" tabindex="0" aria-label="Filter to ${escapeAttr(ev.label)}" style="--kpi-accent:${ev.color}" onclick="setFilter('event','${ev.key}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">
       <div class="kpi-label">${ev.label}</div>
       <div class="kpi-value">${fmt(total)}</div>
       <div class="kpi-sub">~${fmt(avg)}/day</div>
@@ -1897,7 +1924,7 @@ function renderArticleTable() {
     ? `${totalCount} articles · ${fmt(allTimeTotal)} total views · all time`
     : `${totalCount} articles · est. ${fmt(Math.round(filteredSeries))} views · ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
   document.getElementById('articleNote').textContent =
-    `ℹ️ ${note}${isAllTime ? '' : ' Views estimated for selected period using daily time-series.'} Time/bounce from timeline sample.`;
+    `ℹ️ ${note}${isAllTime ? '' : ' Selected-period article views are directional estimates from daily total article traffic, not article-level exact counts.'} Time/bounce from timeline sample.`;
 
   if (!articles.length) {
     document.getElementById('articleTable').innerHTML =
@@ -1911,7 +1938,10 @@ function renderArticleTable() {
     const rowClass    = a.needs_attention ? 'row-warning' : '';
     const scaledViews = isAllTime ? a.views : Math.max(1, Math.round(a.views * ratio));
     const scaledShare = isAllTime ? a.share_pct : Math.round(scaledViews / Math.max(filteredSeries, 1) * 1000) / 10;
-    const articleUrl  = ARTICLE_BASE_URL + a.id;
+    const articleUrl  = safeArticleUrl(a.id);
+    const safeLabel   = escapeHtml(a.label || 'Untitled article');
+    const safeId      = escapeHtml(a.id || '');
+    const shareWidth  = Math.max(0, Math.min(100, Number(scaledShare) || 0));
 
     return `<tr class="${rowClass}" style="cursor:pointer" title="Click for details">
       <td style="padding-left:20px;max-width:260px" onclick="openDrawer(${i})">
@@ -1919,10 +1949,10 @@ function renderArticleTable() {
           <span style="font-size:11px;color:var(--text3);min-width:18px">${i+1}</span>
           <div>
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="color:var(--text1);font-size:13px;font-weight:500">${a.label}${a.is_dead_end ? ' <span class="pill grey" style="font-size:10px;vertical-align:middle">dead-end</span>' : ''}</span>
-              <a href="${articleUrl}" target="_blank" onclick="event.stopPropagation()" title="Open article in CS portal" style="color:var(--text3);font-size:11px;text-decoration:none;opacity:.6;transition:opacity .15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.6'">↗</a>
+              <span style="color:var(--text1);font-size:13px;font-weight:500">${safeLabel}${a.is_dead_end ? ' <span class="pill grey" style="font-size:10px;vertical-align:middle">dead-end</span>' : ''}</span>
+              <a href="${escapeAttr(articleUrl)}" rel="noopener noreferrer" target="_blank" onclick="event.stopPropagation()" title="Open article in CS portal" style="color:var(--text3);font-size:11px;text-decoration:none;opacity:.6;transition:opacity .15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.6'">↗</a>
             </div>
-            <div style="font-size:11px;color:var(--text3);margin-top:1px;font-family:'JetBrains Mono',monospace">${a.id}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:1px;font-family:'JetBrains Mono',monospace">${safeId}</div>
           </div>
         </div>
       </td>
@@ -1937,7 +1967,7 @@ function renderArticleTable() {
       </td>
       <td class="r" style="min-width:130px" onclick="openDrawer(${i})">
         <div class="share-bar">
-          <div class="share-track"><div class="share-fill" style="width:${scaledShare}%;background:var(--blue)"></div></div>
+          <div class="share-track"><div class="share-fill" style="width:${shareWidth}%;background:var(--blue)"></div></div>
           <span style="font-size:11px;color:var(--text3);min-width:36px">${scaledShare}%</span>
         </div>
       </td>
@@ -1967,8 +1997,8 @@ function renderSearchSection() {
     const isZero = zero_result?.some(z => z.query === q.query);
     return `<tr>
       <td class="mono" style="color:var(--text3)">${i+1}</td>
-      <td style="font-size:13px">${q.query}${isZero ? ' <span class="pill red" style="font-size:10px">0 results</span>' : ''}</td>
-      <td class="mono r">${q.count}</td>
+      <td style="font-size:13px">${escapeHtml(q.query)}${isZero ? ' <span class="pill red" style="font-size:10px">0 results</span>' : ''}</td>
+      <td class="mono r">${fmt(q.count)}</td>
       <td class="r">${isZero ? '<span class="pill red">None</span>' : '<span class="pill green">Found</span>'}</td>
     </tr>`;
   }).join('');
@@ -1979,11 +2009,11 @@ function renderSearchSection() {
   if (elGaps) elGaps.innerHTML = gaps.length
     ? gaps.map(g => `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:13px">"${g.query}"</span>
+        <span style="font-size:13px">"${escapeHtml(g.query)}"</span>
         <div style="display:flex;align-items:center;gap:6px">
           ${g.is_zero_result ? '<span class="pill red">0 results</span>' : ''}
           <span class="pill amber">No article</span>
-          <span style="font-size:12px;color:var(--text3)">${g.count}×</span>
+          <span style="font-size:12px;color:var(--text3)">${fmt(g.count)}×</span>
         </div>
       </div>`).join('')
     : '<div class="empty" style="padding:20px"><span>✅</span>No content gaps detected</div>';
@@ -2074,15 +2104,17 @@ function renderCategories() {
 function renderVideos() {
   if (!videoData?.videos) return;
   document.getElementById('videoSub').textContent = videoData.note || '';
-  document.getElementById('videoTable').innerHTML = videoData.videos.slice(0, 10).map((v, i) =>
-    `<tr>
+  document.getElementById('videoTable').innerHTML = videoData.videos.slice(0, 10).map((v, i) => {
+    const title = escapeHtml(v.title || 'Untitled video');
+    const url = safeExternalUrl(v.url);
+    return `<tr>
       <td class="mono" style="color:var(--text3)">${i+1}</td>
-      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.title}">
-        ${v.url ? `<a href="${v.url}" target="_blank" style="color:var(--blue);text-decoration:none">${v.title}</a>` : v.title}
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeAttr(v.title || 'Untitled video')}">
+        ${url ? `<a href="${escapeAttr(url)}" rel="noopener noreferrer" target="_blank" style="color:var(--blue);text-decoration:none">${title}</a>` : title}
       </td>
-      <td class="mono r">${v.count}</td>
-    </tr>`
-  ).join('');
+      <td class="mono r">${fmt(v.count)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── Session section ───────────────────────────────────────────────────────────
@@ -2317,12 +2349,12 @@ function openDrawer(idx) {
   const hlpPct = a.helpful_pct;
   const hlpClass = hlpPct === null ? 'grey' : hlpPct >= 70 ? 'green' : hlpPct >= 40 ? 'amber' : 'red';
 
-  const articleUrl = ARTICLE_BASE_URL + a.id;
+  const articleUrl = safeArticleUrl(a.id);
   document.getElementById('drawerTitle').textContent = a.label;
   document.getElementById('drawerSub').innerHTML =
-    '<span style="font-family:JetBrains Mono,monospace;font-size:11px;color:var(--text3)">' + a.id + '</span>' +
+    '<span style="font-family:JetBrains Mono,monospace;font-size:11px;color:var(--text3)">' + escapeHtml(a.id) + '</span>' +
     ' &nbsp;·&nbsp; ' +
-    '<a href="' + articleUrl + '" target="_blank" style="font-size:12px;color:var(--blue);text-decoration:none">Open article ↗</a>';
+    '<a href="' + escapeAttr(articleUrl) + '" rel="noopener noreferrer" target="_blank" style="font-size:12px;color:var(--blue);text-decoration:none">Open article ↗</a>';
   document.getElementById('drawerContent').innerHTML = `
     <div class="drawer-section">
       <div class="drawer-section-title">Performance overview</div>
@@ -2365,8 +2397,8 @@ function openDrawer(idx) {
       <div class="drawer-section-title">Users continue to</div>
       ${a.next_articles.map(n => `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-          <span style="font-size:13px">${n.label}</span>
-          <span class="pill blue">${n.count}×</span>
+          <span style="font-size:13px">${escapeHtml(n.label)}</span>
+          <span class="pill blue">${fmt(n.count)}×</span>
         </div>`).join('')}
     </div>` : ''}
     ${a.is_dead_end ? `
@@ -2420,9 +2452,10 @@ function setStatus(id, state, text) {
   const el = document.getElementById(id);
   if (!el) return;
   el.className = 'section-status ' + state;
+  const safeText = escapeHtml(text);
   el.innerHTML = state === 'loading'
-    ? '<span class="spinner"></span> ' + text
-    : (state === 'loaded' ? '✓ ' : '✗ ') + text;
+    ? '<span class="spinner"></span> ' + safeText
+    : (state === 'loaded' ? '✓ ' : '✗ ') + safeText;
 }
 
 function renderInsights(intel) {
@@ -2722,9 +2755,9 @@ function renderInsights(intel) {
   document.getElementById('priorityList').innerHTML = priority.length
     ? priority.map(p => `
       <div class="priority-row">
-        <div style="flex:1;font-size:13px">${p.label}</div>
-        <span class="priority-issue ${p.issue.includes('bounce')?'bounce':p.issue.includes('feedback')?'no-feedback':p.issue.includes('Low')?'low-time':'watch'}">${p.issue}</span>
-        <span style="font-size:12px;color:var(--text3)">${p.views} views</span>
+        <div style="flex:1;font-size:13px">${escapeHtml(p.label)}</div>
+        <span class="priority-issue ${p.issue.includes('bounce')?'bounce':p.issue.includes('feedback')?'no-feedback':p.issue.includes('Low')?'low-time':'watch'}">${escapeHtml(p.issue)}</span>
+        <span style="font-size:12px;color:var(--text3)">${fmt(p.views)} views</span>
       </div>`).join('')
     : '<div class="empty" style="padding:20px"><span>✅</span>All articles healthy</div>';
 
@@ -2775,10 +2808,10 @@ async function init() {
     elapsed = Math.round((Date.now() - startTime) / 1000);
     if (elapsed >= 4 && elapsed < 15) {
       setLoad(10, `Waking up server… ${elapsed}s`);
-      setSub('The server was asleep — this takes up to 30 seconds on first visit.\nSubsequent loads will be instant.');
+      setSub('The server may be waking up after inactivity. Subsequent loads are usually faster.');
     } else if (elapsed >= 15 && elapsed < 40) {
       setLoad(15 + elapsed * 0.5, `Almost ready… ${elapsed}s`);
-      setSub('Server is starting up. Thank you for your patience.');
+      setSub('Server is starting up. The dashboard shell will continue loading data as it becomes available.');
     } else if (elapsed >= 40) {
       setLoad(30, `Still loading… ${elapsed}s`);
       setSub('Taking longer than usual. Check your connection or try refreshing.');

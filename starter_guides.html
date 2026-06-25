@@ -96,6 +96,10 @@ html, body {
   background: var(--surface); color: var(--blue);
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, .journey-card:focus-visible, .clickable:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
 
 /* ── Sub-nav tabs ── */
 .sub-nav {
@@ -408,7 +412,6 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
       <a href="/">📊 Portal Activity</a>
       <a href="/csat">📞 Call Quality</a>
       <a href="/starter-guides" class="active">🗺️ Starter Guides</a>
-      <a href="/ai-bots">🤖 AI Bots</a>
     </nav>
     <div class="header-right">
       <div style="width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)"></div>
@@ -613,7 +616,10 @@ function activateSubNavBtn(sectionId) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function jsString(s) {
+  return JSON.stringify(String(s ?? ''));
 }
 
 function fmtDate(iso) {
@@ -722,7 +728,7 @@ function renderJourneyGrid(journeys) {
     const pct = j.progress ? j.progress.percentage || Math.round((j.progress.completed / Math.max(j.progress.total, 1)) * 100) : 0;
     const completed = j.progress ? j.progress.completed : 0;
     const total     = j.progress ? j.progress.total : 0;
-    return `<div class="journey-card" onclick="openJourneyDetail('${esc(j.journeyId || j.id || i)}')">
+    return `<div class="journey-card" tabindex="0" role="button" onclick="openJourneyDetail(${esc(jsString(j.journeyId || j.id || i))})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">
       <div class="journey-card-title">${esc(j.journeyTitle || j.title || 'Untitled Journey')}</div>
       <div class="journey-card-sub">${esc(j.journeySubtitle || j.subtitle || '')}</div>
       <div class="journey-card-meta">
@@ -876,7 +882,7 @@ async function openJourneyDetail(journeyId) {
                 <th>Template ID</th><th>Status</th><th>Created</th><th>Expires</th><th>Completed</th>
               </tr></thead>
               <tbody>${guides.map(g => `
-                <tr class="clickable" onclick="openGuideDetail('${esc(g.id)}')">
+                <tr class="clickable" tabindex="0" role="button" onclick="openGuideDetail(${esc(jsString(g.id))})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">
                   <td class="mono">${esc(g.templateId || '—')}</td>
                   <td>${statusBadge(g.answerStatus)}</td>
                   <td>${fmtDateShort(g.createdAt)}</td>

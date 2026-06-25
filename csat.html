@@ -27,9 +27,7 @@
   --red:       #dc2626;
   --red-dim:   #fee2e2;
   --purple:    #7c3aed;
-  --purple-dim:#ede9fe;
   --teal:      #0d9488;
-  --teal-dim:  #ccfbf1;
   --r:         10px;
   --r-sm:      6px;
   --shadow:    0 1px 8px rgba(0,0,0,.07);
@@ -366,6 +364,18 @@ thead th:hover .sort-arrow { color:var(--text2) }
 .priority-issue.low-time    { background:rgba(124,58,237,.12); color:var(--purple) }
 .priority-issue.watch       { background:var(--surface3); color:var(--text3) }
 
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.data-quality-banner {
+  display:none; align-items:flex-start; gap:10px; margin-bottom:16px;
+  background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--blue);
+  border-radius:var(--r); padding:12px 14px; color:var(--text2); font-size:12px;
+}
+.data-quality-banner.warning { border-left-color:var(--amber); background:rgba(217,119,6,.04); }
+.data-quality-banner strong { color:var(--text1); }
+
 /* ── Footer ── */
 .footer { padding:20px 0; border-top:1px solid var(--border); display:flex;
   align-items:center; justify-content:space-between; font-size:11px; color:var(--text3) }
@@ -403,30 +413,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
   background: var(--surface); color: var(--blue);
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
-
-/* ── Bot intelligence panel (Parker/Jamie) ── */
-.bot-panel { display:none }
-.bot-panel.visible { display:block }
-.bot-kpi-strip { display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px;margin-bottom:18px }
-.bot-kpi { background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;position:relative;overflow:hidden }
-.bot-kpi::before { content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--kpi-accent,var(--blue)) }
-.bot-kpi .kpi-label { font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px }
-.bot-kpi .kpi-value { font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600;color:var(--text1);line-height:1;margin-bottom:3px }
-.bot-kpi .kpi-sub { font-size:11px;color:var(--text3) }
-.bot-group-cards { display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px }
-.bot-group-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;border-top:3px solid var(--border) }
-.bot-funnel-row { display:flex;align-items:center;gap:10px;margin-bottom:8px }
-.bot-funnel-label { font-size:11px;color:var(--text2);width:155px;flex-shrink:0 }
-.bot-funnel-wrap { flex:1;background:var(--surface3);border-radius:4px;height:20px;overflow:hidden }
-.bot-funnel-bar { height:100%;border-radius:4px;display:flex;align-items:center;padding-left:8px;font-size:10px;font-weight:600;color:#fff;transition:width .5s ease }
-.bot-funnel-val { font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);width:44px;text-align:right;flex-shrink:0 }
-.bot-tag-grid { display:flex;flex-wrap:wrap;gap:5px }
-.bot-tag-item { display:flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text2) }
-.bot-tag-count { font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3) }
-.bot-section-title { font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text1);margin:18px 0 10px }
-/* Parker scope bar highlight */
-#csatGlobalScopeBar.parker-focused { background:rgba(124,58,237,.07);border-color:rgba(124,58,237,.35) }
-#csatGlobalScopeBar.jamie-focused  { background:rgba(13,148,136,.07);border-color:rgba(13,148,136,.35) }
 
 </style>
 </head>
@@ -470,7 +456,6 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <a href="/">📊 Portal Activity</a>
       <a href="/csat" class="active">📞 Call Quality</a>
       <a href="/starter-guides">🗺️ Starter Guides</a>
-      <a href="/ai-bots">🤖 AI Bots</a>
     </nav>
     <div class="date-controls">
       <button class="qbtn" onclick="setQuick('today',this)">Today</button>
@@ -504,23 +489,23 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <div class="section-header">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div class="section-title">Call quality &amp; CSAT</div>
-        <span class="section-status loading" id="csatStatus"><span class="spinner"></span> Loading&hellip;</span>
+        <span class="section-status loading" id="csatStatus" aria-live="polite"><span class="spinner"></span> Loading&hellip;</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
         <div class="section-sub" id="csatSub">Post-call customer satisfaction survey &middot; filtered by selected date range</div>
       </div>
     </div>
 
+    <div id="csatDataQuality" class="data-quality-banner" aria-live="polite"></div>
+
     <!-- ── Global consultant scope bar (overrides the whole page when set) ───── -->
     <div id="csatGlobalScopeBar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px">
       <span style="font-size:12px;font-weight:600;color:var(--text2);display:flex;align-items:center;gap:6px">
-        <span style="font-size:14px">🎯</span> Focus on
+        <span style="font-size:14px">🎯</span> Focus on consultant
       </span>
       <select id="csatGlobalTeamFilter" onchange="onGlobalConsultantTeamChange()"
         style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text1);outline:none;min-width:150px">
         <option value="">All teams</option>
-        <option value="__parker__" style="color:var(--purple);font-weight:600">🤖 Team Parker</option>
-        <option value="__jamie__"  style="color:var(--teal);font-weight:600">🤖 Team Jamie</option>
       </select>
       <select id="csatGlobalConsultant" onchange="onGlobalConsultantChange()"
         style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text1);outline:none;min-width:250px">
@@ -570,12 +555,12 @@ thead th:hover .sort-arrow { color:var(--text2) }
             <div id="csatTotal" style="font-size:12px;color:var(--text3)">— surveys</div>
           </div>
           <div class="card">
-            <div class="card-title">First-call resolution</div>
+            <div class="card-title">Solved rate</div>
             <div style="display:flex;align-items:baseline;gap:6px;margin:8px 0">
               <div id="csatSolved" style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:500;color:var(--green)">—</div>
-              <div style="font-size:14px;color:var(--text3)">solved</div>
+              <div style="font-size:14px;color:var(--text3)">survey solved</div>
             </div>
-            <div style="font-size:12px;color:var(--text3)">Solved &rarr; avg <span id="csatAvgSolved" style="font-weight:500">—</span> &middot; Unsolved &rarr; <span id="csatAvgUnsolved" style="font-weight:500;color:var(--red)">—</span></div>
+            <div style="font-size:12px;color:var(--text3)">Solved responses &rarr; avg <span id="csatAvgSolved" style="font-weight:500">—</span> &middot; Unsolved &rarr; <span id="csatAvgUnsolved" style="font-weight:500;color:var(--red)">—</span></div>
           </div>
         </div>
         <div class="card">
@@ -791,12 +776,12 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
           <div>
             <div class="card-title">&#x1F4DE; Solve rate trend</div>
-            <div class="card-sub" id="fcrTrendSub">% of calls marked solved &middot; by date</div>
+            <div class="card-sub" id="fcrTrendSub">Survey SOLVED rate, not true FCR &middot; by date</div>
           </div>
           <div id="fcrChart_controls_placeholder"></div>
         </div>
         <div class="chart-wrap" style="height:190px" id="fcrChartWrap">
-          <button class="chart-expand-btn" onclick="expandChart(charts.fcrChart,'Solve rate trend')">&#x2922; Expand</button>
+          <button class="chart-expand-btn" onclick="expandChart(charts.fcrChart,'Solved rate trend')">&#x2922; Expand</button>
           <canvas id="fcrChart"></canvas>
         </div>
       </div>
@@ -916,184 +901,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
     </div>
     </div><!-- end csatOverviewContent -->
-
-    <!-- ── Bot Intelligence Section (Parker & Jamie) ───────────────────────── -->
-    <!-- Shown as an ADDITIONAL section below all normal CSAT content when      -->
-    <!-- Team Parker or Team Jamie is selected — just like any other team.      -->
-    <!-- ──────────────────────────────────────────────────────────────────────  -->
-    <div id="botIntelSection" style="display:none;margin-top:20px">
-      <div class="section-header" style="margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <div class="section-title" id="botIntelTitle">Bot Intelligence</div>
-        </div>
-        <div class="section-sub" id="botIntelSub">LiveChat bot metrics · Groups 10 &amp; 15</div>
-      </div>
-
-      <!-- ParkerAI panel inside the section -->
-      <div id="botPanel-parker-inner">
-        <div id="parkerAlerts2" style="margin-bottom:12px"></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-          <span id="parkerDataStatus2" style="font-size:11px;padding:2px 8px;border-radius:20px;background:var(--surface3);color:var(--text3)">Loading…</span>
-          <button onclick="triggerParkerRefresh()" style="margin-left:auto;padding:5px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;color:var(--text2)">↻ Refresh</button>
-        </div>
-
-        <div class="bot-kpi-strip">
-          <div class="bot-kpi" style="--kpi-accent:var(--purple)"><div class="kpi-label">Total Chats</div><div class="kpi-value" id="p2_kTotal">—</div><div class="kpi-sub" id="p2_kTotalSub">Groups 10 &amp; 15</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--green)"><div class="kpi-label">Containment</div><div class="kpi-value" id="p2_kContain">—</div><div class="kpi-sub">Bot-resolved</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--amber)"><div class="kpi-label">CSAT Latest</div><div class="kpi-value" id="p2_kCSAT">—</div><div class="kpi-sub" id="p2_kCSATSub">Good ratings</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--blue)"><div class="kpi-label">Escalation</div><div class="kpi-value" id="p2_kEsc">—</div><div class="kpi-sub">Human-handled</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--red)"><div class="kpi-label">Queue Abandon</div><div class="kpi-value" id="p2_kAbandon">—</div><div class="kpi-sub">Left queue</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--teal)"><div class="kpi-label">Avg Response</div><div class="kpi-value" id="p2_kResp">—</div><div class="kpi-sub">First response</div></div>
-        </div>
-
-        <div class="bot-group-cards">
-          <div class="bot-group-card" style="border-top-color:var(--blue)">
-            <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 10 — Parker Core</div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Primary bot intake</div>
-            <div style="display:flex;gap:18px">
-              <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Chats</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600" id="p2_g10chats">—</div></div>
-              <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Share</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;color:var(--blue)" id="p2_g10share">—</div></div>
-            </div>
-          </div>
-          <div class="bot-group-card" style="border-top-color:var(--purple)">
-            <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 15 — Parker Overflow</div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Overflow &amp; specialty routing</div>
-            <div style="display:flex;gap:18px">
-              <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Chats</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600" id="p2_g15chats">—</div></div>
-              <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Share</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;color:var(--purple)" id="p2_g15share">—</div></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="two-col section" style="margin-bottom:14px">
-          <div class="card">
-            <div class="card-title">Daily CSAT — Good vs Bad Ratings</div>
-            <div class="card-sub" id="p2_csatChartSub">Day-by-day · live from LiveChat</div>
-            <div class="chart-wrap" style="height:210px"><canvas id="p2_csatChart"></canvas></div>
-          </div>
-          <div class="card">
-            <div class="card-title">Daily Chat Volume by Group</div>
-            <div class="card-sub">Day-by-day · Group 10 vs Group 15</div>
-            <div class="chart-wrap" style="height:210px"><canvas id="p2_volChart"></canvas></div>
-          </div>
-        </div>
-
-        <div class="two-col section" style="margin-bottom:14px">
-          <div class="card">
-            <div class="card-title">Daily Response Time</div>
-            <div class="card-sub">Avg first response (seconds) · day-by-day</div>
-            <div class="chart-wrap" style="height:180px"><canvas id="p2_respChart"></canvas></div>
-          </div>
-          <div class="card">
-            <div class="card-title">Daily Queue &amp; Abandonment</div>
-            <div class="card-sub">Queued vs abandoned visitors · day-by-day</div>
-            <div class="chart-wrap" style="height:180px"><canvas id="p2_queueChart"></canvas></div>
-          </div>
-        </div>
-
-        <div class="two-col section" style="margin-bottom:14px;align-items:start">
-          <div class="card">
-            <div class="card-title">Escalation Funnel</div>
-            <div class="card-sub">Where ParkerAI chats end up</div>
-            <div style="margin-top:10px" id="p2_funnelWrap">
-              <div class="bot-funnel-row"><div class="bot-funnel-label">Total bot chats</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p2_f1bar" style="width:100%;background:var(--purple)"></div></div><div class="bot-funnel-val" id="p2_f1val">—</div></div>
-              <div class="bot-funnel-row"><div class="bot-funnel-label">🤖 Bot-resolved</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p2_f2bar" style="width:0%;background:var(--green)"></div></div><div class="bot-funnel-val" id="p2_f2val">—</div></div>
-              <div class="bot-funnel-row"><div class="bot-funnel-label">👤 Escalated</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p2_f3bar" style="width:0%;background:var(--amber)"></div></div><div class="bot-funnel-val" id="p2_f3val">—</div></div>
-              <div class="bot-funnel-row"><div class="bot-funnel-label">⏳ Queued</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p2_f4bar" style="width:0%;background:var(--blue)"></div></div><div class="bot-funnel-val" id="p2_f4val">—</div></div>
-              <div class="bot-funnel-row"><div class="bot-funnel-label">🚪 Abandoned</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p2_f5bar" style="width:0%;background:var(--red)"></div></div><div class="bot-funnel-val" id="p2_f5val">—</div></div>
-            </div>
-          </div>
-          <div class="card" style="padding:0">
-            <div style="padding:12px 14px 10px;border-bottom:0.5px solid var(--border)">
-              <div class="card-title">Issue Tag Breakdown</div>
-              <div class="card-sub">All tags · live from LiveChat API</div>
-            </div>
-            <div style="padding:12px 14px">
-              <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">🤖 Bot tags</div>
-              <div class="bot-tag-grid" id="p2_botTags"><div style="font-size:12px;color:var(--text3)">Loading…</div></div>
-              <div style="margin-top:12px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">👤 Human issue tags</div>
-              <div class="bot-tag-grid" id="p2_humanTags"><div style="font-size:12px;color:var(--text3)">Loading…</div></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="two-col section" style="align-items:start;margin-bottom:14px">
-          <div class="card" style="padding:0">
-            <div style="padding:12px 14px 10px;border-bottom:0.5px solid var(--border)">
-              <div class="card-title">Agent Leaderboard</div>
-              <div class="card-sub">CSAT % · human-handled chats in groups 10 &amp; 15</div>
-            </div>
-            <div class="table-wrap" style="max-height:320px;overflow-y:auto">
-              <table><thead><tr>
-                <th style="padding-left:14px">Agent</th>
-                <th class="r">Grp</th><th class="r">Chats</th><th class="r">CSAT%</th>
-                <th class="r">Good</th><th class="r">Bad</th><th class="r">Resp</th><th class="r">Trend</th>
-              </tr></thead><tbody id="p2_leaderBody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Loading…</td></tr></tbody></table>
-            </div>
-          </div>
-          <div class="card" style="padding:0">
-            <div style="padding:12px 14px 10px;border-bottom:0.5px solid var(--border)">
-              <div class="card-title">Agent CSAT Heatmap</div>
-              <div class="card-sub">Monthly CSAT % · green ≥85% · amber ≥70% · red &lt;70%</div>
-            </div>
-            <div class="table-wrap" style="overflow-x:auto">
-              <table><thead id="p2_hmHead"></thead><tbody id="p2_hmBody"><tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text3)">Loading…</td></tr></tbody></table>
-            </div>
-          </div>
-        </div>
-      </div><!-- end parker inner -->
-
-      <!-- JamieAI panel inside the section -->
-      <div id="botPanel-jamie-inner" style="display:none">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-          <span style="font-size:12px;color:var(--text3)">Groups 10 &amp; 15 · LiveChat data</span>
-        </div>
-
-        <div class="bot-kpi-strip">
-          <div class="bot-kpi" style="--kpi-accent:var(--teal)"><div class="kpi-label">Total Chats</div><div class="kpi-value">—</div><div class="kpi-sub">Groups 10 &amp; 15</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--green)"><div class="kpi-label">Containment</div><div class="kpi-value">—</div><div class="kpi-sub">Bot-resolved</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--amber)"><div class="kpi-label">CSAT Latest</div><div class="kpi-value">—</div><div class="kpi-sub">Good ratings</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--blue)"><div class="kpi-label">Escalation</div><div class="kpi-value">—</div><div class="kpi-sub">Human-handled</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--red)"><div class="kpi-label">Queue Abandon</div><div class="kpi-value">—</div><div class="kpi-sub">Left queue</div></div>
-          <div class="bot-kpi" style="--kpi-accent:var(--teal)"><div class="kpi-label">Avg Response</div><div class="kpi-value">—</div><div class="kpi-sub">First response</div></div>
-        </div>
-
-        <div class="bot-group-cards">
-          <div class="bot-group-card" style="border-top-color:var(--teal)">
-            <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 10 — Jamie Core</div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Primary bot intake</div>
-            <div style="padding:16px 0 6px;text-align:center;color:var(--text3);font-size:12px">⏳ Awaiting JamieAI launch</div>
-          </div>
-          <div class="bot-group-card" style="border-top-color:var(--teal);opacity:.7">
-            <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 15 — Jamie Overflow</div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Overflow &amp; specialty routing</div>
-            <div style="padding:16px 0 6px;text-align:center;color:var(--text3);font-size:12px">⏳ Awaiting JamieAI launch</div>
-          </div>
-        </div>
-
-        <div class="two-col section" style="margin-bottom:14px">
-          <div class="card">
-            <div class="card-title">Daily CSAT — Good vs Bad</div>
-            <div class="card-sub">Day-by-day · JamieAI</div>
-            <div class="chart-wrap" style="height:210px"><canvas id="j2_csatChart"></canvas></div>
-          </div>
-          <div class="card">
-            <div class="card-title">Daily Chat Volume</div>
-            <div class="card-sub">Group 10 vs Group 15</div>
-            <div class="chart-wrap" style="height:210px"><canvas id="j2_volChart"></canvas></div>
-          </div>
-        </div>
-
-        <div style="text-align:center;padding:40px 20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r)">
-          <div style="font-size:40px;margin-bottom:12px">🚧</div>
-          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;margin-bottom:6px">JamieAI not yet connected</div>
-          <div style="font-size:13px;color:var(--text3);max-width:360px;margin:0 auto;line-height:1.7">Once JamieAI is live in LiveChat, all charts auto-populate — CSAT trends, escalation funnel, agent leaderboard &amp; heatmap.</div>
-        </div>
-      </div><!-- end jamie inner -->
-
-    </div><!-- end botIntelSection -->
-
-  </div><!-- end csatSection -->
+  </div>
 
 
   <div class="footer">
@@ -1122,15 +930,15 @@ thead th:hover .sort-arrow { color:var(--text2) }
 <div id="uploadModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center">
   <div style="background:var(--surface);border-radius:12px;padding:28px 32px;width:420px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.2)">
     <div style="font-size:16px;font-weight:500;color:var(--text1);margin-bottom:6px">Update CSAT data</div>
-    <div style="font-size:13px;color:var(--text3);margin-bottom:20px">Upload the latest call quality Excel file. The dashboard updates immediately.</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:20px">Upload the latest call quality Excel file. The admin token also unlocks this browser session.</div>
     <div style="margin-bottom:14px">
       <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Excel file (.xlsx)</label>
       <input type="file" id="csatFileInput" accept=".xlsx,.xls,.csv"
         style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1)">
     </div>
     <div style="margin-bottom:20px">
-      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Upload password</label>
-      <input type="password" id="csatUploadPwd" placeholder="Enter password"
+      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Admin token</label>
+      <input type="password" id="csatUploadPwd" placeholder="Enter admin token"
         style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2);color:var(--text1);outline:none">
     </div>
     <div id="uploadStatus" style="font-size:12px;margin-bottom:16px;min-height:18px"></div>
@@ -1148,7 +956,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 'use strict';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const DATA_START = '2023-06-22';
+const DATA_START = '2026-04-24';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
@@ -1170,11 +978,47 @@ function fmt(n) {
   if (n == null) return '—';
   return n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
 }
+function escapeHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+const _esc = escapeHtml;
+function adminToken() {
+  return sessionStorage.getItem('dashboardAdminToken') || document.getElementById('csatUploadPwd')?.value || '';
+}
+function adminHeaders() {
+  const token = adminToken();
+  return token ? { 'X-Admin-Token': token } : {};
+}
+function rememberAdminToken(token) {
+  if (token) sessionStorage.setItem('dashboardAdminToken', token);
+}
+function renderCsatQualityBanner() {
+  const el = document.getElementById('csatDataQuality');
+  if (!el || !_csatRaw) return;
+  const q = _csatRaw.quality || {};
+  const dropped = q.dropped_by_team_filter || 0;
+  const missingOpp = q.missing_opportunity_id_rows || 0;
+  const missingSummary = q.missing_summary_rows || 0;
+  const parts = [
+    `<strong>Data quality:</strong> ${fmt(q.indexed_rows || _csatRaw.total_rows || 0)} indexed surveys`,
+    `${fmt(q.distinct_teams || 0)} teams`,
+    `${fmt(q.distinct_consultants || 0)} consultants`,
+    `range ${escapeHtml(_csatRaw.date_min || '—')} to ${escapeHtml(_csatRaw.date_max || '—')}`,
+  ];
+  if (dropped) parts.push(`${fmt(dropped)} rows dropped by team filter`);
+  if (missingOpp) parts.push(`${fmt(missingOpp)} missing opportunity IDs; true FCR may be incomplete`);
+  if (missingSummary) parts.push(`${fmt(missingSummary)} missing call summaries`);
+  el.className = 'data-quality-banner ' + ((dropped || missingOpp) ? 'warning' : '');
+  el.innerHTML = `<span aria-hidden="true">🧪</span><div>${parts.join(' · ')}</div>`;
+  el.style.display = 'flex';
+}
 function setStatus(id, st, text) {
   const el = document.getElementById(id);
   if (!el) return;
   el.className = 'section-status ' + st;
-  el.innerHTML = (st === 'loading' ? '<span class="spinner"></span> ' : '') + text;
+  el.innerHTML = (st === 'loading' ? '<span class="spinner"></span> ' : '') + escapeHtml(text);
 }
 
 // ── Date controls ─────────────────────────────────────────────────────────────
@@ -1191,7 +1035,7 @@ function setQuick(n, btn) {
   if (n === 'today')      { from = today; }
   else if (n === 'yesterday') { const y = daysAgoISO(1); from = y; to = y; }
   else if (n === 'ytd')   { from = new Date().getFullYear() + '-01-01'; }
-  else if (n === 'start') { from = csatAllTimeStart(); to = _csatRaw?.date_max || today; }  // all time → back to 2023
+  else if (n === 'start') { from = csatAllTimeStart(); to = _csatRaw?.date_max || today; }  // all time -> earliest available CSAT date
   else                    { from = daysAgoISO(n); }
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   state = { ...state, from, to, days };
@@ -1467,8 +1311,15 @@ async function loadCSAT(forceRefresh = false) {
   }
   setStatus('csatStatus', 'loading', 'Loading survey data…');
   try {
-    const r = await fetch(csatUrl());
-    if (!r.ok) { setStatus('csatStatus', 'error', 'Survey data unavailable (' + r.status + ')'); return; }
+    const r = await fetch(csatUrl(), { headers: adminHeaders() });
+    if (!r.ok) {
+      const lockMsg = (r.status === 401 || r.status === 403 || r.status === 503)
+        ? 'CSAT data is locked. Open Update CSAT and enter the admin token.'
+        : 'Survey data unavailable (' + r.status + ')';
+      setStatus('csatStatus', 'error', lockMsg);
+      document.getElementById('csatSection').style.opacity = '0.65';
+      return;
+    }
     _csatRaw = await r.json();
     if (!_csatRaw.available) {
       setStatus('csatStatus', 'error', _csatRaw.note || 'No data');
@@ -1476,6 +1327,8 @@ async function loadCSAT(forceRefresh = false) {
       return;
     }
     setStatus('csatStatus', 'loaded', `${fmt(_csatRaw.total_rows)} surveys loaded`);
+    document.getElementById('csatSection').style.opacity = '1';
+    renderCsatQualityBanner();
     _csatComputeAndRender(state.from, state.to);
   } catch(e) {
     setStatus('csatStatus', 'error', 'Error: ' + e.message);
@@ -1607,7 +1460,7 @@ function _populateGlobalConsultantBar() {
     const teams = [...new Set(allCons.map(c=>c.team).filter(Boolean))].sort();
     const cur = teamSel.value;
     teamSel.innerHTML = '<option value="">All teams</option>' +
-      teams.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t}</option>`).join('');
+      teams.map(t => `<option value="${_esc(t)}" ${t===cur?'selected':''}>${_esc(t)}</option>`).join('');
   }
   _rebuildGlobalConsultantSelect(allCons);
 }
@@ -1621,7 +1474,7 @@ function _rebuildGlobalConsultantSelect(allCons) {
     .sort((a,b) => (a.name||'').localeCompare(b.name||''));
   const cur = _csatScope.type === 'member' ? _csatScope.value : '';
   sel.innerHTML = '<option value="">— Whole team / all consultants —</option>' +
-    list.map(c => `<option value="${c.cid}" ${c.cid===cur?'selected':''}>${c.name} · ${c.team||'—'} · ${c.avg_rating}★</option>`).join('');
+    list.map(c => `<option value="${_esc(c.cid)}" ${c.cid===cur?'selected':''}>${_esc(c.name)} · ${_esc(c.team||'—')} · ${c.avg_rating}★</option>`).join('');
 }
 
 // Selecting a team scopes the WHOLE page to that team (all its members combined),
@@ -1675,7 +1528,7 @@ function _syncGlobalScopeBar() {
     const c = (csatData?.all_consultants || []).find(x => x.cid === _csatScope.value);
     if (consSel && consSel.value !== _csatScope.value) consSel.value = _csatScope.value;
     if (c) {
-      statusEl.innerHTML = `<span style="color:var(--green);font-weight:600">● Whole page focused on ${c.name}</span> · ${c.team||'—'} · ${fmt(c.total)} surveys`;
+      statusEl.innerHTML = `<span style="color:var(--green);font-weight:600">● Whole page focused on ${_esc(c.name)}</span> · ${_esc(c.team||'—')} · ${fmt(c.total)} surveys`;
       _globalCallsCache = (c.calls || []);
       document.getElementById('csatGlobalCallsTitle').textContent = `Individual calls — ${c.name} (${fmt(_globalCallsCache.length)})`;
       callsCard.style.display = '';
@@ -1690,7 +1543,7 @@ function _syncGlobalScopeBar() {
     if (teamSel && teamSel.value !== _csatScope.value) teamSel.value = _csatScope.value;
     const t = (csatData?.teams || []).find(x => x.team === _csatScope.value);
     if (t) {
-      statusEl.innerHTML = `<span style="color:var(--green);font-weight:600">● Whole page focused on ${t.team}</span> · ${fmt(t.total)} surveys · ${t.avg_rating}★ avg · ${t.solved_pct}% solved`;
+      statusEl.innerHTML = `<span style="color:var(--green);font-weight:600">● Whole page focused on ${_esc(t.team)}</span> · ${fmt(t.total)} surveys · ${t.avg_rating}★ avg · ${t.solved_pct}% solved`;
     } else {
       statusEl.textContent = 'No data for this team in the selected period';
     }
@@ -1765,12 +1618,12 @@ function _renderGlobalCalls() {
       let url = '#';
       try { url = ucjCallUrl(callId); } catch (e) { url = '#'; }
       const idCell = callId
-        ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${callId}</a>`
+        ? `<a href="${_esc(url)}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">${_esc(callId)}</a>`
         : '<span style="color:var(--text3)">—</span>';
       return `<tr>
         <td style="padding-left:16px;font-family:'JetBrains Mono',monospace;font-size:11px">${idCell}</td>
-        <td class="csat-reason-trigger" data-reason-key="${reasonKey}" style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted" title="${reason}">${reason}</td>
-        <td style="font-size:12px;color:var(--text3)">${c.date || '—'}</td>
+        <td class="csat-reason-trigger" data-reason-key="${_esc(reasonKey)}" style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted" title="${_esc(reason)}">${_esc(reason)}</td>
+        <td style="font-size:12px;color:var(--text3)">${_esc(c.date || '—')}</td>
         <td class="r"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${rc}">${c.rating ?? '—'}★</span></td>
         <td class="r"><span class="pill ${c.solved?'green':'red'}" style="font-size:11px">${c.solved?'Solved':'Unsolved'}</span></td>
       </tr>`;
@@ -1785,7 +1638,7 @@ function _renderGlobalCalls() {
     };
   } catch (err) {
     console.error('[csat] _renderGlobalCalls error:', err);
-    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${String(err.message||err)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--red)">Could not render calls: ${_esc(String(err.message||err))}</td></tr>`;
   }
 }
 
@@ -2280,42 +2133,6 @@ function renderCSAT(d) {
 
   // Team leaderboard
   const teams = d.teams || [];
-
-  // ── Inject bot teams into the leaderboard ─────────────────────────────────
-  // Parker/Jamie data comes from the LiveChat API, not CSAT surveys.
-  // We express their metrics in the same schema so they sort and render identically.
-  if (_botLive?.kpis) {
-    const k = _botLive.kpis;
-    const rawRat = _botLive.daily_ratings || _botLive.monthly_ratings || [];
-    const latestRat = rawRat[rawRat.length - 1] || {};
-    const latTot = (latestRat.good || 0) + (latestRat.bad || 0) || 1;
-    const csatPct = Math.round((latestRat.good || 0) / latTot * 100);
-    const botAvgRating = +(csatPct / 100 * 5).toFixed(2);
-    if (!teams.find(t => t.team === 'ParkerAI')) {
-      teams.push({
-        team: 'ParkerAI',
-        avg_rating: botAvgRating,
-        solved_pct: k.containment_rate || 0,
-        low_pct: Math.max(0, 100 - csatPct),
-        total: k.total_chats || 0,
-        dist: [],
-        _isBot: true,
-      });
-    }
-    if (!teams.find(t => t.team === 'JamieAI')) {
-      teams.push({
-        team: 'JamieAI',
-        avg_rating: null,
-        solved_pct: null,
-        low_pct: null,
-        total: 0,
-        dist: [],
-        _isBot: true,
-        _pending: true,
-      });
-    }
-  }
-  // ─────────────────────────────────────────────────────────────────────────
   // Apply sort
   const teamsSorted = [...teams].sort((a,b) => {
     const av = a[_teamSort.key] ?? (typeof a[_teamSort.key]==='string' ? '' : 0);
@@ -2327,46 +2144,22 @@ function renderCSAT(d) {
     // Store in lookup map for click handler
     const teamKey = 'team_' + t.team.replace(/[^a-z0-9]/gi, '_');
     _csatDetailData[teamKey] = t;
-
-    // Bot teams that haven't launched yet
-    if (t._pending) {
-      return `<tr style="opacity:0.5">
-        <td style="padding-left:20px;font-size:13px;font-weight:500;color:var(--text3)">${t.team} <span style="font-size:10px;color:var(--text3)">(awaiting launch)</span></td>
-        <td class="mono r" style="color:var(--text3)">—</td>
-        <td class="r" style="color:var(--text3)">—</td>
-        <td class="mono r" style="color:var(--text3)">—</td>
-        <td class="r">—</td>
-        <td class="r">—</td>
-      </tr>`;
-    }
-
     const rClass = t.avg_rating >= 4.5 ? 'green' : t.avg_rating >= 3.5 ? 'amber' : 'red';
-    // Bot teams: show CSAT% instead of star rating, "Contained" instead of "Solved"
-    const ratingDisplay = t._isBot
-      ? `<span class="mono" style="font-size:12px">${Math.round((t.avg_rating/5)*100)}% CSAT</span>`
-      : `<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
-           <div style="width:60px;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden">
-             <div style="width:${(t.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rClass==='green'?'var(--green)':rClass==='amber'?'var(--amber)':'var(--red)'}"></div>
-           </div>
-           <span class="mono" style="font-size:12px">${t.avg_rating}</span>
-         </div>`;
-    const solvedDisplay = t._isBot ? `${t.solved_pct}% contained` : `${t.solved_pct}%`;
-    const lowDisplay = t._isBot ? `—` : `<span class="pill ${t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green'}">${t.low_pct}%</span>`;
-    const teamLabel = t._isBot
-      ? `<span style="display:inline-flex;align-items:center;gap:5px">
-           <span style="font-size:10px;padding:1px 5px;border-radius:8px;background:var(--purple)18;color:var(--purple);border:1px solid var(--purple)33">LiveChat</span>
-           ${t.team}
-         </span>`
-      : t.team;
-
     return `<tr>
-      <td class="${t._isBot ? '' : 'csat-detail-trigger'}" data-detail-key="team_${t.team.replace(/[^a-z0-9]/gi,'_')}"
-        style="padding-left:20px;font-size:13px;font-weight:500;cursor:${t._isBot ? 'default' : 'pointer'};color:var(--blue);${t._isBot ? '' : 'text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted'}">
-        ${teamLabel}</td>
+      <td class="csat-detail-trigger" data-detail-key="team_${_esc(t.team.replace(/[^a-z0-9]/gi,'_'))}"
+        style="padding-left:20px;font-size:13px;font-weight:500;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">
+        ${_esc(t.team)}</td>
       <td class="mono r">${fmt(t.total)}</td>
-      <td class="r">${ratingDisplay}</td>
-      <td class="mono r" style="color:${t._isBot ? 'var(--green)' : t.solved_pct >= 74 ? 'var(--green)' : t.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)'}">${solvedDisplay}</td>
-      <td class="r">${lowDisplay}</td>
+      <td class="r">
+        <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+          <div style="width:60px;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden">
+            <div style="width:${(t.avg_rating/5*100).toFixed(0)}%;height:100%;background:${rClass==='green'?'var(--green)':rClass==='amber'?'var(--amber)':'var(--red)'}"></div>
+          </div>
+          <span class="mono" style="font-size:12px">${t.avg_rating}</span>
+        </div>
+      </td>
+      <td class="mono r" style="color:${t.solved_pct >= 74 ? 'var(--green)' : t.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)'}">${t.solved_pct}%</td>
+      <td class="r"><span class="pill ${t.low_pct > 20 ? 'red' : t.low_pct > 10 ? 'amber' : 'green'}">${t.low_pct}%</span></td>
       <td class="r" style="min-width:90px">
         ${(t.dist||[]).length ? `
         <div style="display:flex;align-items:flex-end;gap:2px;height:22px;justify-content:flex-end">
@@ -2402,30 +2195,6 @@ function renderCSAT(d) {
 
   // Populate team filter dropdown
   const allCons = (d.all_consultants || []).filter(c => validName(c.name));
-
-  // ── Inject ParkerAI agents into the consultants list ──────────────────────
-  if (_botLive?.agents?.length) {
-    const existing = new Set(allCons.map(c => c.name?.toLowerCase()));
-    _botLive.agents.forEach(a => {
-      const name = a.name || a.id || '';
-      if (!name || existing.has(name.toLowerCase())) return;
-      const csatRating = a.csat != null ? +(a.csat / 100 * 5).toFixed(2) : null;
-      allCons.push({
-        cid:        'bot_' + (a.id || name).replace(/\s+/g,'_'),
-        name:       name,
-        team:       'ParkerAI',
-        avg_rating: csatRating,
-        solved_pct: null,
-        low_pct:    a.csat != null ? Math.max(0, 100 - a.csat) : null,
-        total:      a.chats || 0,
-        dist:       [],
-        _isBot:     true,
-        _botCsat:   a.csat,
-      });
-    });
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
   // Build team list from ALL teams in leaderboard (not just filtered consultants)
   // so teams with few-survey members still appear in the dropdown
   const allTeamNames = [...new Set([
@@ -2710,7 +2479,7 @@ function renderCallReasons(reasons, totalSurveys) {
     const solvedColor = r.solved_pct >= 74 ? 'var(--green)' : r.solved_pct >= 60 ? 'var(--amber)' : 'var(--red)';
     const lowPill = r.low_pct > 20 ? 'red' : r.low_pct > 10 ? 'amber' : 'green';
     return `<tr>
-      <td class="csat-detail-trigger" data-detail-key="${reasonKey}" style="padding-left:10px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted" title="${r.reason}">${r.reason}</td>
+      <td class="csat-detail-trigger" data-detail-key="${_esc(reasonKey)}" style="padding-left:10px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted" title="${_esc(r.reason)}">${_esc(r.reason)}</td>
       <td class="mono r">${fmt(r.total)}</td>
       <td class="mono r">${r.share_pct}%</td>
       <td class="mono r" style="color:${ratingColor}">${r.avg_rating}</td>
@@ -2790,7 +2559,7 @@ function renderCallReasons(reasons, totalSurveys) {
   });
 }
 
-// ── First-call resolution trend chart ────────────────────────────────────────
+// ── Solved-rate trend chart ────────────────────────────────────────
 function renderFCR() {
   if (!_csatRaw?.days) return;
   const { from, to } = getChartRange('fcrChart');
@@ -2834,12 +2603,12 @@ function renderFCR() {
   }
 
   document.getElementById('fcrTrendSub').textContent =
-    `Avg FCR: ${curAgg.length ? Math.round(curAgg.filter(p=>p.fcr!==null).reduce((s,p)=>s+p.fcr,0)/curAgg.filter(p=>p.fcr!==null).length*10)/10 : '—'}% · ${fmtDate(from)} – ${fmtDate(to)} · by ${gb}`;
+    `Avg solved rate: ${curAgg.length ? Math.round(curAgg.filter(p=>p.fcr!==null).reduce((s,p)=>s+p.fcr,0)/curAgg.filter(p=>p.fcr!==null).length*10)/10 : '—'}% · ${fmtDate(from)} – ${fmtDate(to)} · by ${gb}`;
 
   const labels = curAgg.map(p => fmtBucketDate(p.date, gb));
   const fcrDatasets = [{
     type: 'bar',
-    label: 'FCR %',
+    label: 'Solved %',
     data: curAgg.map(p => p.fcr),
     backgroundColor: curAgg.map(p =>
       p.fcr === null ? 'transparent' :
@@ -2865,7 +2634,7 @@ function renderFCR() {
     if (prevAgg.length) {
       fcrDatasets.push({
         type: 'line',
-        label: `FCR % (prev ${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
+        label: `Solved % (prev ${fmtDate(prevFrom)}–${fmtDate(prevTo)})`,
         data: labels.map((_, i) => prevAgg[i]?.fcr ?? null),
         borderColor: 'rgba(107,114,128,.9)', borderDash: [5,4],
         backgroundColor: 'transparent', pointRadius: 2, tension: .3, borderWidth: 2, fill: false,
@@ -2895,7 +2664,7 @@ function renderFCR() {
               const prevLabel = compare && prevAgg[i] ? fmtBucketDate(prevAgg[i].week||prevAgg[i].date, gb) : '—';
               return `${curLabel}  ·  prev: ${prevLabel}`;
             },
-            label: ctx => ctx.raw !== null ? `${ctx.raw}% FCR` : 'No data',
+            label: ctx => ctx.raw !== null ? `${ctx.raw}% solved` : 'No data',
             afterLabel: ctx => {
               if (ctx.datasetIndex !== 0) return '';
               const p = curAgg[ctx.dataIndex];
@@ -2911,7 +2680,7 @@ function renderFCR() {
           min: 0, max: 100,
           ticks: { font: { size: 10 }, callback: v => v + '%' },
           grid: gridOpts,
-          title: { display: true, text: 'First-call resolution %', font: { size: 10 }, color: '#6b7280' },
+          title: { display: true, text: 'Survey solved %', font: { size: 10 }, color: '#6b7280' },
         },
       },
     },
@@ -3152,47 +2921,17 @@ function renderConsultantTable() {
     // Store in lookup map for click handler
     const consKey = 'cons_' + c.cid;
     _csatDetailData[consKey] = c;
-
-    // Bot agents — use CSAT% directly, no survey star ratings
-    if (c._isBot) {
-      const csatPct = c._botCsat;
-      const cc = csatPct >= 80 ? 'var(--green)' : csatPct >= 65 ? 'var(--amber)' : 'var(--red)';
-      return `<tr>
-        <td style="padding-left:20px;max-width:180px">
-          <div style="display:flex;align-items:center;gap:5px">
-            <span style="font-size:10px;padding:1px 5px;border-radius:8px;background:var(--purple)18;color:var(--purple);border:1px solid var(--purple)33;flex-shrink:0">bot</span>
-            <span style="font-size:13px;color:var(--text1)">${c.name}</span>
-          </div>
-        </td>
-        <td style="font-size:12px;color:var(--text3)">${c.team}</td>
-        <td class="r">
-          ${csatPct != null
-            ? `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
-                 <div style="width:40px;height:3px;background:var(--surface3);border-radius:2px;overflow:hidden">
-                   <div style="width:${csatPct}%;height:100%;background:${cc};border-radius:2px"></div>
-                 </div>
-                 <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${cc}">${csatPct}%</span>
-               </div>`
-            : '<span style="color:var(--text3);font-size:11px">—</span>'}
-        </td>
-        <td class="mono r" style="font-size:12px;color:var(--text3)">—</td>
-        <td class="r"><span style="font-size:11px;color:var(--text3)">—</span></td>
-        <td class="r"><span style="color:var(--text3);font-size:11px">—</span></td>
-        <td class="mono r" style="font-size:12px;color:var(--text3)">${fmt(c.total)}</td>
-      </tr>`;
-    }
-
     const rColor = c.avg_rating >= 4.5 ? 'var(--green)' : c.avg_rating >= 3.5 ? 'var(--amber)' : 'var(--red)';
     const isTop = c.avg_rating >= 4.7;
     const isLow = c.avg_rating < 3.5;
     return `<tr style="${isTop ? 'background:rgba(5,150,105,.04)' : isLow ? 'background:rgba(220,38,38,.04)' : ''}">
-      <td class="csat-detail-trigger" data-detail-key="cons_${c.cid}"
+      <td class="csat-detail-trigger" data-detail-key="cons_${_esc(c.cid)}"
         style="padding-left:20px;max-width:180px;cursor:pointer">
         <div style="font-size:13px;font-weight:${isTop||isLow?'500':'400'};color:var(--blue);text-decoration:underline;text-underline-offset:2px;text-decoration-style:dotted">
-          ${isTop ? '⭐ ' : isLow ? '⚠️ ' : ''}${c.name}
+          ${isTop ? '⭐ ' : isLow ? '⚠️ ' : ''}${_esc(c.name)}
         </div>
       </td>
-      <td style="font-size:12px;color:var(--text3);max-width:140px">${c.team}</td>
+      <td style="font-size:12px;color:var(--text3);max-width:140px">${_esc(c.team)}</td>
       <td class="r">
         <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
           <div style="width:40px;height:3px;background:var(--surface3);border-radius:2px;overflow:hidden">
@@ -3250,8 +2989,6 @@ const CS_TEAMS = [
   { key: 'Team Amplifiers', label: 'Team Amplifiers',  color: '#1a4fdb' },
   { key: 'Team Sound Check',label: 'Team Sound Check', color: '#7c3aed' },
   { key: 'Voice AI',        label: 'Voice AI',         color: '#c03030' },
-  { key: 'ParkerAI',        label: '🤖 ParkerAI',      color: '#7c3aed', isBot: true },
-  { key: 'JamieAI',         label: '🤖 JamieAI',       color: '#0d9488', isBot: true },
 ];
 
 function renderCSTeams(teamsData, teamDailyData) {
@@ -3263,70 +3000,18 @@ function renderCSTeams(teamsData, teamDailyData) {
   const teamMap = {};
   (teamsData || []).forEach(t => { teamMap[t.team] = t; });
 
-  // Inject bot team data from the cached LiveChat API response so ParkerAI/JamieAI
-  // render exactly like any other team card — same format, same metrics.
-  if (_botLive?.kpis) {
-    const k = _botLive.kpis;
-    const rawRat = _botLive.daily_ratings || _botLive.monthly_ratings || [];
-    const latestRat = rawRat[rawRat.length - 1] || {};
-    const latTot = (latestRat.good || 0) + (latestRat.bad || 0) || 1;
-    const csatPct = Math.round((latestRat.good || 0) / latTot * 100);
-    // Express bot CSAT as a 1–5 avg_rating equivalent (csatPct% → ~1–5 scale)
-    const botAvgRating = +(csatPct / 100 * 5).toFixed(2);
-    const botSolvedPct = k.containment_rate || 0;
-    const botLowPct    = 100 - csatPct;
-    const botTotal     = k.total_chats || 0;
-    if (!teamMap['ParkerAI']) {
-      teamMap['ParkerAI'] = {
-        team: 'ParkerAI',
-        avg_rating: botAvgRating,
-        solved_pct: botSolvedPct,
-        low_pct: botLowPct,
-        total: botTotal,
-        dist: [
-          { r:1, count:0, pct: Math.round(botLowPct * 0.4) },
-          { r:2, count:0, pct: Math.round(botLowPct * 0.6) },
-          { r:3, count:0, pct: Math.max(0, 10) },
-          { r:4, count:0, pct: Math.round(csatPct * 0.3) },
-          { r:5, count:0, pct: Math.round(csatPct * 0.7) },
-        ],
-        _isBot: true, _botLabel: `${csatPct}% good · ${k.containment_rate}% contained`,
-      };
-    }
-    // Jamie: placeholder until live — show "awaiting launch" via low total
-    if (!teamMap['JamieAI']) {
-      teamMap['JamieAI'] = {
-        team: 'JamieAI', avg_rating: null, solved_pct: null, low_pct: null, total: 0, dist: [], _isBot: true, _pending: true,
-      };
-    }
-  }
-
   const barColors = {1:'#dc2626',2:'#f97316',3:'#d97706',4:'#84cc16',5:'#059669'};
 
   // Render a card for every CS_TEAMS entry; show placeholder if no data in current period
   container.innerHTML = CS_TEAMS.map(ct => {
     const t = teamMap[ct.key];
 
-    // Bot team that hasn't launched yet
-    if (t?._pending) {
-      return `
-        <div style="border:1.5px dashed ${ct.color}55;border-radius:var(--r);padding:16px;opacity:0.7">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-            <div style="width:10px;height:10px;border-radius:50%;background:${ct.color};flex-shrink:0"></div>
-            <div style="font-size:13px;font-weight:600;color:var(--text1)">${ct.label}</div>
-          </div>
-          <div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">
-            ⏳ Awaiting launch
-          </div>
-        </div>`;
-    }
-
     if (!t) {
       return `
         <div style="border:1.5px dashed var(--border);border-radius:var(--r);padding:16px;opacity:0.6">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
             <div style="width:10px;height:10px;border-radius:50%;background:${ct.color};flex-shrink:0"></div>
-            <div style="font-size:13px;font-weight:600;color:var(--text1)">${ct.label}</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text1)">${_esc(ct.label)}</div>
           </div>
           <div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">
             📡 No data for this period
@@ -3339,45 +3024,33 @@ function renderCSTeams(teamsData, teamDailyData) {
     const maxPct      = Math.max(...(t.dist||[]).map(d => d.pct), 1);
     const detailKey   = 'team_' + ct.key.replace(/[^a-z0-9]/gi,'_');
 
-    // Bot teams show LiveChat metrics with different labels
-    const metric1Label = t._isBot ? 'CSAT Good%' : 'Avg Rating';
-    const metric1Value = t._isBot ? `${Math.round((t.avg_rating/5)*100)}%` : t.avg_rating;
-    const metric2Label = t._isBot ? 'Contained' : 'Solved';
-    const metric2Value = t._isBot ? `${t.solved_pct}%` : `${t.solved_pct}%`;
-    const metric3Label = t._isBot ? 'Total Chats' : 'Surveys';
-    const metric3Value = fmt(t.total);
-
     return `
-      <div style="border:1.5px solid ${t._isBot ? ct.color+'66' : 'var(--border)'};border-radius:var(--r);padding:16px;cursor:pointer;transition:box-shadow .15s"
+      <div style="border:1.5px solid var(--border);border-radius:var(--r);padding:16px;cursor:pointer;transition:box-shadow .15s"
            onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,.08)'"
            onmouseout="this.style.boxShadow=''"
-           onclick="${t._isBot ? `document.getElementById('csatGlobalTeamFilter').value='__${ct.key.replace('AI','').toLowerCase()}__';onGlobalConsultantTeamChange()` : `openCsatDetail('team','${detailKey}')`}">
+           onclick="openCsatDetail('team','${detailKey}')">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div style="display:flex;align-items:center;gap:7px">
             <div style="width:10px;height:10px;border-radius:50%;background:${ct.color};flex-shrink:0"></div>
-            <div style="font-size:13px;font-weight:600;color:${t._isBot ? ct.color : 'var(--blue)' }">${ct.label}</div>
+            <div style="font-size:13px;font-weight:600;color:var(--blue)">${_esc(ct.label)}</div>
           </div>
-          ${t._isBot
-            ? `<span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${ct.color}18;color:${ct.color};border:1px solid ${ct.color}44">LiveChat</span>`
-            : `<span class="pill ${lowClass}" style="font-size:10px">${t.low_pct}% low</span>`}
+          <span class="pill ${lowClass}" style="font-size:10px">${t.low_pct}% low</span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
           <div style="text-align:center">
-            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${metric1Value}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px">${metric1Label}</div>
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:${ratingColor}">${t.avg_rating}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">Avg Rating</div>
           </div>
           <div style="text-align:center">
-            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${metric2Value}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px">${metric2Label}</div>
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--green)">${t.solved_pct}%</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">Solved</div>
           </div>
           <div style="text-align:center">
-            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${metric3Value}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px">${metric3Label}</div>
+            <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)">${fmt(t.total)}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">Surveys</div>
           </div>
         </div>
-        ${t._isBot && t._botLabel
-          ? `<div style="font-size:11px;color:var(--text3);text-align:center;padding-top:6px;border-top:1px solid var(--border)">${t._botLabel}</div>`
-          : `<div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;flex-direction:column;gap:4px">
           ${(t.dist||[]).map(d => `
             <div style="display:flex;align-items:center;gap:6px">
               <div style="font-size:10px;color:var(--text3);width:14px;text-align:right">${d.r}★</div>
@@ -3386,7 +3059,7 @@ function renderCSTeams(teamsData, teamDailyData) {
               </div>
               <div style="font-size:10px;color:var(--text3);width:32px;text-align:right">${d.pct}%</div>
             </div>`).join('')}
-          </div>`}
+        </div>
       </div>`;
   }).join('');
 
@@ -3400,12 +3073,8 @@ function renderCSTeams(teamsData, teamDailyData) {
   if (badges) {
     badges.innerHTML = CS_TEAMS.map(ct => {
       const t = teamMap[ct.key];
-      let badge = '';
-      if (!t || t._pending) badge = ' · no data';
-      else if (t._isBot) badge = ` · ${Math.round((t.avg_rating/5)*100)}% CSAT`;
-      else badge = ` · ${t.avg_rating}★`;
-      return `<span style="font-size:11px;padding:3px 8px;border-radius:20px;background:${t && !t._pending ? ct.color+'22' : 'var(--surface2)'};color:${t && !t._pending ? ct.color : 'var(--text3)'};border:1px solid ${t && !t._pending ? ct.color+'44' : 'var(--border)'}">
-        ${ct.label}${badge}
+      return `<span style="font-size:11px;padding:3px 8px;border-radius:20px;background:${t ? ct.color+'22' : 'var(--surface2)'};color:${t ? ct.color : 'var(--text3)'};border:1px solid ${t ? ct.color+'44' : 'var(--border)'}">
+        ${_esc(ct.label)}${t ? ' · ' + t.avg_rating + '★' : ' · no data'}
       </span>`;
     }).join('');
   }
@@ -3852,13 +3521,17 @@ async function refreshFromDomo() {
   const orig = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '↻ Pulling from Domo…'; }
   try {
-    const r = await fetch('/api/refresh/csat');
+    const r = await fetch('/api/refresh/csat', { headers: adminHeaders() });
     const j = await r.json().catch(() => ({}));
     if (r.ok && (j.status || '').includes('refreshed')) {
       if (btn) btn.textContent = '✓ Updated';
       await loadCSAT(true);                 // re-fetch the rebuilt index
       _populateGlobalConsultantBar();
       document.getElementById('lastUpdated').textContent = 'Live · ' + new Date().toLocaleTimeString();
+    } else if (r.status === 401 || r.status === 403 || r.status === 503) {
+      if (btn) btn.textContent = 'Admin token needed';
+      showUploadModal();
+      return;
     } else if (r.status === 400) {
       // Domo not configured on the server — fall back to manual upload.
       if (btn) btn.textContent = orig;
@@ -3889,7 +3562,7 @@ async function submitCSATUpload() {
   }
   if (!pwd) {
     statusEl.style.color = 'var(--red)';
-    statusEl.textContent = '✗ Please enter the password';
+    statusEl.textContent = '✗ Please enter the admin token';
     return;
   }
 
@@ -3902,8 +3575,10 @@ async function submitCSATUpload() {
     const form = new FormData();
     form.append('file', fileInput.files[0]);
 
-    const r = await fetch(`/upload/csat?password=${encodeURIComponent(pwd)}`, {
+    rememberAdminToken(pwd);
+    const r = await fetch('/upload/csat', {
       method: 'POST',
+      headers: adminHeaders(),
       body: form,
     });
     const data = await r.json();
@@ -4085,462 +3760,6 @@ function closeChartModal() {
 
 waitForChart(init);
 
-</script>
-
-<script>
-// ═══════════════════════════════════════════════════════════════════════════
-// BOT INTELLIGENCE — ParkerAI & JamieAI
-// Integrated into the "Focus on" scope bar via __parker__ / __jamie__ team values.
-// Charts use DAY-BY-DAY data from /api/livechat/bots (daily_* arrays).
-// Monthly data used as fallback if daily arrays not yet present in cache.
-// ═══════════════════════════════════════════════════════════════════════════
-
-const BOT_TEAMS = { '__parker__': 'parker', '__jamie__': 'jamie' };
-let _botLive = null;          // cached API response
-let _parkerCharts = {};       // keyed chart instances
-let _jamieCharts  = {};
-const _gridColor  = 'rgba(221,225,236,.8)';
-
-// ── Override onGlobalConsultantTeamChange to integrate bot teams ──────────
-// Bot teams (Parker/Jamie) now behave exactly like any other team:
-//   1. Normal CSAT content renders scoped to that team (via _origTeamChange)
-//   2. Bot intelligence section appears BELOW the normal content as an extra panel
-// Nothing is hidden — the experience is identical to selecting "Voice AI" etc.
-const _origTeamChange = window.onGlobalConsultantTeamChange;
-window.onGlobalConsultantTeamChange = function() {
-  const team = document.getElementById('csatGlobalTeamFilter')?.value || '';
-  const bar  = document.getElementById('csatGlobalScopeBar');
-
-  // Reset bot scope bar styling
-  bar?.classList.remove('parker-focused','jamie-focused');
-
-  if (team === '__parker__' || team === '__jamie__') {
-    const botId = BOT_TEAMS[team];
-    const color = botId === 'parker' ? 'var(--purple)' : 'var(--teal)';
-    const name  = botId === 'parker' ? 'ParkerAI' : 'JamieAI';
-
-    // Apply subtle scope bar tint (same as before — just cosmetic)
-    bar?.classList.add(botId + '-focused');
-
-    // Show bot intelligence section below normal content
-    _setBotView(botId, true);
-
-    // Run normal CSAT team scoping — but bot teams won't have survey data,
-    // so the CSAT charts will gracefully show "no data" for that team.
-    // The status bar will be overridden after _origTeamChange runs.
-    if (_origTeamChange) _origTeamChange.call(this);
-
-    // Override status text to reflect the bot context
-    const statusEl = document.getElementById('csatGlobalScopeStatus');
-    if (statusEl) {
-      statusEl.innerHTML = `<span style="color:${color};font-weight:600">● ${name} · CSAT survey data &amp; bot intelligence</span>`;
-    }
-    const clearBtn = document.getElementById('csatGlobalScopeClear');
-    if (clearBtn) clearBtn.style.display = '';
-
-    // Load bot data
-    if (botId === 'parker') loadParkerData();
-    else initJamiePanel();
-  } else {
-    // Normal team — hide bot section, restore consultant select, run original
-    _setBotView(null, false);
-    const consSel = document.getElementById('csatGlobalConsultant');
-    if (consSel) { consSel.disabled = false; consSel.style.opacity = ''; }
-    if (_origTeamChange) _origTeamChange.call(this);
-  }
-};
-
-// Also override clearGlobalConsultant to hide bot section
-const _origClear = window.clearGlobalConsultant;
-window.clearGlobalConsultant = function() {
-  _setBotView(null, false);
-  const bar = document.getElementById('csatGlobalScopeBar');
-  bar?.classList.remove('parker-focused','jamie-focused');
-  const consSel = document.getElementById('csatGlobalConsultant');
-  if (consSel) { consSel.disabled = false; consSel.style.opacity = ''; }
-  if (_origClear) _origClear.call(this);
-};
-
-function _setBotView(bot, show) {
-  // Show/hide the unified bot intelligence section
-  const section = document.getElementById('botIntelSection');
-  if (section) section.style.display = (show && bot) ? '' : 'none';
-
-  // Show the correct inner panel
-  const parkerInner = document.getElementById('botPanel-parker-inner');
-  const jamieInner  = document.getElementById('botPanel-jamie-inner');
-  if (parkerInner) parkerInner.style.display = (show && bot === 'parker') ? '' : 'none';
-  if (jamieInner)  jamieInner.style.display  = (show && bot === 'jamie')  ? '' : 'none';
-
-  // Update section header to match bot
-  if (show && bot) {
-    const title = document.getElementById('botIntelTitle');
-    const sub   = document.getElementById('botIntelSub');
-    if (title) title.textContent = bot === 'parker' ? '🤖 ParkerAI Intelligence' : '🤖 JamieAI Intelligence';
-    if (sub)   sub.textContent   = bot === 'parker'
-      ? 'LiveChat bot metrics · Groups 10 & 15 · Real-time data'
-      : 'LiveChat bot metrics · Groups 10 & 15 · Awaiting launch';
-  }
-}
-
-// ── Fetch live data from /api/livechat/bots ───────────────────────────────
-async function _fetchBotData() {
-  try {
-    const res = await fetch('/api/livechat/bots');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const j = await res.json();
-    if (j.available === false) return null;
-    return j;
-  } catch(e) {
-    console.warn('[bot-panel] fetch failed:', e);
-    return null;
-  }
-}
-
-async function triggerParkerRefresh() {
-  try {
-    await fetch('/api/livechat/refresh');
-    const s = document.getElementById('parkerDataStatus2');
-    if (s) s.textContent = 'Refreshing… (~60s)';
-    setTimeout(loadParkerData, 8000);
-  } catch(e) {}
-}
-
-async function loadParkerData() {
-  const statusEl = document.getElementById('parkerDataStatus2');
-  if (statusEl) { statusEl.textContent = 'Loading…'; statusEl.style.background = 'var(--surface3)'; statusEl.style.color = 'var(--text3)'; }
-  _botLive = await _fetchBotData();
-  if (_botLive) {
-    if (statusEl) { statusEl.textContent = _botLive.stale ? '🕐 Cached data' : '✅ Live data'; statusEl.style.background = _botLive.stale ? 'var(--amber-dim)' : 'var(--green-dim)'; statusEl.style.color = _botLive.stale ? 'var(--amber)' : 'var(--green)'; }
-  } else {
-    if (statusEl) { statusEl.textContent = '⚠ Using estimates'; statusEl.style.background = 'var(--amber-dim)'; statusEl.style.color = 'var(--amber)'; }
-  }
-  renderParkerPanel(_botLive);
-}
-
-// ── ParkerAI renderer ─────────────────────────────────────────────────────
-function renderParkerPanel(D) {
-  const FALLBACK_KPIS = { total_chats:10134, group_10_chats:6847, group_15_chats:3491,
-    csat_latest_month:56, containment_rate:94.1, escalation_rate:5.9,
-    avg_response_s:56, total_queued:419, total_abandoned:69, abandon_rate:16.5 };
-  const FALLBACK_MV  = [{start:'2026-01-01',g10:1280,g15:95},{start:'2026-02-01',g10:1190,g15:210},{start:'2026-03-01',g10:1140,g15:540},{start:'2026-04-01',g10:1100,g15:1066},{start:'2026-05-01',g10:1075,g15:870},{start:'2026-06-01',g10:1062,g15:710}];
-  const FALLBACK_RAT = [{start:'2026-01-01',good:91,bad:9},{start:'2026-02-01',good:87,bad:13},{start:'2026-03-01',good:80,bad:20},{start:'2026-04-01',good:74,bad:26},{start:'2026-05-01',good:66,bad:34},{start:'2026-06-01',good:54,bad:43}];
-  const FALLBACK_RESP = [{start:'2026-01-01',avg_seconds:51},{start:'2026-02-01',avg_seconds:42},{start:'2026-03-01',avg_seconds:45},{start:'2026-04-01',avg_seconds:47},{start:'2026-05-01',avg_seconds:52},{start:'2026-06-01',avg_seconds:56}];
-  const FALLBACK_Q   = [{start:'2026-01-01',queued:52,abandoned:7},{start:'2026-02-01',queued:48,abandoned:5},{start:'2026-03-01',queued:62,abandoned:9},{start:'2026-04-01',queued:88,abandoned:15},{start:'2026-05-01',queued:95,abandoned:18},{start:'2026-06-01',queued:74,abandoned:15}];
-
-  const k    = D?.kpis       || FALLBACK_KPIS;
-  const tags = D?.tags       || { bot_tags:[], human_tags:[] };
-  const ags  = D?.agents     || [];
-
-  // Prefer daily data; fall back to monthly
-  const rawVol  = D?.daily_volume   || D?.monthly_volume   || FALLBACK_MV;
-  const rawRat  = D?.daily_ratings  || D?.monthly_ratings  || FALLBACK_RAT;
-  const rawResp = D?.daily_response || D?.monthly_response || FALLBACK_RESP;
-  const rawQ    = D?.daily_queue    || D?.monthly_queue    || FALLBACK_Q;
-
-  // Normalise date labels — use "start" or "month" key, format to MMM d or MMM
-  function label(rec) {
-    const s = rec.start || rec.month || '';
-    const d = new Date(s + 'T12:00:00');
-    if (isNaN(d)) return s;
-    // If it looks daily (has day part), show short date; monthly = month abbr
-    const isDailyData = !!(D?.daily_volume);
-    return isDailyData
-      ? d.toLocaleDateString('en-US', { month:'short', day:'numeric' })
-      : d.toLocaleDateString('en-US', { month:'short' });
-  }
-
-  const volLabels  = rawVol.map(label);
-  const ratLabels  = rawRat.map(label);
-  const respLabels = rawResp.map(label);
-  const qLabels    = rawQ.map(label);
-
-  // KPIs — use p2_ IDs (integrated section)
-  const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
-  set('p2_kTotal',   k.total_chats?.toLocaleString() || '—');
-  set('p2_kTotalSub', `Grp 10: ${(k.group_10_chats||0).toLocaleString()} · Grp 15: ${(k.group_15_chats||0).toLocaleString()}`);
-  set('p2_kContain', k.containment_rate ? k.containment_rate + '%' : '—');
-  set('p2_kCSAT',    k.csat_latest_month ? k.csat_latest_month + '%' : '—');
-  set('p2_kEsc',     k.escalation_rate ? k.escalation_rate + '%' : '—');
-  set('p2_kAbandon', k.abandon_rate ? k.abandon_rate + '%' : '—');
-  set('p2_kResp',    k.avg_response_s ? k.avg_response_s + 's' : '—');
-  set('p2_g10chats', (k.group_10_chats||0).toLocaleString());
-  set('p2_g15chats', (k.group_15_chats||0).toLocaleString());
-  const total = k.total_chats || 1;
-  set('p2_g10share', Math.round((k.group_10_chats||0)/total*100) + '%');
-  set('p2_g15share', Math.round((k.group_15_chats||0)/total*100) + '%');
-
-  // Alerts
-  const latest  = rawRat[rawRat.length-1] || {};
-  const prev    = rawRat[rawRat.length-2] || {};
-  const latTot  = (latest.good||0) + (latest.bad||0) || 1;
-  const latPct  = Math.round((latest.good||0)/latTot*100);
-  const prevTot = (prev.good||0) + (prev.bad||0) || 1;
-  const prevPct = Math.round((prev.good||0)/prevTot*100);
-  const drop    = prevPct - latPct;
-  const alertEl = document.getElementById('parkerAlerts2');
-  if (alertEl) {
-    let html = '';
-    if (!D) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.2);color:var(--amber)">⏳ <strong>Estimated data</strong> — live LiveChat data is loading. <a href="/api/livechat/refresh" style="color:var(--purple);font-weight:600">Trigger refresh</a> then refresh in ~60s.</div>`;
-    else if (D.stale) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.2);color:var(--blue)">🕐 Data is ${Math.round(D.cache_age_seconds/60)} min old. <a href="/api/livechat/refresh" style="color:var(--blue);font-weight:600">Refresh now</a></div>`;
-    if (latPct < 60) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.2);color:var(--red)">🚨 <strong>CSAT critical:</strong> ${latPct}% good ratings${drop>0?` — down ${drop}pp`:''}</div>`;
-    else if (drop > 5) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.2);color:var(--amber)">⚠️ <strong>CSAT declining:</strong> Down ${drop}pp to ${latPct}%</div>`;
-    if (!html) html = `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(5,150,105,.08);border:1px solid rgba(5,150,105,.2);color:var(--green)">✅ All metrics healthy · CSAT ${latPct}% · Abandon ${k.abandon_rate}% · Response ${k.avg_response_s}s</div>`;
-    alertEl.innerHTML = html;
-  }
-
-  // Funnel
-  const totalBot  = total;
-  const botTagN   = (tags.bot_tags||[]).reduce((s,t)=>s+(t.count||0),0);
-  const humanTagN = (tags.human_tags||[]).reduce((s,t)=>s+(t.count||0),0);
-  const allTagN   = botTagN + humanTagN || 1;
-  const containPct = Math.round(botTagN/allTagN*100);
-  const escPct     = 100 - containPct;
-  const [f1,f2,f3,f4,f5] = [totalBot, Math.round(totalBot*containPct/100), Math.round(totalBot*escPct/100), k.total_queued||0, k.total_abandoned||0];
-  set('p2_f1val', f1.toLocaleString()); const f1b=document.getElementById('p2_f1bar'); if(f1b) f1b.style.width='100%';
-  set('p2_f2val', f2.toLocaleString()); const f2b=document.getElementById('p2_f2bar'); if(f2b) f2b.style.width=containPct+'%';
-  set('p2_f3val', f3.toLocaleString()); const f3b=document.getElementById('p2_f3bar'); if(f3b) f3b.style.width=escPct+'%';
-  set('p2_f4val', f4.toLocaleString()); const f4b=document.getElementById('p2_f4bar'); if(f4b) f4b.style.width=Math.round(f4/totalBot*100)+'%';
-  set('p2_f5val', f5.toLocaleString()); const f5b=document.getElementById('p2_f5bar'); if(f5b) f5b.style.width=Math.round(f5/totalBot*100)+'%';
-
-  // Tags
-  const renderTags = (elId, arr, colorClass) => {
-    const el = document.getElementById(elId);
-    if (!el) return;
-    el.innerHTML = arr.length
-      ? arr.map(t=>`<div class="bot-tag-item"><span>${t.label||t.name||''}</span><span class="bot-tag-count">${(t.count||0).toLocaleString()}</span></div>`).join('')
-      : '<div style="font-size:12px;color:var(--text3)">No tags found</div>';
-  };
-  renderTags('p2_botTags',   tags.bot_tags||[]);
-  renderTags('p2_humanTags', tags.human_tags||[]);
-
-  // ── CHARTS — all using p2_ canvas IDs ─────────────────────────────────────
-  const chartOpts = { responsive:true, maintainAspectRatio:false,
-    plugins:{ legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:12,usePointStyle:true}}, tooltip:{mode:'index',intersect:false} },
-  };
-
-  // 1. Daily CSAT — stacked bar + line
-  const goodVals = rawRat.map(r => { const t=(r.good||0)+(r.bad||0)||1; return +(r.good||0)/t*100; });
-  const badVals  = rawRat.map(r => { const t=(r.good||0)+(r.bad||0)||1; return +(r.bad||0)/t*100; });
-  _killChart('p2_csatChart');
-  const csatCtx = document.getElementById('p2_csatChart');
-  if (csatCtx) {
-    _parkerCharts['p2_csatChart'] = new Chart(csatCtx, {
-      type:'bar',
-      data:{ labels:ratLabels, datasets:[
-        {label:'Good %', data:goodVals.map(v=>+v.toFixed(1)), backgroundColor:'rgba(5,150,105,.6)', borderRadius:3, order:1},
-        {label:'Bad %',  data:badVals.map(v=>+v.toFixed(1)),  backgroundColor:'rgba(220,38,38,.5)',  borderRadius:3, order:1},
-        {type:'line',label:'Good % trend',data:goodVals.map(v=>+v.toFixed(1)),borderColor:'#059669',borderWidth:2,pointRadius:ratLabels.length>60?0:2.5,fill:false,tension:.25,order:0,pointBackgroundColor:'#059669'},
-      ]},
-      options:{...chartOpts,
-        scales:{
-          x:{stacked:true,grid:{display:false},ticks:{font:{size:10},maxTicksLimit:ratLabels.length>60?12:30,maxRotation:ratLabels.length>30?45:0}},
-          y:{stacked:true,max:100,ticks:{font:{size:11},callback:v=>v+'%'},grid:{color:_gridColor}}
-        }
-      }
-    });
-  }
-
-  // 2. Daily Volume by group
-  _killChart('p2_volChart');
-  const volCtx = document.getElementById('p2_volChart');
-  if (volCtx) {
-    const volKey10 = rawVol[0]?.group_10 !== undefined ? 'group_10' : 'g10';
-    const volKey15 = rawVol[0]?.group_15 !== undefined ? 'group_15' : 'g15';
-    _parkerCharts['p2_volChart'] = new Chart(volCtx, {
-      type:'bar',
-      data:{ labels:volLabels, datasets:[
-        {label:'Group 10', data:rawVol.map(r=>r[volKey10]||0), backgroundColor:'rgba(37,99,235,.7)', borderRadius:3},
-        {label:'Group 15', data:rawVol.map(r=>r[volKey15]||0), backgroundColor:'rgba(124,58,237,.6)', borderRadius:3},
-      ]},
-      options:{...chartOpts,
-        scales:{
-          x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:volLabels.length>60?12:30,maxRotation:volLabels.length>30?45:0}},
-          y:{ticks:{font:{size:11}},grid:{color:_gridColor}}
-        }
-      }
-    });
-  }
-
-  // 3. Daily Response time
-  _killChart('p2_respChart');
-  const respCtx = document.getElementById('p2_respChart');
-  if (respCtx) {
-    _parkerCharts['p2_respChart'] = new Chart(respCtx, {
-      type:'line',
-      data:{ labels:respLabels, datasets:[{
-        label:'Avg Response (s)', data:rawResp.map(r=>r.avg_seconds||0),
-        borderColor:'#d97706', backgroundColor:'rgba(217,119,6,.08)',
-        borderWidth:2, pointRadius:respLabels.length>60?0:3, tension:.3, fill:true, pointBackgroundColor:'#d97706'
-      }]},
-      options:{...chartOpts,
-        plugins:{legend:{display:false}},
-        scales:{
-          x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:respLabels.length>60?12:30,maxRotation:respLabels.length>30?45:0}},
-          y:{min:0,ticks:{font:{size:11},callback:v=>v+'s'},grid:{color:_gridColor}}
-        }
-      }
-    });
-  }
-
-  // 4. Daily Queue & Abandonment
-  _killChart('p2_queueChart');
-  const qCtx = document.getElementById('p2_queueChart');
-  if (qCtx) {
-    _parkerCharts['p2_queueChart'] = new Chart(qCtx, {
-      type:'bar',
-      data:{ labels:qLabels, datasets:[
-        {label:'Queued',    data:rawQ.map(r=>r.queued||0),    backgroundColor:'rgba(37,99,235,.55)', borderRadius:3},
-        {label:'Abandoned', data:rawQ.map(r=>r.abandoned||0), backgroundColor:'rgba(220,38,38,.7)',  borderRadius:3},
-      ]},
-      options:{...chartOpts,
-        scales:{
-          x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:qLabels.length>60?12:30,maxRotation:qLabels.length>30?45:0}},
-          y:{ticks:{font:{size:11}},grid:{color:_gridColor}}
-        }
-      }
-    });
-  }
-
-  // ── Jamie placeholder charts (j2_ IDs) ─────────────────────────────────
-  _killChart('j2_csatChart');
-  const jCsatCtx = document.getElementById('j2_csatChart');
-  if (jCsatCtx) {
-    _jamieCharts['j2_csatChart'] = new Chart(jCsatCtx, {
-      type:'bar', data:{ labels:ratLabels,
-        datasets:[{label:'No data', data:ratLabels.map(()=>0), backgroundColor:'rgba(13,148,136,.15)', borderRadius:3}]},
-      options:{...chartOpts, plugins:{legend:{display:false}},
-        scales:{x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:12}}, y:{max:100,ticks:{font:{size:11},callback:v=>v+'%'},grid:{color:_gridColor}}}}
-    });
-  }
-  _killChart('j2_volChart');
-  const jVolCtx = document.getElementById('j2_volChart');
-  if (jVolCtx) {
-    _jamieCharts['j2_volChart'] = new Chart(jVolCtx, {
-      type:'bar', data:{ labels:volLabels,
-        datasets:[{label:'No data', data:volLabels.map(()=>0), backgroundColor:'rgba(13,148,136,.15)', borderRadius:3}]},
-      options:{...chartOpts, plugins:{legend:{display:false}},
-        scales:{x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:12}}, y:{ticks:{font:{size:11}},grid:{color:_gridColor}}}}
-    });
-  }
-
-  // ── Agent leaderboard ─────────────────────────────────────────────────────
-  const leaderEl = document.getElementById('p2_leaderBody');
-  if (leaderEl) {
-    if (!ags.length) {
-      leaderEl.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">No agent data in API response</td></tr>';
-    } else {
-      leaderEl.innerHTML = ags.slice(0,20).map((a,i) => {
-        const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
-        const cc = a.csat>=80?'var(--green)':a.csat>=65?'var(--amber)':'var(--red)';
-        const spark = (a.monthly||[]).filter(v=>v!=null);
-        const mx = Math.max(...spark,100);
-        const bars = spark.map(v=>`<span style="display:inline-block;width:5px;height:${Math.max(2,Math.round(v/mx*14))}px;background:${cc};opacity:.75;border-radius:2px 2px 0 0;margin-right:1px;vertical-align:bottom"></span>`).join('');
-        const grp = a.group || '—';
-        return `<tr>
-          <td style="padding-left:14px;font-weight:500">${medal} ${a.name||a.id}</td>
-          <td class="r"><span class="pill ${grp===10?'blue':grp===15?'purple':'grey'}" style="font-size:10px">Grp ${grp}</span></td>
-          <td class="r mono">${a.chats||0}</td>
-          <td class="r"><span style="font-weight:700;color:${cc};font-family:'JetBrains Mono',monospace">${a.csat||0}%</span></td>
-          <td class="r" style="color:var(--green)">${a.good||0}</td>
-          <td class="r" style="color:var(--red)">${a.bad||0}</td>
-          <td class="r mono">${a.resp||0}s</td>
-          <td class="r" style="padding-right:12px">${bars}</td>
-        </tr>`;
-      }).join('');
-    }
-  }
-
-  // ── Heatmap ───────────────────────────────────────────────────────────────
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const hmMonths = (ags[0]?.monthly||[]).map((_,i) => MONTHS[i] || ('M'+(i+1)));
-  const hmHead = document.getElementById('p2_hmHead');
-  const hmBody = document.getElementById('p2_hmBody');
-  if (hmHead && hmBody) {
-    hmHead.innerHTML = `<tr><th style="padding-left:14px">Agent</th><th>Grp</th>${hmMonths.map(m=>`<th class="r">${m}</th>`).join('')}<th class="r">Avg</th></tr>`;
-    hmBody.innerHTML = ags.map(a => {
-      const cells = (a.monthly||[]).map(v => {
-        if (v===null||v===undefined) return `<td class="r" style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--surface2);color:var(--text3)">—</td>`;
-        const bg = v>=85?'rgba(5,150,105,.15)':v>=70?'rgba(217,119,6,.13)':'rgba(220,38,38,.13)';
-        const cl = v>=85?'var(--green)':v>=70?'var(--amber)':'var(--red)';
-        return `<td class="r" style="background:${bg};color:${cl};font-weight:600;font-family:'JetBrains Mono',monospace;font-size:11px">${v}%</td>`;
-      }).join('');
-      const ac = a.csat>=80?'var(--green)':a.csat>=65?'var(--amber)':'var(--red)';
-      const grp = a.group || '—';
-      return `<tr>
-        <td style="padding-left:14px;font-weight:500">${a.name||a.id}</td>
-        <td><span class="pill ${grp===10?'blue':grp===15?'purple':'grey'}" style="font-size:10px">Grp ${grp}</span></td>
-        ${cells}
-        <td class="r" style="font-weight:700;color:${ac};font-family:'JetBrains Mono',monospace">${a.csat||0}%</td>
-      </tr>`;
-    }).join('') || `<tr><td colspan="${hmMonths.length+3}" style="text-align:center;padding:20px;color:var(--text3)">No agent data</td></tr>`;
-  }
-}
-
-function initJamiePanel() {
-  // Jamie has no live data; render placeholder charts using j2_ canvases
-  if (_botLive) renderParkerPanel(_botLive);  // reuses j2_ chart canvases as side effect
-}
-
-function _killChart(id) {
-  if (_parkerCharts[id]) { _parkerCharts[id].destroy(); delete _parkerCharts[id]; }
-  if (_jamieCharts[id])  { _jamieCharts[id].destroy();  delete _jamieCharts[id];  }
-}
-
-// Auto-load bot data on page init so ParkerAI/JamieAI cards populate immediately.
-// When data arrives, re-render the CS team cards section if CSAT data is already loaded.
-(async function _autoLoadBotData() {
-  _botLive = await _fetchBotData();
-  if (_botLive && window.csatData) {
-    // Re-render team cards with bot data now available
-    const from = document.getElementById('d0')?.value || '';
-    const to   = document.getElementById('d1')?.value || '';
-    if (_csatScope.type === 'all') {
-      renderCSTeams(csatData.teams || [], csatData.team_daily || {});
-    } else {
-      const u = _csatUnscopedTeams(from, to);
-      renderCSTeams(u.teams, u.team_daily);
-    }
-  }
-})();
-
-// Rebuild team dropdown after CSAT data loads (preserve bot options)
-const _origPopulate = window._populateGlobalConsultantBar;
-// Patch the function that overwrites csatGlobalTeamFilter to preserve bot options
-const _patchTeamSel = () => {
-  const teamSel = document.getElementById('csatGlobalTeamFilter');
-  if (!teamSel) return;
-  const hasPark = [...teamSel.options].some(o=>o.value==='__parker__');
-  if (!hasPark) {
-    const p = new Option('🤖 Team Parker','__parker__'); p.style.color='var(--purple)'; p.style.fontWeight='600';
-    const j = new Option('🤖 Team Jamie', '__jamie__');  j.style.color='var(--teal)';  j.style.fontWeight='600';
-    teamSel.add(p, 1);
-    teamSel.add(j, 2);
-  }
-};
-
-// After the page's own populate runs, re-inject bot options
-const _origPopulateBar = typeof _populateGlobalConsultantBar !== 'undefined'
-  ? _populateGlobalConsultantBar : null;
-if (_origPopulateBar) {
-  window._populateGlobalConsultantBar = function() {
-    _origPopulateBar();
-    _patchTeamSel();
-  };
-}
-
-// Also patch on DOMContentLoaded and on each renderCSAT call
-document.addEventListener('DOMContentLoaded', () => setTimeout(_patchTeamSel, 500));
-const _origRenderCSAT = window.renderCSAT;
-if (_origRenderCSAT) {
-  window.renderCSAT = function(...args) {
-    const r = _origRenderCSAT(...args);
-    setTimeout(_patchTeamSel, 100);
-    return r;
-  };
-}
-// Safety net — run after page fully loads
-window.addEventListener('load', () => setTimeout(_patchTeamSel, 800));
 </script>
 
 

@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 os.environ.setdefault("CMS_API_KEY", "TEST-API-KEY")
+os.environ.setdefault("DASHBOARD_ADMIN_TOKEN", "TEST-ADMIN-TOKEN")
 
 from main import (
     app, _cache, cache_get, cache_set,
@@ -19,6 +20,7 @@ from main import (
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
+ADMIN_HEADERS = {"X-Admin-Token": "TEST-ADMIN-TOKEN"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -299,10 +301,10 @@ class TestBatchEndpoint:
 class TestCsatRawEndpoint:
 
     def test_returns_200(self):
-        assert client.get("/api/csat/raw").status_code == 200
+        assert client.get("/api/csat/raw", headers=ADMIN_HEADERS).status_code == 200
 
     def test_no_cache_headers(self):
-        r = client.get("/api/csat/raw")
+        r = client.get("/api/csat/raw", headers=ADMIN_HEADERS)
         cc = r.headers.get("cache-control", "").lower()
         assert "no-store" in cc or "no-cache" in cc
 
@@ -312,12 +314,38 @@ class TestCsatRawEndpoint:
         original = m._csat_index.copy()
         m._csat_index.clear()
         try:
-            r = client.get("/api/csat/raw")
+            r = client.get("/api/csat/raw", headers=ADMIN_HEADERS)
             assert r.status_code == 200
             d = r.json()
             assert d.get("available") is False
         finally:
             m._csat_index.update(original)
+
+
+class TestSecurityControls:
+
+    def test_csat_raw_requires_admin_token(self):
+        r = client.get("/api/csat/raw")
+        assert r.status_code == 401
+
+    def test_csat_raw_rejects_wrong_admin_token(self):
+        r = client.get("/api/csat/raw", headers={"X-Admin-Token": "WRONG"})
+        assert r.status_code == 401
+
+    def test_csat_status_public_no_sensitive_raw_payload(self):
+        r = client.get("/api/csat/status")
+        assert r.status_code == 200
+        d = r.json()
+        assert "days" not in d
+        assert "quality" in d
+
+    def test_config_exposes_schema_without_secrets(self):
+        r = client.get("/api/config")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["csat"]["schema_version"] >= 2
+        assert "TEST-ADMIN-TOKEN" not in r.text
+
 
 
 class TestApiArticlesEndpoint:
@@ -353,13 +381,13 @@ class TestApiSessionsEndpoint:
 class TestCacheEndpoints:
 
     def test_cache_clear_returns_200(self):
-        assert client.get("/cache/clear").status_code == 200
+        assert client.get("/cache/clear", headers=ADMIN_HEADERS).status_code == 200
 
     def test_api_refresh_returns_200(self):
-        assert client.get("/api/refresh").status_code == 200
+        assert client.get("/api/refresh", headers=ADMIN_HEADERS).status_code == 200
 
     def test_api_refresh_has_status(self):
-        d = client.get("/api/refresh").json()
+        d = client.get("/api/refresh", headers=ADMIN_HEADERS).json()
         assert "status" in d
 
 
@@ -426,7 +454,7 @@ class TestCsatIndexPipeline:
         # Serve from in-memory (no file needed)
         if os.path.exists(m.CSAT_JSON_PATH):
             os.remove(m.CSAT_JSON_PATH)
-        r = client.get("/api/csat/raw")
+        r = client.get("/api/csat/raw", headers=ADMIN_HEADERS)
         assert r.status_code == 200
         d = r.json()
         assert d.get("available") is True

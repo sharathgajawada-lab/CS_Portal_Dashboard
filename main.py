@@ -16,14 +16,19 @@ CALL BUDGET:
   On CMS error: serve stale cache, retry next cycle
 """
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse, Response, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict, Counter
 import httpx, os, asyncio, time, json, hashlib, csv, secrets, io
+
+def _utcnow() -> datetime:
+    """Naive UTC timestamp helper for legacy cache payload compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 # ── Supabase client (lazy init) ───────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -111,7 +116,7 @@ async def _sb_get_unfetched_users(all_user_ids: list, limit: int = 10) -> list:
         fetched_recently = {
             r["user_id"] for r in result
             if r.get("last_fetched") and
-            (datetime.utcnow() - datetime.fromisoformat(
+            (_utcnow() - datetime.fromisoformat(
                 r["last_fetched"].replace("Z","").split("+")[0]
             )).total_seconds() < 48 * 3600
         }
@@ -157,7 +162,7 @@ async def _sb_store_events(user_id: str, project: str, events: list):
     # Update fetch log
     await _sb_request("UPSERT", "/cs_user_fetch_log", [{
         "user_id":    user_id,
-        "last_fetched": datetime.utcnow().isoformat() + "Z",
+        "last_fetched": _utcnow().isoformat() + "Z",
         "event_count": len(rows),
     }])
     print(f"[supabase] stored {len(rows)} events for {user_id[:16]}", flush=True)
@@ -190,9 +195,41 @@ async def _sb_get_user_count() -> int:
 
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-CMS_BASE      = "https://cms.audibene.net/api/metrics"
+CMS_BASE      = os.environ.get("CMS_BASE_URL", "https://cms.audibene.net/api/metrics")
 API_KEY       = os.environ.get("CMS_API_KEY", "")
-DATA_START    = "2026-04-24"
+DATA_START    = os.environ.get("DATA_START", "2026-04-24")
+APP_ENV       = os.environ.get("APP_ENV", "development").strip().lower()
+DASHBOARD_VERSION = os.environ.get("DASHBOARD_VERSION", "2026.06-secure-metrics")
+
+def _env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+# Sensitive/admin operations require a bearer or X-Admin-Token value.
+# No insecure default token is provided. For production, set DASHBOARD_ADMIN_TOKEN.
+# CSAT_UPLOAD_PASSWORD is accepted only as a backwards-compatible env alias.
+ADMIN_TOKEN = (os.environ.get("DASHBOARD_ADMIN_TOKEN")
+               or os.environ.get("CSAT_UPLOAD_PASSWORD")
+               or "").strip()
+ADMIN_TOKEN_REQUIRED = not _env_truthy("DISABLE_ADMIN_AUTH", False)
+
+async def require_admin_token(
+    x_admin_token: str = Header(default=""),
+    authorization: str = Header(default=""),
+) -> bool:
+    """Require an admin token for sensitive data and operational endpoints."""
+    if not ADMIN_TOKEN_REQUIRED:
+        return True
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="DASHBOARD_ADMIN_TOKEN is not configured")
+    token = (x_admin_token or "").strip()
+    if not token and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    if not token or not secrets.compare_digest(token, ADMIN_TOKEN):
+        raise HTTPException(status_code=401, detail="Admin token required")
+    return True
 
 # ── Starter Guide Service ───────────────────────────────────────────────────────
 SG_BASE       = os.environ.get("STARTER_GUIDE_BASE_URL", "https://starter-guide-service.audibene.net")
@@ -203,22 +240,55 @@ SG_BASE       = os.environ.get("STARTER_GUIDE_BASE_URL", "https://starter-guide-
 _csat_rows: list = []
 _csat_index: dict = {}  # pre-built day-level index for O(days) not O(rows) queries
 
-# Upload password — set CSAT_UPLOAD_PASSWORD env var on Render
-# Default is "hearcom2024" — change it in Render environment variables
-UPLOAD_PASSWORD = os.environ.get("CSAT_UPLOAD_PASSWORD", "hearcom2024")
+# CSAT uploads and raw CSAT drilldown are protected by require_admin_token.
 
 # Path where csat_index.json is saved for serving
 CSAT_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "csat_index.json")
 
-# CS team allow-list — the raw Domo dataset contains teams/departments we don't
-# want (German teams, sales, etc.), so we keep ONLY these. To add a new CS team
-# later, append it here OR set the CSAT_TEAMS env var (comma-separated) in Render.
-# Matching is case-insensitive and trims surrounding whitespace.
-_DEFAULT_CSAT_TEAMS = "Team Amplifiers,Team Hear4Life,Voice AI,Team Sound Check"
+# Optional CS team allow-list. Future-proof default: do not drop newly-created
+# teams unless CSAT_TEAMS is explicitly configured as a comma-separated allow-list.
+# This prevents silent data loss when Operations adds a new team.
+_DEFAULT_CSAT_TEAMS = ""
 CSAT_TEAMS_ALLOW = [
     t.strip() for t in os.getenv("CSAT_TEAMS", _DEFAULT_CSAT_TEAMS).split(",") if t.strip()
 ]
 _CSAT_TEAMS_ALLOW_LC = {t.lower() for t in CSAT_TEAMS_ALLOW}
+CSAT_INCLUDE_BOT_CONSULTANTS = _env_truthy("CSAT_INCLUDE_BOT_CONSULTANTS", False)
+
+CSAT_SCHEMA_VERSION = 2
+CSAT_INDEX_KEY_LEGEND = {
+    "t": "survey_count",
+    "sr": "sum_rating",
+    "s": "survey_solved_count",
+    "l": "low_rating_count_1_or_2",
+    "d": "rating_distribution",
+    "tm": "teams",
+    "cn": "consultants",
+    "rs": "call_reasons",
+    "uo": "unique_opportunities",
+    "ft": "true_fcr_eligible_first_calls",
+    "fr": "true_fcr_resolved_first_calls",
+}
+CSAT_METRIC_DEFINITIONS = {
+    "csat.avg_rating": {
+        "label": "Average CSAT",
+        "grain": "survey_response",
+        "formula": "sum(rating) / count(valid survey responses)",
+        "scale": "1-5",
+    },
+    "csat.solved_rate": {
+        "label": "Solved rate",
+        "grain": "survey_response",
+        "formula": "count(SOLVED=true) / count(valid survey responses)",
+        "note": "This is not true first-call resolution.",
+    },
+    "csat.true_fcr": {
+        "label": "True first-call resolution",
+        "grain": "opportunity",
+        "formula": "first call is solved and the opportunity has no later calls",
+        "requires": ["OPPORTUNITY_ID"],
+    },
+}
 
 
 def _filter_allowed_teams(rows: list) -> list:
@@ -240,11 +310,15 @@ def _build_csat_index(rows: list) -> dict:
     """
     global _csat_rows, _csat_index
 
-    # Drop teams/departments outside the CS allow-list before anything else,
-    # so no data source (Domo, CSV, upload) can leak unwanted teams in.
-    rows = _filter_allowed_teams(rows)
+    raw_rows = list(rows or [])
+    raw_row_count = len(raw_rows)
 
-    rows.sort(key=lambda r: r["date"])
+    # Drop teams/departments outside the CS allow-list only when CSAT_TEAMS is
+    # explicitly configured. New teams otherwise flow through automatically.
+    rows = _filter_allowed_teams(raw_rows)
+    dropped_by_team_filter = raw_row_count - len(rows)
+
+    rows = sorted(rows, key=lambda r: r.get("date", ""))
     _csat_rows = rows
 
     # ── True FCR pre-pass ────────────────────────────────────────────────────
@@ -284,9 +358,12 @@ def _build_csat_index(rows: list) -> dict:
         cid  = r["cid"]
         name = r["name"]
         bad_team = not team or team.strip().lower() in BAD_NAMES
-        # Frank AI bots (Voice AI team) are treated as consultants so the Voice AI
-        # team shows members and an individual-calls table like any other team.
-        bad_name = (not name or name.strip().lower() in BAD_NAMES)
+        name_lc = (name or "").strip().lower()
+        bad_name = (
+            not name
+            or name_lc in BAD_NAMES
+            or (not CSAT_INCLUDE_BOT_CONSULTANTS and name_lc.startswith("frank ai"))
+        )
 
         if d not in day_map:
             day_map[d] = {"t":0,"sr":0,"s":0,"l":0,"d":{},"tm":{},"cn":{},"rs":{},"ft":0,"fr":0}
@@ -380,14 +457,14 @@ def _build_csat_index(rows: list) -> dict:
             # Compact keys: i=call_id, r=rating, s=solved(0/1), rs=reason. Date comes from day key.
             call_id = r.get("call_id") or ""
             if call_id:
-                dm["cn"][cid]["c"].append({
-                    "i": call_id,
-                    "r": r["rating"],
-                    "s": int(r["solved"]),
-                    "rs": reason,
-                    "dt": r.get("datetime") or d,
-                    "t": display_summary,
-                })
+                call_record = {"i": call_id, "r": r["rating"], "s": int(r["solved"])}
+                if reason and reason != "Unspecified":
+                    call_record["rs"] = reason
+                if r.get("datetime") and r.get("datetime") != d:
+                    call_record["dt"] = r.get("datetime")
+                if display_summary:
+                    call_record["t"] = display_summary
+                dm["cn"][cid]["c"].append(call_record)
 
         if not bad_name:
             try:
@@ -414,15 +491,39 @@ def _build_csat_index(rows: list) -> dict:
         for cid, cv in (dm.get("cn") or {}).items():
             cv["uo"] = len(cons_opp_sets.get((d, cid), set()))
 
-    dates     = sorted(day_map.keys())
+    dates = sorted(day_map.keys())
+    quality = {
+        "raw_rows": raw_row_count,
+        "indexed_rows": len(rows),
+        "dropped_by_team_filter": dropped_by_team_filter,
+        "missing_team_rows": sum(1 for r in rows if not (r.get("team") or "").strip()),
+        "missing_consultant_name_rows": sum(1 for r in rows if not (r.get("name") or "").strip()),
+        "missing_call_id_rows": sum(1 for r in rows if not (r.get("call_id") or "").strip()),
+        "missing_opportunity_id_rows": sum(1 for r in rows if not (r.get("opp_id") or "").strip()),
+        "missing_summary_rows": sum(1 for r in rows if not ((r.get("summary") or "").strip() or (r.get("summary_raw") or "").strip())),
+        "distinct_teams": len({(r.get("team") or "").strip() for r in rows if (r.get("team") or "").strip()}),
+        "distinct_consultants": len({(r.get("cid") or "").strip() for r in rows if (r.get("cid") or "").strip()}),
+        "distinct_days": len(day_map),
+        "true_fcr_available": any((dm.get("ft") or 0) > 0 for dm in day_map.values()),
+        "team_filter": {
+            "enabled": bool(CSAT_TEAMS_ALLOW),
+            "allow_list": CSAT_TEAMS_ALLOW,
+        },
+        "bot_consultants_included": CSAT_INCLUDE_BOT_CONSULTANTS,
+    }
     index_data = {
         "available":  True,
+        "schema_version": CSAT_SCHEMA_VERSION,
+        "key_legend": CSAT_INDEX_KEY_LEGEND,
+        "metric_definitions": CSAT_METRIC_DEFINITIONS,
+        "quality": quality,
         "date_min":   dates[0]  if dates else "",
         "date_max":   dates[-1] if dates else "",
         "days":       day_map,
         "week_cons":  week_cons,
         "total_rows": len(rows),
-        "generated":  datetime.utcnow().isoformat() + "Z",
+        "raw_total_rows": raw_row_count,
+        "generated":  _utcnow().isoformat() + "Z",
     }
 
     # Also keep the old _csat_index format for the /api/csat endpoint
@@ -1231,12 +1332,12 @@ async def _build_fallback_from_supabase() -> tuple:
     """Build best-effort batch and intel payloads from stored Supabase events."""
     empty_batch = {ev["key"]: {"series": []} for ev in EVENTS}
     empty_intel = {
-        "articles": {"articles": [], "total_views": 0, "priority": [], "computed_at": datetime.utcnow().isoformat(), "note": "No CMS data"},
-        "search": {"top_queries": [], "zero_result": [], "content_gaps": [], "total_searches": 0, "conversion_rate": 0, "frustration_index": 0, "computed_at": datetime.utcnow().isoformat(), "note": "No CMS data"},
-        "categories": {"categories": [], "computed_at": datetime.utcnow().isoformat()},
-        "videos": {"videos": [], "computed_at": datetime.utcnow().isoformat(), "note": "No CMS data"},
+        "articles": {"articles": [], "total_views": 0, "priority": [], "computed_at": _utcnow().isoformat(), "note": "No CMS data"},
+        "search": {"top_queries": [], "zero_result": [], "content_gaps": [], "total_searches": 0, "conversion_rate": 0, "frustration_index": 0, "computed_at": _utcnow().isoformat(), "note": "No CMS data"},
+        "categories": {"categories": [], "computed_at": _utcnow().isoformat()},
+        "videos": {"videos": [], "computed_at": _utcnow().isoformat(), "note": "No CMS data"},
         "sessions": {"total_sessions": 0, "avg_seconds": 0, "median_seconds": 0, "p90_seconds": 0, "pct_with_logout": 0, "depth_distribution": {}, "activity_breakdown": [], "daily_avg": [], "note": "No CMS data"},
-        "insights": {"consumption_ratio": 0, "frustration_index": 0, "engagement_velocity": 0, "self_service_rate": 0, "hour_distribution": {}, "weekly_digest": "CMS unavailable — using Supabase fallback", "computed_at": datetime.utcnow().isoformat()},
+        "insights": {"consumption_ratio": 0, "frustration_index": 0, "engagement_velocity": 0, "self_service_rate": 0, "hour_distribution": {}, "weekly_digest": "CMS unavailable — using Supabase fallback", "computed_at": _utcnow().isoformat()},
     }
     if not _sb_enabled:
         return empty_batch, empty_intel, 0, 0
@@ -1347,7 +1448,7 @@ async def _build_fallback_from_supabase() -> tuple:
             "total_views": total_views,
             "priority": [{"id": a["id"], "label": a["label"], "views": a["views"], "issue": "No feedback despite views", "health_score": a["health_score"]}
                          for a in articles if a["needs_attention"]][:10],
-            "computed_at": datetime.utcnow().isoformat(),
+            "computed_at": _utcnow().isoformat(),
             "note": "Recovered from Supabase timeline cache while CMS is unavailable",
         },
         "search": {
@@ -1357,22 +1458,22 @@ async def _build_fallback_from_supabase() -> tuple:
             "total_searches": int(search_total),
             "conversion_rate": 0,
             "frustration_index": round(search_total_series / max(login_total, 1) * 100) / 100 if login_total else 0,
-            "computed_at": datetime.utcnow().isoformat(),
+            "computed_at": _utcnow().isoformat(),
             "note": "Recovered from Supabase timeline cache",
         },
         "categories": {
             "categories": [{"path": k, "label": _label_from_slug(k.replace("/category/", "")), "count": int(v)}
                            for k, v in category_views.most_common(20)],
-            "computed_at": datetime.utcnow().isoformat(),
+            "computed_at": _utcnow().isoformat(),
         },
         "videos": {
             "videos": [{"title": t, "count": int(c), "url": ""} for t, c in video_views.most_common(20)],
-            "computed_at": datetime.utcnow().isoformat(),
+            "computed_at": _utcnow().isoformat(),
             "note": "Recovered from Supabase timeline cache",
         },
         "sessions": {
             **sessions,
-            "computed_at": datetime.utcnow().isoformat(),
+            "computed_at": _utcnow().isoformat(),
         },
         "insights": {
             "consumption_ratio": round(article_total / max(login_total, 1) * 100) / 100 if login_total else 0,
@@ -1381,7 +1482,7 @@ async def _build_fallback_from_supabase() -> tuple:
             "self_service_rate": 0,
             "hour_distribution": insights_hour,
             "weekly_digest": "CMS unavailable — showing data rebuilt from Supabase timeline cache",
-            "computed_at": datetime.utcnow().isoformat(),
+            "computed_at": _utcnow().isoformat(),
         },
     }
 
@@ -1400,7 +1501,7 @@ async def full_refresh():
         print("[refresh] already running, skipping", flush=True)
         return
     async with lock:
-        print(f"[refresh] starting at {datetime.utcnow().isoformat()}", flush=True)
+        print(f"[refresh] starting at {_utcnow().isoformat()}", flush=True)
         old_batch, _ = cache_get("batch:all")
         old_intel, _ = cache_get("intel:all")
         batch  = {}
@@ -1793,7 +1894,7 @@ async def full_refresh():
             "articles": {
                 "articles": articles, "total_views": total_views,
                 "priority": priority,
-                "computed_at": datetime.utcnow().isoformat(),
+                "computed_at": _utcnow().isoformat(),
                 "note": "Views & feedback from top-n. Time/bounce from timeline sample.",
             },
             "search": {
@@ -1803,7 +1904,7 @@ async def full_refresh():
                 "total_searches":  search_total,
                 "conversion_rate": round(search_conv/search_total*100,1) if search_total else 0,
                 "frustration_index": frustration_idx,
-                "computed_at":     datetime.utcnow().isoformat(),
+                "computed_at":     _utcnow().isoformat(),
                 "note": "Queries from timeline sample. Frustration index = searches/logins.",
             },
             "categories": {
@@ -1812,12 +1913,12 @@ async def full_refresh():
                     "label": (r.get("itemId") or "").replace("/category/","").replace("-"," ").title() or "Home",
                     "count": int(r.get("count",0)),
                 } for r in cat_rows],
-                "computed_at": datetime.utcnow().isoformat(),
+                "computed_at": _utcnow().isoformat(),
             },
             "videos": {
                 "videos": [{"title":t,"count":c,"url":video_urls.get(t,"")}
                            for t,c in video_counter.most_common(20)],
-                "computed_at": datetime.utcnow().isoformat(),
+                "computed_at": _utcnow().isoformat(),
                 "note": "From timeline sample.",
             },
             "sessions": {
@@ -1829,7 +1930,7 @@ async def full_refresh():
                 "depth_distribution": dict(depths),
                 "activity_breakdown": activity_breakdown,
                 "daily_avg": daily_avg,
-                "computed_at": datetime.utcnow().isoformat(),
+                "computed_at": _utcnow().isoformat(),
                 "note": "From timeline sample of top video/search users.",
             },
             "insights": {
@@ -1839,7 +1940,7 @@ async def full_refresh():
                 "self_service_rate":  self_service_rate,
                 "hour_distribution":  dict(hour_counts),
                 "weekly_digest":      digest,
-                "computed_at":        datetime.utcnow().isoformat(),
+                "computed_at":        _utcnow().isoformat(),
             },
         }
         has_intel_payload = any([
@@ -1921,9 +2022,33 @@ async def lifespan(app):
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(lifespan=lifespan, title="CS Portal Analytics")
 app.add_middleware(GZipMiddleware, minimum_size=500)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+_allowed_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if _allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_methods=["GET", "POST", "HEAD", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Admin-Token"],
+    )
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
+@app.get("/api/config")
+async def api_config():
+    return {
+        "dashboard_version": DASHBOARD_VERSION,
+        "environment": APP_ENV,
+        "data_start": DATA_START,
+        "events": EVENTS,
+        "csat": {
+            "schema_version": CSAT_SCHEMA_VERSION,
+            "key_legend": CSAT_INDEX_KEY_LEGEND,
+            "metric_definitions": CSAT_METRIC_DEFINITIONS,
+            "admin_token_required": ADMIN_TOKEN_REQUIRED,
+            "admin_token_configured": bool(ADMIN_TOKEN),
+            "team_filter_enabled": bool(CSAT_TEAMS_ALLOW),
+        },
+    }
+
 @app.get("/api/metrics/batch")
 async def batch_metrics():
     data, _ = cache_get("batch:all")
@@ -2053,12 +2178,12 @@ async def api_sessions_full(date_from: str = "", date_to: str = ""):
         "depth_distribution": dict(depth_dist),
         "daily_avg": daily_avg, "activity_breakdown": activity_breakdown,
         "hour_distribution": {str(h):c for h,c in sorted(hour_map.items())},
-        "computed_at": datetime.utcnow().isoformat(),
+        "computed_at": _utcnow().isoformat(),
         "note": f"From {user_count} users in Supabase — {'full' if user_count >= 50 else 'building up coverage'} ({n} sessions)",
     }
 
 @app.get("/api/csat/raw")
-async def api_csat_raw():
+async def api_csat_raw(admin_ok: bool = Depends(require_admin_token)):
     """Serve pre-built csat_index.json — used by frontend for client-side filtering.
     Never cached — must always serve the latest uploaded file.
     """
@@ -2078,14 +2203,10 @@ async def api_csat_raw():
 
 
 @app.post("/upload/csat")
-async def upload_csat(file: UploadFile = File(...), password: str = ""):
+async def upload_csat(file: UploadFile = File(...), admin_ok: bool = Depends(require_admin_token)):
     """Upload a new call quality Excel file. Rebuilds the CSAT index immediately.
-    Protected by CSAT_UPLOAD_PASSWORD environment variable.
+    Protected by DASHBOARD_ADMIN_TOKEN (or the backwards-compatible CSAT_UPLOAD_PASSWORD env alias).
     """
-    # Password check
-    if not secrets.compare_digest(password, UPLOAD_PASSWORD):
-        raise HTTPException(status_code=401, detail="Wrong password")
-
     # Validate file type
     fname = file.filename or ""
     if not fname.lower().endswith((".xlsx", ".xls", ".csv")):
@@ -2126,42 +2247,52 @@ async def upload_csat(file: UploadFile = File(...), password: str = ""):
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 
-    """Return full pre-indexed CSAT data for client-side filtering.
-    Fetched ONCE on page load — all date filtering happens in the browser.
-    Payload: day_map keyed by date, plus consultant/team lookup tables.
-    """
+@app.get("/api/csat")
+async def api_csat(admin_ok: bool = Depends(require_admin_token)):
+    """Return the current pre-indexed CSAT payload using the canonical schema."""
+    index_data = _csat_index.get("index_data")
+    if index_data:
+        return index_data
     if not _csat_index.get("day_map"):
         return {"available": False, "note": "Upload call_quality.csv to enable CSAT section"}
-
-    day_map = _csat_index["day_map"]
-
-    # Flatten day_map to a compact array for smaller payload
-    # Each entry: [date, total, sum_rating, solved, low, dist{1-5}, teams{}, cons{}]
-    days_payload = {}
-    for date, dm in day_map.items():
-        days_payload[date] = {
-            "t":  dm["total"],
-            "sr": dm["sum_r"],
-            "s":  dm["solved"],
-            "l":  dm["low"],
-            "d":  dm.get("dist", {}),
-            "tm": {t: {"t":v["t"],"sr":v["sr"],"s":v["s"],"l":v["l"],"d":v.get("d",{})}
-                   for t, v in dm.get("tm", {}).items()},
-            "cn": {c: {"n":v["n"],"tm":v["tm"],"t":v["t"],
-                       "sr":v["sr"],"s":v["s"],"l":v["l"],"d":v.get("d",{})}
-                   for c, v in dm.get("cn", {}).items()},
-        }
-
     return {
-        "available":  True,
-        "date_min":   _csat_index.get("date_min", ""),
-        "date_max":   _csat_index.get("date_max", ""),
-        "days":       days_payload,
+        "available": True,
+        "schema_version": CSAT_SCHEMA_VERSION,
+        "key_legend": CSAT_INDEX_KEY_LEGEND,
+        "metric_definitions": CSAT_METRIC_DEFINITIONS,
+        "date_min": _csat_index.get("date_min", ""),
+        "date_max": _csat_index.get("date_max", ""),
+        "days": _csat_index.get("day_map", {}),
         "total_rows": len(_csat_rows),
     }
 
+@app.get("/api/csat/status")
+async def api_csat_status():
+    """Public, non-sensitive CSAT status and data-quality summary."""
+    idx = _csat_index.get("index_data") or {}
+    quality = idx.get("quality") or {}
+    return {
+        "available": bool(idx.get("available")) or bool(_csat_rows),
+        "schema_version": idx.get("schema_version", CSAT_SCHEMA_VERSION),
+        "date_min": idx.get("date_min", _csat_index.get("date_min", "")),
+        "date_max": idx.get("date_max", _csat_index.get("date_max", "")),
+        "total_rows": idx.get("total_rows", len(_csat_rows)),
+        "raw_total_rows": idx.get("raw_total_rows", len(_csat_rows)),
+        "generated": idx.get("generated", ""),
+        "quality": {
+            "indexed_rows": quality.get("indexed_rows"),
+            "raw_rows": quality.get("raw_rows"),
+            "dropped_by_team_filter": quality.get("dropped_by_team_filter"),
+            "distinct_teams": quality.get("distinct_teams"),
+            "distinct_consultants": quality.get("distinct_consultants"),
+            "distinct_days": quality.get("distinct_days"),
+            "true_fcr_available": quality.get("true_fcr_available"),
+            "team_filter_enabled": bool(CSAT_TEAMS_ALLOW),
+        },
+    }
+
 @app.get("/debug/csat")
-async def debug_csat():
+async def debug_csat(admin_ok: bool = Depends(require_admin_token)):
     """Check whether call_quality.csv was loaded successfully."""
     summary_nonempty = [
         r for r in _csat_rows
@@ -2196,7 +2327,7 @@ async def debug_csat():
     }
 
 @app.get("/debug/csat/dates")
-async def debug_csat_dates():
+async def debug_csat_dates(admin_ok: bool = Depends(require_admin_token)):
     """Per-month row counts — reveals gaps (e.g. a missing March–April) and whether
     a gap is in the raw data vs introduced downstream."""
     from collections import Counter
@@ -2252,11 +2383,13 @@ async def health():
             "queries":   len(intel.get("search",{}).get("top_queries",[])),
         },
         "call_budget":   "15 fixed + up to 12 timeline calls per refresh (27 max), 1s gap each, every 2 hours",
-        "ts":            datetime.utcnow().isoformat(),
+        "admin_auth": {"required": ADMIN_TOKEN_REQUIRED, "configured": bool(ADMIN_TOKEN)},
+        "version":       DASHBOARD_VERSION,
+        "ts":            _utcnow().isoformat(),
     }
 
 @app.get("/api/refresh")
-async def api_refresh():
+async def api_refresh(admin_ok: bool = Depends(require_admin_token)):
     """Manually trigger a full data refresh.
     Safer default than /cache/clear because it never drops cached data.
     Safe to call any time — protected by lock so only one runs at a time.
@@ -2264,11 +2397,11 @@ async def api_refresh():
     lock = get_lock()
     if not lock.locked():
         asyncio.create_task(full_refresh())
-        return {"status": "refresh started", "note": "Takes ~30-60s. Check /health for completion."}
+        return {"status": "refresh started", "note": "Check /health for refresh status."}
     return {"status": "refresh already running", "note": "Check /health for progress."}
 
 @app.get("/api/refresh/csat")
-async def api_refresh_csat():
+async def api_refresh_csat(admin_ok: bool = Depends(require_admin_token)):
     """Manually pull the latest CSAT data from Domo and rebuild the index.
     Replaces the manual 'Update CSAT' upload when Domo is configured.
     """
@@ -2291,7 +2424,7 @@ async def api_refresh_csat():
     )
 
 @app.get("/cache/clear")
-async def clear_cache(force: bool = False):
+async def clear_cache(force: bool = False, admin_ok: bool = Depends(require_admin_token)):
     """Reset HTTP client and optionally clear cache before queueing refresh.
 
     Default behaviour keeps last-good cache to avoid blank dashboards during
@@ -2315,7 +2448,7 @@ async def clear_cache(force: bool = False):
     return {"status": "cache retained — refresh already running", "note": "Last-good data preserved while refresh runs."}
 
 @app.get("/debug/cms")
-async def debug_cms():
+async def debug_cms(admin_ok: bool = Depends(require_admin_token)):
     client = get_client()
     try:
         r = await client.get(f"{CMS_BASE}/cs-portal-content-events/query/top-n",
@@ -2338,7 +2471,7 @@ async def debug_cms():
     }
 
 @app.get("/debug/video-topn")
-async def debug_video_topn():
+async def debug_video_topn(admin_ok: bool = Depends(require_admin_token)):
     """Test whether the CMS supports grouping video.watched by properties.videoTitle.
     If it returns video titles, we can replace the timeline-sample approach with a
     single direct CMS call and get ALL videos, not just from sampled users.
@@ -2498,7 +2631,7 @@ async def sg_metrics_topn(event: str = "starter_guide.slide_viewed",
 
 
 @app.get("/debug/sg")
-async def debug_sg():
+async def debug_sg(admin_ok: bool = Depends(require_admin_token)):
     """One-shot health check for all Starter Guide layers.
     Hit this URL to diagnose why the dashboard shows no data.
     """
@@ -2574,9 +2707,9 @@ _KNOWN_CMS_PROJECTS = [
 
 
 @app.get("/debug/sg/discover")
-async def debug_sg_discover():
+async def debug_sg_discover(admin_ok: bool = Depends(require_admin_token)):
     """Scan every known CMS project for starter-guide events concurrently.
-    Completes in ~3-5s. Returns hits sorted by event count descending.
+    Returns hits sorted by event count descending.
     Call this once to find the correct STARTER_GUIDE_CMS_PROJECT value.
     """
     client = get_client()
@@ -2638,7 +2771,7 @@ async def debug_sg_discover():
 
 
 @app.get("/debug/sg/projects")
-async def debug_sg_projects():
+async def debug_sg_projects(admin_ok: bool = Depends(require_admin_token)):
     """List all CMS projects accessible with the current API key.
     Use this if /debug/sg/discover finds no hits — starter guide events
     may live in a project not in the known list.
@@ -2710,638 +2843,8 @@ async def csat_page():
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache"})
 
-@app.get("/ai-bots", response_class=HTMLResponse)
-async def ai_bots_page():
-    """AI Bot Intelligence page (ParkerAI & JamieAI) — served from ai-bots.html."""
-    with open("ai-bots.html") as f: html = f.read()
-    return HTMLResponse(content=html,
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
-                 "Pragma": "no-cache"})
-
-
 @app.get("/sw.js")
 async def service_worker():
     with open("sw.js") as f: content = f.read()
     return Response(content=content, media_type="application/javascript",
         headers={"Cache-Control":"public, max-age=86400"})
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# LiveChat API — ParkerAI / AI Bot Intelligence
-# Groups 10 & 15 · v3.5 + v3.6 endpoints
-# Credentials: LIVECHAT_ACCOUNT_ID, IDLIVECHAT_TOKEN (set in Render env vars)
-# Refreshes on the same 2-hour cycle as the rest of the dashboard.
-# All data served from cache — zero LiveChat calls per page load.
-# ══════════════════════════════════════════════════════════════════════════════
-
-import base64 as _b64
-
-LC_ACCOUNT_ID = os.environ.get("LIVECHAT_ACCOUNT_ID", "")
-LC_TOKEN      = os.environ.get("IDLIVECHAT_TOKEN", "")
-LC_BASE_V35   = "https://api.livechatinc.com/v3.5"
-LC_BASE_V36   = "https://api.livechatinc.com/v3.6"
-LC_GROUPS     = [10, 15]
-
-# Cache keys
-LC_CACHE_KEY  = "livechat:ai_bots"
-LC_CACHE_TTL  = 7200   # 2 hours fresh
-LC_STALE_TTL  = 86400  # 24 hours stale
-
-
-def _lc_headers() -> dict:
-    """Build LiveChat Basic-auth headers from env vars."""
-    if not LC_ACCOUNT_ID or not LC_TOKEN:
-        return {}
-    token = _b64.b64encode(f"{LC_ACCOUNT_ID}:{LC_TOKEN}".encode()).decode()
-    return {
-        "Authorization": f"Basic {token}",
-        "Content-Type":  "application/json",
-    }
-
-
-def _lc_configured() -> bool:
-    return bool(LC_ACCOUNT_ID and LC_TOKEN)
-
-
-async def _lc_get(url: str, params: dict = None, retries: int = 3) -> dict | None:
-    """Single LiveChat API call with retry + backoff."""
-    hdrs = _lc_headers()
-    if not hdrs:
-        return None
-    async with httpx.AsyncClient(timeout=20, headers=hdrs) as client:
-        for attempt in range(retries):
-            try:
-                r = await client.get(url, params=params or {})
-                if r.status_code == 429:
-                    await asyncio.sleep(5 * (attempt + 1))
-                    continue
-                if r.status_code not in (200, 201):
-                    print(f"[livechat] {r.status_code} {url}: {r.text[:150]}", flush=True)
-                    return None
-                return r.json()
-            except Exception as ex:
-                print(f"[livechat] error {url}: {ex}", flush=True)
-                await asyncio.sleep(3 * (attempt + 1))
-    return None
-
-
-def _lc_date_range() -> tuple[str, str]:
-    """Return (from, to) covering Jan–current month of current year."""
-    now = datetime.utcnow()
-    return f"{now.year}-01-01T00:00:00", now.strftime("%Y-%m-%dT23:59:59")
-
-
-async def _lc_chats_summary(date_from: str, date_to: str) -> dict:
-    """
-    Pull chat volume + rating stats for groups 10 & 15 combined and per-group.
-    Uses /v3.5/reports/chats/total_chats and /v3.5/reports/chats/ratings.
-    """
-    result = {
-        "total":    0,
-        "group_10": 0,
-        "group_15": 0,
-        "monthly_total":    [],   # [{month, total, group_10, group_15}]
-        "good_ratings":     0,
-        "bad_ratings":      0,
-        "monthly_ratings":  [],   # [{month, good, bad, good_pct}]
-    }
-
-    # ── Total chats per group ──────────────────────────────────────────────
-    for grp in LC_GROUPS:
-        data = await _lc_get(
-            f"{LC_BASE_V35}/reports/chats/total_chats",
-            {"filters[groups][0]": grp,
-             "distribution": "month",
-             "from": date_from, "to": date_to},
-        )
-        await asyncio.sleep(0.5)
-        if not data:
-            continue
-        records = data.get("records", [])
-        key = f"group_{grp}"
-        for rec in records:
-            result[key] += int(rec.get("total", 0))
-            result["total"] += int(rec.get("total", 0))
-
-    # ── Monthly totals (both groups together) ─────────────────────────────
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/total_chats",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "month",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-    if data:
-        for rec in data.get("records", []):
-            result["monthly_total"].append({
-                "month": rec.get("start", "")[:7],
-                "total": int(rec.get("total", 0)),
-            })
-
-    # ── Monthly totals per-group for volume split chart ────────────────────
-    monthly_g10, monthly_g15 = {}, {}
-    for grp, store in ((10, monthly_g10), (15, monthly_g15)):
-        d = await _lc_get(
-            f"{LC_BASE_V35}/reports/chats/total_chats",
-            {"filters[groups][0]": grp,
-             "distribution": "month",
-             "from": date_from, "to": date_to},
-        )
-        await asyncio.sleep(0.5)
-        if d:
-            for rec in d.get("records", []):
-                store[rec.get("start", "")[:7]] = int(rec.get("total", 0))
-
-    # Merge into monthly_total
-    for entry in result["monthly_total"]:
-        m = entry["month"]
-        entry["group_10"] = monthly_g10.get(m, 0)
-        entry["group_15"] = monthly_g15.get(m, 0)
-
-    # ── Ratings ────────────────────────────────────────────────────────────
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/ratings",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "month",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-    if data:
-        for rec in data.get("records", []):
-            good = int(rec.get("good", 0))
-            bad  = int(rec.get("bad",  0))
-            total_r = good + bad
-            result["good_ratings"] += good
-            result["bad_ratings"]  += bad
-            result["monthly_ratings"].append({
-                "month":    rec.get("start", "")[:7],
-                "good":     good,
-                "bad":      bad,
-                "good_pct": round(good / total_r * 100, 1) if total_r else 0,
-            })
-
-    return result
-
-
-async def _lc_response_times(date_from: str, date_to: str) -> list:
-    """Monthly avg first response time (seconds) for groups 10 & 15."""
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/first_response_time",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "month",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-    if not data:
-        return []
-    return [
-        {
-            "month": rec.get("start", "")[:7],
-            "avg_seconds": round(float(rec.get("avg", 0))),
-        }
-        for rec in data.get("records", [])
-    ]
-
-
-async def _lc_daily_volume(date_from: str, date_to: str) -> list:
-    """Daily chat volume split by group 10 vs group 15."""
-    daily_g10, daily_g15 = {}, {}
-    for grp, store in ((10, daily_g10), (15, daily_g15)):
-        d = await _lc_get(
-            f"{LC_BASE_V35}/reports/chats/total_chats",
-            {"filters[groups][0]": grp,
-             "distribution": "day",
-             "from": date_from, "to": date_to},
-        )
-        await asyncio.sleep(0.4)
-        if d:
-            for rec in d.get("records", []):
-                store[rec.get("start", "")[:10]] = int(rec.get("total", 0))
-
-    all_dates = sorted(set(list(daily_g10.keys()) + list(daily_g15.keys())))
-    return [
-        {
-            "start":    dt,
-            "group_10": daily_g10.get(dt, 0),
-            "group_15": daily_g15.get(dt, 0),
-        }
-        for dt in all_dates
-    ]
-
-
-async def _lc_daily_ratings(date_from: str, date_to: str) -> list:
-    """Daily good/bad ratings for groups 10 & 15."""
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/ratings",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "day",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.4)
-    if not data:
-        return []
-    result = []
-    for rec in data.get("records", []):
-        good  = int(rec.get("good", 0))
-        bad   = int(rec.get("bad",  0))
-        total = good + bad
-        result.append({
-            "start":    rec.get("start", "")[:10],
-            "good":     good,
-            "bad":      bad,
-            "good_pct": round(good / total * 100, 1) if total else 0,
-        })
-    return result
-
-
-async def _lc_daily_response(date_from: str, date_to: str) -> list:
-    """Daily avg first response time (seconds) for groups 10 & 15."""
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/first_response_time",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "day",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.4)
-    if not data:
-        return []
-    return [
-        {
-            "start":       rec.get("start", "")[:10],
-            "avg_seconds": round(float(rec.get("avg", 0))),
-        }
-        for rec in data.get("records", [])
-    ]
-
-
-async def _lc_daily_queue(date_from: str, date_to: str) -> list:
-    """Daily queued + abandoned visitors for groups 10 & 15."""
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/queued_visitors",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "day",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.4)
-    if not data:
-        return []
-    return [
-        {
-            "start":     rec.get("start", "")[:10],
-            "queued":    int(rec.get("queued",    0)),
-            "abandoned": int(rec.get("abandoned", 0)),
-        }
-        for rec in data.get("records", [])
-    ]
-
-
-async def _lc_queue_stats(date_from: str, date_to: str) -> dict:
-    """Queue entries + abandonments for groups 10 & 15."""
-    result = {
-        "queued":    0,
-        "abandoned": 0,
-        "monthly":   [],
-    }
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/queued_visitors",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "month",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-    if not data:
-        return result
-
-    monthly = {}
-    for rec in data.get("records", []):
-        m = rec.get("start", "")[:7]
-        q = int(rec.get("queued", 0))
-        a = int(rec.get("abandoned", 0))
-        result["queued"]    += q
-        result["abandoned"] += a
-        monthly[m] = {"month": m, "queued": q, "abandoned": a}
-
-    result["monthly"] = sorted(monthly.values(), key=lambda x: x["month"])
-    return result
-
-
-async def _lc_tags(date_from: str, date_to: str) -> dict:
-    """Tag frequency for groups 10 & 15."""
-    data = await _lc_get(
-        f"{LC_BASE_V35}/reports/chats/tags",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-    if not data:
-        return {"bot_tags": [], "human_tags": []}
-
-    BOT_KEYWORDS = {"chatbot", "bot", "auto", "automated", "bot-handled",
-                    "bot-faq", "auto-resolved", "virtual", "ai"}
-
-    bot_tags   = []
-    human_tags = []
-    for tag in (data.get("tags") or []):
-        name  = (tag.get("name") or "").lower()
-        count = int(tag.get("count", 0))
-        if any(kw in name for kw in BOT_KEYWORDS):
-            bot_tags.append({"label": tag.get("name", name), "count": count})
-        else:
-            human_tags.append({"label": tag.get("name", name), "count": count})
-
-    bot_tags.sort(key=lambda x: -x["count"])
-    human_tags.sort(key=lambda x: -x["count"])
-    return {"bot_tags": bot_tags[:10], "human_tags": human_tags[:10]}
-
-
-async def _lc_agents(date_from: str, date_to: str) -> list:
-    """
-    Per-agent breakdown for agents active in groups 10 & 15.
-    Pulls /v3.5/reports/agents/total_chats and /v3.5/reports/agents/ratings,
-    excludes the two known bot UUIDs (chatbot tag pattern).
-    """
-    # Known bot UUIDs from handoff — exclude from agent table
-    BOT_IDS = {"e6c7d443", "0dac24bf"}
-
-    # Total chats per agent
-    data_chats = await _lc_get(
-        f"{LC_BASE_V35}/reports/agents/total_chats",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "distribution": "month",
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-
-    # Ratings per agent
-    data_ratings = await _lc_get(
-        f"{LC_BASE_V35}/reports/agents/ratings",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-
-    # Response times per agent
-    data_resp = await _lc_get(
-        f"{LC_BASE_V35}/reports/agents/first_response_time",
-        {"filters[groups][0]": 10, "filters[groups][1]": 15,
-         "from": date_from, "to": date_to},
-    )
-    await asyncio.sleep(0.5)
-
-    if not data_chats:
-        return []
-
-    # Build agent map from chats data
-    agents = {}
-    for rec in (data_chats.get("records") or []):
-        for agent in (rec.get("agents") or []):
-            aid   = str(agent.get("id", "")).strip()
-            name  = str(agent.get("name", aid)).strip()
-            # Skip bots — check against known bot UUID prefixes
-            if any(aid.startswith(b) for b in BOT_IDS):
-                continue
-            total = int(agent.get("total", 0))
-            month = rec.get("start", "")[:7]
-            if aid not in agents:
-                agents[aid] = {
-                    "id":      aid,
-                    "name":    name,
-                    "chats":   0,
-                    "good":    0,
-                    "bad":     0,
-                    "resp":    0,
-                    "monthly": {},   # month -> {chats, good, bad}
-                }
-            agents[aid]["chats"] += total
-            if month not in agents[aid]["monthly"]:
-                agents[aid]["monthly"][month] = {"chats": 0, "good": 0, "bad": 0}
-            agents[aid]["monthly"][month]["chats"] += total
-
-    # Merge ratings
-    if data_ratings:
-        for agent in (data_ratings.get("agents") or []):
-            aid = str(agent.get("id", "")).strip()
-            if aid not in agents:
-                continue
-            agents[aid]["good"] = int(agent.get("good", 0))
-            agents[aid]["bad"]  = int(agent.get("bad",  0))
-
-    # Merge response times
-    if data_resp:
-        for agent in (data_resp.get("agents") or []):
-            aid = str(agent.get("id", "")).strip()
-            if aid not in agents:
-                continue
-            agents[aid]["resp"] = round(float(agent.get("avg", 0)))
-
-    # Finalise
-    result = []
-    for a in agents.values():
-        if a["chats"] == 0:
-            continue
-        good  = a["good"]
-        bad   = a["bad"]
-        total_r = good + bad
-        csat = round(good / total_r * 100) if total_r else 0
-
-        # Build monthly CSAT array [Jan..current] — None if no data that month
-        all_months = sorted(a["monthly"].keys())
-        monthly_csat = []
-        for m in sorted(set(
-            list(a["monthly"].keys()) +
-            [f"{datetime.utcnow().year}-{str(i).zfill(2)}" for i in range(1, 7)]
-        )):
-            md = a["monthly"].get(m, {})
-            g  = md.get("good", 0)
-            b  = md.get("bad",  0)
-            tr = g + b
-            monthly_csat.append(round(g / tr * 100) if tr else None)
-
-        result.append({
-            "id":      a["id"],
-            "name":    a["name"],
-            "chats":   a["chats"],
-            "good":    good,
-            "bad":     bad,
-            "csat":    csat,
-            "resp":    a["resp"],
-            "monthly": monthly_csat,
-        })
-
-    result.sort(key=lambda x: -x["csat"])
-    return result
-
-
-async def _lc_full_refresh():
-    """Pull all LiveChat data for groups 10 & 15 and store in cache."""
-    if not _lc_configured():
-        print("[livechat] not configured — set LIVECHAT_ACCOUNT_ID + IDLIVECHAT_TOKEN", flush=True)
-        return
-
-    print(f"[livechat] starting refresh at {datetime.utcnow().isoformat()}", flush=True)
-    date_from, date_to = _lc_date_range()
-
-    try:
-        chats    = await _lc_chats_summary(date_from, date_to)
-        resp     = await _lc_response_times(date_from, date_to)
-        queue    = await _lc_queue_stats(date_from, date_to)
-        tags     = await _lc_tags(date_from, date_to)
-        agents   = await _lc_agents(date_from, date_to)
-
-        # Daily data for day-by-day charts in the CSAT page bot panel
-        daily_vol  = await _lc_daily_volume(date_from, date_to)
-        daily_rat  = await _lc_daily_ratings(date_from, date_to)
-        daily_resp = await _lc_daily_response(date_from, date_to)
-        daily_q    = await _lc_daily_queue(date_from, date_to)
-
-        # Compute KPIs
-        total_good = chats["good_ratings"]
-        total_bad  = chats["bad_ratings"]
-        total_r    = total_good + total_bad
-        csat_overall = round(total_good / total_r * 100, 1) if total_r else 0
-
-        latest_resp = resp[-1]["avg_seconds"] if resp else 0
-        latest_csat = chats["monthly_ratings"][-1]["good_pct"] if chats["monthly_ratings"] else csat_overall
-
-        total_queued    = queue["queued"]
-        total_abandoned = queue["abandoned"]
-        abandon_rate    = round(total_abandoned / total_queued * 100, 1) if total_queued else 0
-
-        # Containment: bot tags / total tags
-        total_bot_tags   = sum(t["count"] for t in tags["bot_tags"])
-        total_human_tags = sum(t["count"] for t in tags["human_tags"])
-        total_tags = total_bot_tags + total_human_tags
-        containment_rate = round(total_bot_tags / total_tags * 100, 1) if total_tags else 0
-        escalation_rate  = round(100 - containment_rate, 1) if total_tags else 0
-
-        payload = {
-            "available":        True,
-            "generated":        datetime.utcnow().isoformat() + "Z",
-            "date_from":        date_from[:10],
-            "date_to":          date_to[:10],
-            "kpis": {
-                "total_chats":       chats["total"],
-                "group_10_chats":    chats["group_10"],
-                "group_15_chats":    chats["group_15"],
-                "csat_overall":      csat_overall,
-                "csat_latest_month": latest_csat,
-                "good_ratings":      total_good,
-                "bad_ratings":       total_bad,
-                "avg_response_s":    latest_resp,
-                "containment_rate":  containment_rate,
-                "escalation_rate":   escalation_rate,
-                "total_queued":      total_queued,
-                "total_abandoned":   total_abandoned,
-                "abandon_rate":      abandon_rate,
-            },
-            "monthly_volume":   chats["monthly_total"],
-            "monthly_ratings":  chats["monthly_ratings"],
-            "monthly_response": resp,
-            "monthly_queue":    queue["monthly"],
-            "daily_volume":     daily_vol,
-            "daily_ratings":    daily_rat,
-            "daily_response":   daily_resp,
-            "daily_queue":      daily_q,
-            "tags":             tags,
-            "agents":           agents,
-        }
-
-        _cache[LC_CACHE_KEY] = {"ts": time.time(), "data": payload}
-        print(
-            f"[livechat] refresh done — {chats['total']} chats · "
-            f"{len(agents)} agents · {csat_overall}% CSAT",
-            flush=True,
-        )
-
-    except Exception as ex:
-        print(f"[livechat] refresh error: {ex}", flush=True)
-
-
-# ── Hook LiveChat into the existing 2-hour refresh loop ───────────────────────
-# Patch _refresh_loop to also call _lc_full_refresh after each cycle.
-_orig_refresh_loop = _refresh_loop
-
-async def _refresh_loop():
-    await asyncio.sleep(10)
-    while True:
-        try:
-            await full_refresh()
-        except Exception as ex:
-            print(f"[loop] cms error: {ex}", flush=True)
-        if _domo_configured():
-            try:
-                await asyncio.to_thread(_refresh_csat_from_domo)
-            except Exception as ex:
-                print(f"[loop] domo error: {ex}", flush=True)
-        try:
-            await _lc_full_refresh()
-        except Exception as ex:
-            print(f"[loop] livechat error: {ex}", flush=True)
-        await asyncio.sleep(REFRESH_SEC)
-
-
-# ── API endpoints ──────────────────────────────────────────────────────────────
-
-@app.get("/api/livechat/bots")
-async def lc_bots_data():
-    """
-    Serve cached LiveChat data for the AI Bots dashboard.
-    Returns stale data if fresh isn't available yet.
-    Falls back to {available: false} if never fetched.
-    """
-    entry = _cache.get(LC_CACHE_KEY)
-    if entry:
-        payload = entry["data"]
-        age = time.time() - entry["ts"]
-        payload["cache_age_seconds"] = int(age)
-        payload["stale"] = age > LC_CACHE_TTL
-        return JSONResponse(content=payload, headers={
-            "Cache-Control": f"public, max-age=300, stale-while-revalidate={LC_STALE_TTL}",
-        })
-    # Nothing cached yet — trigger background fetch and return placeholder
-    if _lc_configured():
-        asyncio.create_task(_lc_full_refresh())
-    return JSONResponse({"available": False, "note": "Data loading — check back in 60 seconds."})
-
-
-@app.get("/api/livechat/refresh")
-async def lc_refresh():
-    """Manually trigger a LiveChat data refresh."""
-    if not _lc_configured():
-        return JSONResponse(
-            {"status": "not configured",
-             "note": "Set LIVECHAT_ACCOUNT_ID and IDLIVECHAT_TOKEN in Render env vars."},
-            status_code=400,
-        )
-    asyncio.create_task(_lc_full_refresh())
-    return {"status": "refresh started", "note": "Check /api/livechat/bots in ~60s."}
-
-
-@app.get("/debug/livechat")
-async def debug_livechat():
-    """Health check for LiveChat integration."""
-    entry  = _cache.get(LC_CACHE_KEY)
-    cached = entry["data"] if entry else None
-    result = {
-        "configured":    _lc_configured(),
-        "account_id_set": bool(LC_ACCOUNT_ID),
-        "token_set":      bool(LC_TOKEN),
-        "cached":         cached is not None,
-        "cache_age_s":    int(time.time() - entry["ts"]) if entry else None,
-        "groups":         LC_GROUPS,
-    }
-    if cached:
-        result["kpis"]       = cached.get("kpis")
-        result["agents"]     = len(cached.get("agents", []))
-        result["generated"]  = cached.get("generated")
-    # Quick live connectivity test
-    if _lc_configured():
-        data = await _lc_get(
-            f"{LC_BASE_V35}/reports/chats/total_chats",
-            {"filters[groups][0]": 10,
-             "distribution": "day",
-             "from": "2026-06-01T00:00:00",
-             "to":   "2026-06-07T23:59:59"},
-        )
-        result["api_test"] = "ok" if data else "failed — check credentials"
-    return result
