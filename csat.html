@@ -27,7 +27,9 @@
   --red:       #dc2626;
   --red-dim:   #fee2e2;
   --purple:    #7c3aed;
+  --purple-dim:#ede9fe;
   --teal:      #0d9488;
+  --teal-dim:  #ccfbf1;
   --r:         10px;
   --r-sm:      6px;
   --shadow:    0 1px 8px rgba(0,0,0,.07);
@@ -402,6 +404,30 @@ thead th:hover .sort-arrow { color:var(--text2) }
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 
+/* ── Bot intelligence panel (Parker/Jamie) ── */
+.bot-panel { display:none }
+.bot-panel.visible { display:block }
+.bot-kpi-strip { display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px;margin-bottom:18px }
+.bot-kpi { background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;position:relative;overflow:hidden }
+.bot-kpi::before { content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--kpi-accent,var(--blue)) }
+.bot-kpi .kpi-label { font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px }
+.bot-kpi .kpi-value { font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600;color:var(--text1);line-height:1;margin-bottom:3px }
+.bot-kpi .kpi-sub { font-size:11px;color:var(--text3) }
+.bot-group-cards { display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px }
+.bot-group-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;border-top:3px solid var(--border) }
+.bot-funnel-row { display:flex;align-items:center;gap:10px;margin-bottom:8px }
+.bot-funnel-label { font-size:11px;color:var(--text2);width:155px;flex-shrink:0 }
+.bot-funnel-wrap { flex:1;background:var(--surface3);border-radius:4px;height:20px;overflow:hidden }
+.bot-funnel-bar { height:100%;border-radius:4px;display:flex;align-items:center;padding-left:8px;font-size:10px;font-weight:600;color:#fff;transition:width .5s ease }
+.bot-funnel-val { font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);width:44px;text-align:right;flex-shrink:0 }
+.bot-tag-grid { display:flex;flex-wrap:wrap;gap:5px }
+.bot-tag-item { display:flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text2) }
+.bot-tag-count { font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3) }
+.bot-section-title { font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text1);margin:18px 0 10px }
+/* Parker scope bar highlight */
+#csatGlobalScopeBar.parker-focused { background:rgba(124,58,237,.07);border-color:rgba(124,58,237,.35) }
+#csatGlobalScopeBar.jamie-focused  { background:rgba(13,148,136,.07);border-color:rgba(13,148,136,.35) }
+
 </style>
 </head>
 <body>
@@ -488,11 +514,13 @@ thead th:hover .sort-arrow { color:var(--text2) }
     <!-- ── Global consultant scope bar (overrides the whole page when set) ───── -->
     <div id="csatGlobalScopeBar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px">
       <span style="font-size:12px;font-weight:600;color:var(--text2);display:flex;align-items:center;gap:6px">
-        <span style="font-size:14px">🎯</span> Focus on consultant
+        <span style="font-size:14px">🎯</span> Focus on
       </span>
       <select id="csatGlobalTeamFilter" onchange="onGlobalConsultantTeamChange()"
         style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text1);outline:none;min-width:150px">
         <option value="">All teams</option>
+        <option value="__parker__" style="color:var(--purple);font-weight:600">🤖 Team Parker</option>
+        <option value="__jamie__"  style="color:var(--teal);font-weight:600">🤖 Team Jamie</option>
       </select>
       <select id="csatGlobalConsultant" onchange="onGlobalConsultantChange()"
         style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text1);outline:none;min-width:250px">
@@ -526,6 +554,180 @@ thead th:hover .sort-arrow { color:var(--text2) }
         </table>
       </div>
     </div>
+
+    <!-- ── ParkerAI Bot Panel ── (shown when "Team Parker" selected) -->
+    <div class="bot-panel" id="botPanel-parker">
+      <div id="parkerAlerts" style="margin-bottom:12px"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--purple)">🤖 ParkerAI</div>
+        <span style="font-size:12px;color:var(--text3)">Groups 10 &amp; 15 · LiveChat data</span>
+        <span id="parkerDataStatus" style="font-size:11px;padding:2px 8px;border-radius:20px;background:var(--surface3);color:var(--text3)">Loading…</span>
+        <button onclick="triggerParkerRefresh()" style="margin-left:auto;padding:5px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;color:var(--text2)">↻ Refresh</button>
+      </div>
+
+      <!-- KPI strip -->
+      <div class="bot-kpi-strip">
+        <div class="bot-kpi" style="--kpi-accent:var(--purple)"><div class="kpi-label">Total Chats</div><div class="kpi-value" id="p_kTotal">—</div><div class="kpi-sub" id="p_kTotalSub">Groups 10 &amp; 15</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--green)"><div class="kpi-label">Containment</div><div class="kpi-value" id="p_kContain">—</div><div class="kpi-sub">Bot-resolved</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--amber)"><div class="kpi-label">CSAT Latest</div><div class="kpi-value" id="p_kCSAT">—</div><div class="kpi-sub" id="p_kCSATSub">Good ratings</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--blue)"><div class="kpi-label">Escalation</div><div class="kpi-value" id="p_kEsc">—</div><div class="kpi-sub">Human-handled</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--red)"><div class="kpi-label">Queue Abandon</div><div class="kpi-value" id="p_kAbandon">—</div><div class="kpi-sub">Left queue</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--teal)"><div class="kpi-label">Avg Response</div><div class="kpi-value" id="p_kResp">—</div><div class="kpi-sub">First response</div></div>
+      </div>
+
+      <!-- Group cards -->
+      <div class="bot-group-cards">
+        <div class="bot-group-card" style="border-top-color:var(--blue)">
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 10 — Parker Core</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Primary bot intake</div>
+          <div style="display:flex;gap:18px">
+            <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Chats</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600" id="p_g10chats">—</div></div>
+            <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Share</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;color:var(--blue)" id="p_g10share">—</div></div>
+          </div>
+        </div>
+        <div class="bot-group-card" style="border-top-color:var(--purple)">
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 15 — Parker Overflow</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Overflow &amp; specialty routing</div>
+          <div style="display:flex;gap:18px">
+            <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Chats</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600" id="p_g15chats">—</div></div>
+            <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Share</div><div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600;color:var(--purple)" id="p_g15share">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Day-by-day Charts: CSAT + Volume -->
+      <div class="two-col section" style="margin-bottom:14px">
+        <div class="card">
+          <div class="card-title">Daily CSAT — Good vs Bad Ratings</div>
+          <div class="card-sub" id="p_csatChartSub">Day-by-day · live from LiveChat</div>
+          <div class="chart-wrap" style="height:210px"><canvas id="p_csatChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Daily Chat Volume by Group</div>
+          <div class="card-sub">Day-by-day · Group 10 vs Group 15</div>
+          <div class="chart-wrap" style="height:210px"><canvas id="p_volChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Response time + Queue -->
+      <div class="two-col section" style="margin-bottom:14px">
+        <div class="card">
+          <div class="card-title">Daily Response Time</div>
+          <div class="card-sub">Avg first response (seconds) · day-by-day</div>
+          <div class="chart-wrap" style="height:180px"><canvas id="p_respChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Daily Queue &amp; Abandonment</div>
+          <div class="card-sub">Queued vs abandoned visitors · day-by-day</div>
+          <div class="chart-wrap" style="height:180px"><canvas id="p_queueChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Escalation funnel + Tags -->
+      <div class="two-col section" style="margin-bottom:14px;align-items:start">
+        <div class="card">
+          <div class="card-title">Escalation Funnel</div>
+          <div class="card-sub">Where ParkerAI chats end up</div>
+          <div style="margin-top:10px" id="p_funnelWrap">
+            <div class="bot-funnel-row"><div class="bot-funnel-label">Total bot chats</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p_f1bar" style="width:100%;background:var(--purple)"></div></div><div class="bot-funnel-val" id="p_f1val">—</div></div>
+            <div class="bot-funnel-row"><div class="bot-funnel-label">🤖 Bot-resolved</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p_f2bar" style="width:0%;background:var(--green)"></div></div><div class="bot-funnel-val" id="p_f2val">—</div></div>
+            <div class="bot-funnel-row"><div class="bot-funnel-label">👤 Escalated</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p_f3bar" style="width:0%;background:var(--amber)"></div></div><div class="bot-funnel-val" id="p_f3val">—</div></div>
+            <div class="bot-funnel-row"><div class="bot-funnel-label">⏳ Queued</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p_f4bar" style="width:0%;background:var(--blue)"></div></div><div class="bot-funnel-val" id="p_f4val">—</div></div>
+            <div class="bot-funnel-row"><div class="bot-funnel-label">🚪 Abandoned</div><div class="bot-funnel-wrap"><div class="bot-funnel-bar" id="p_f5bar" style="width:0%;background:var(--red)"></div></div><div class="bot-funnel-val" id="p_f5val">—</div></div>
+          </div>
+        </div>
+        <div class="card" style="padding:0">
+          <div style="padding:12px 14px 10px;border-bottom:0.5px solid var(--border)">
+            <div class="card-title">Issue Tag Breakdown</div>
+            <div class="card-sub">All tags · live from LiveChat API</div>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">🤖 Bot tags</div>
+            <div class="bot-tag-grid" id="p_botTags"><div style="font-size:12px;color:var(--text3)">Loading…</div></div>
+            <div style="margin-top:12px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">👤 Human issue tags</div>
+            <div class="bot-tag-grid" id="p_humanTags"><div style="font-size:12px;color:var(--text3)">Loading…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent leaderboard + Heatmap -->
+      <div class="two-col section" style="align-items:start;margin-bottom:14px">
+        <div class="card" style="padding:0">
+          <div style="padding:12px 14px 10px;border-bottom:0.5px solid var(--border)">
+            <div class="card-title">Agent Leaderboard</div>
+            <div class="card-sub">CSAT % · human-handled chats in groups 10 &amp; 15</div>
+          </div>
+          <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+            <table><thead><tr>
+              <th style="padding-left:14px">Agent</th>
+              <th class="r">Grp</th><th class="r">Chats</th><th class="r">CSAT%</th>
+              <th class="r">Good</th><th class="r">Bad</th><th class="r">Resp</th><th class="r">Trend</th>
+            </tr></thead><tbody id="p_leaderBody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Loading…</td></tr></tbody></table>
+          </div>
+        </div>
+        <div class="card" style="padding:0">
+          <div style="padding:12px 14px 10px;border-bottom:0.5px solid var(--border)">
+            <div class="card-title">Agent CSAT Heatmap</div>
+            <div class="card-sub">Monthly CSAT % · green ≥85% · amber ≥70% · red &lt;70%</div>
+          </div>
+          <div class="table-wrap" style="overflow-x:auto">
+            <table><thead id="p_hmHead"></thead><tbody id="p_hmBody"><tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text3)">Loading…</td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+    </div><!-- end botPanel-parker -->
+
+    <!-- ── JamieAI Bot Panel ── (shown when "Team Jamie" selected) -->
+    <div class="bot-panel" id="botPanel-jamie">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--teal)">🤖 JamieAI</div>
+        <span style="font-size:12px;color:var(--text3)">Groups 10 &amp; 15 · LiveChat data</span>
+      </div>
+
+      <!-- KPI strip — placeholders -->
+      <div class="bot-kpi-strip">
+        <div class="bot-kpi" style="--kpi-accent:var(--teal)"><div class="kpi-label">Total Chats</div><div class="kpi-value">—</div><div class="kpi-sub">Groups 10 &amp; 15</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--green)"><div class="kpi-label">Containment</div><div class="kpi-value">—</div><div class="kpi-sub">Bot-resolved</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--amber)"><div class="kpi-label">CSAT Latest</div><div class="kpi-value">—</div><div class="kpi-sub">Good ratings</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--blue)"><div class="kpi-label">Escalation</div><div class="kpi-value">—</div><div class="kpi-sub">Human-handled</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--red)"><div class="kpi-label">Queue Abandon</div><div class="kpi-value">—</div><div class="kpi-sub">Left queue</div></div>
+        <div class="bot-kpi" style="--kpi-accent:var(--teal)"><div class="kpi-label">Avg Response</div><div class="kpi-value">—</div><div class="kpi-sub">First response</div></div>
+      </div>
+
+      <!-- Group cards -->
+      <div class="bot-group-cards">
+        <div class="bot-group-card" style="border-top-color:var(--teal)">
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 10 — Jamie Core</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Primary bot intake</div>
+          <div style="padding:16px 0 6px;text-align:center;color:var(--text3);font-size:12px">⏳ Awaiting JamieAI launch</div>
+        </div>
+        <div class="bot-group-card" style="border-top-color:var(--teal);opacity:.7">
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:600">Group 15 — Jamie Overflow</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Overflow &amp; specialty routing</div>
+          <div style="padding:16px 0 6px;text-align:center;color:var(--text3);font-size:12px">⏳ Awaiting JamieAI launch</div>
+        </div>
+      </div>
+
+      <!-- Placeholder charts -->
+      <div class="two-col section" style="margin-bottom:14px">
+        <div class="card">
+          <div class="card-title">Daily CSAT — Good vs Bad</div>
+          <div class="card-sub">Day-by-day · JamieAI</div>
+          <div class="chart-wrap" style="height:210px"><canvas id="j_csatChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Daily Chat Volume</div>
+          <div class="card-sub">Group 10 vs Group 15</div>
+          <div class="chart-wrap" style="height:210px"><canvas id="j_volChart"></canvas></div>
+        </div>
+      </div>
+
+      <div style="text-align:center;padding:40px 20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r)">
+        <div style="font-size:40px;margin-bottom:12px">🚧</div>
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;margin-bottom:6px">JamieAI not yet connected</div>
+        <div style="font-size:13px;color:var(--text3);max-width:360px;margin:0 auto;line-height:1.7">Once JamieAI is live in LiveChat, all charts auto-populate — CSAT trends, escalation funnel, agent leaderboard &amp; heatmap.</div>
+      </div>
+    </div><!-- end botPanel-jamie -->
 
     <!-- Row 1: KPIs left, charts right -->
     <div class="two-col" style="margin-bottom:16px;align-items:start">
@@ -3696,6 +3898,430 @@ function closeChartModal() {
 
 waitForChart(init);
 
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// BOT INTELLIGENCE — ParkerAI & JamieAI
+// Integrated into the "Focus on" scope bar via __parker__ / __jamie__ team values.
+// Charts use DAY-BY-DAY data from /api/livechat/bots (daily_* arrays).
+// Monthly data used as fallback if daily arrays not yet present in cache.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const BOT_TEAMS = { '__parker__': 'parker', '__jamie__': 'jamie' };
+let _botLive = null;          // cached API response
+let _parkerCharts = {};       // keyed chart instances
+let _jamieCharts  = {};
+const _gridColor  = 'rgba(221,225,236,.8)';
+
+// ── Override onGlobalConsultantTeamChange to intercept bot teams ──────────
+const _origTeamChange = window.onGlobalConsultantTeamChange;
+window.onGlobalConsultantTeamChange = function() {
+  const team = document.getElementById('csatGlobalTeamFilter')?.value || '';
+  const bar  = document.getElementById('csatGlobalScopeBar');
+  const sect = document.getElementById('csatOverviewContent');  // leaderboard+consultants
+  const allSects = [
+    'csatGlobalCallsCard',
+    // main CSAT content rows are children — we hide by targeting the section's inner content
+  ];
+
+  // Reset bot classes
+  bar?.classList.remove('parker-focused','jamie-focused');
+
+  if (team === '__parker__' || team === '__jamie__') {
+    const botId = BOT_TEAMS[team];
+    // Hide CSAT section content
+    _setBotView(botId, true);
+    // Set status
+    const color = botId === 'parker' ? 'var(--purple)' : 'var(--teal)';
+    const name  = botId === 'parker' ? 'ParkerAI' : 'JamieAI';
+    bar?.classList.add(botId + '-focused');
+    const statusEl = document.getElementById('csatGlobalScopeStatus');
+    if (statusEl) statusEl.innerHTML = `<span style="color:${color};font-weight:600">● Viewing ${name} intelligence</span>`;
+    const clearBtn = document.getElementById('csatGlobalScopeClear');
+    if (clearBtn) clearBtn.style.display = '';
+    // disable consultant dropdown (irrelevant for bot view)
+    const consSel = document.getElementById('csatGlobalConsultant');
+    if (consSel) { consSel.value = ''; consSel.disabled = true; consSel.style.opacity = '.4'; }
+    // Load bot data
+    if (botId === 'parker') loadParkerData();
+    else initJamiePanel();
+  } else {
+    _setBotView(null, false);
+    const consSel = document.getElementById('csatGlobalConsultant');
+    if (consSel) { consSel.disabled = false; consSel.style.opacity = ''; }
+    // Restore original behaviour
+    if (_origTeamChange) _origTeamChange.call(this);
+  }
+};
+
+// Also override clearGlobalConsultant to reset bot view
+const _origClear = window.clearGlobalConsultant;
+window.clearGlobalConsultant = function() {
+  _setBotView(null, false);
+  const bar = document.getElementById('csatGlobalScopeBar');
+  bar?.classList.remove('parker-focused','jamie-focused');
+  const consSel = document.getElementById('csatGlobalConsultant');
+  if (consSel) { consSel.disabled = false; consSel.style.opacity = ''; }
+  if (_origClear) _origClear.call(this);
+};
+
+function _setBotView(bot, show) {
+  // Show/hide panels
+  document.getElementById('botPanel-parker')?.classList.toggle('visible', show && bot === 'parker');
+  document.getElementById('botPanel-jamie')?.classList.toggle('visible', show && bot === 'jamie');
+
+  // Show/hide all the CSAT section child content (everything except scope bar + calls card)
+  const csatChildren = [
+    document.querySelector('.kpi-row'),           // Row 1 KPIs
+    ...document.querySelectorAll('#csatSection > .two-col, #csatSection > .section, #csatSection > div[style*="margin-bottom:16px"], #csatSection > div[style*="margin-bottom: 16px"]'),
+    document.getElementById('csatOverviewContent'),
+  ].filter(Boolean);
+  csatChildren.forEach(el => { el.style.display = show ? 'none' : ''; });
+}
+
+// ── Fetch live data from /api/livechat/bots ───────────────────────────────
+async function _fetchBotData() {
+  try {
+    const res = await fetch('/api/livechat/bots');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    if (j.available === false) return null;
+    return j;
+  } catch(e) {
+    console.warn('[bot-panel] fetch failed:', e);
+    return null;
+  }
+}
+
+async function triggerParkerRefresh() {
+  try {
+    await fetch('/api/livechat/refresh');
+    document.getElementById('parkerDataStatus').textContent = 'Refreshing… (~60s)';
+    setTimeout(loadParkerData, 8000);
+  } catch(e) {}
+}
+
+async function loadParkerData() {
+  const statusEl = document.getElementById('parkerDataStatus');
+  if (statusEl) { statusEl.textContent = 'Loading…'; statusEl.style.background = 'var(--surface3)'; statusEl.style.color = 'var(--text3)'; }
+  _botLive = await _fetchBotData();
+  if (_botLive) {
+    if (statusEl) { statusEl.textContent = _botLive.stale ? '🕐 Cached data' : '✅ Live data'; statusEl.style.background = _botLive.stale ? 'var(--amber-dim)' : 'var(--green-dim)'; statusEl.style.color = _botLive.stale ? 'var(--amber)' : 'var(--green)'; }
+  } else {
+    if (statusEl) { statusEl.textContent = '⚠ Using estimates'; statusEl.style.background = 'var(--amber-dim)'; statusEl.style.color = 'var(--amber)'; }
+  }
+  renderParkerPanel(_botLive);
+}
+
+// ── ParkerAI renderer ─────────────────────────────────────────────────────
+function renderParkerPanel(D) {
+  const FALLBACK_KPIS = { total_chats:10134, group_10_chats:6847, group_15_chats:3491,
+    csat_latest_month:56, containment_rate:94.1, escalation_rate:5.9,
+    avg_response_s:56, total_queued:419, total_abandoned:69, abandon_rate:16.5 };
+  const FALLBACK_MV  = [{start:'2026-01-01',g10:1280,g15:95},{start:'2026-02-01',g10:1190,g15:210},{start:'2026-03-01',g10:1140,g15:540},{start:'2026-04-01',g10:1100,g15:1066},{start:'2026-05-01',g10:1075,g15:870},{start:'2026-06-01',g10:1062,g15:710}];
+  const FALLBACK_RAT = [{start:'2026-01-01',good:91,bad:9},{start:'2026-02-01',good:87,bad:13},{start:'2026-03-01',good:80,bad:20},{start:'2026-04-01',good:74,bad:26},{start:'2026-05-01',good:66,bad:34},{start:'2026-06-01',good:54,bad:43}];
+  const FALLBACK_RESP = [{start:'2026-01-01',avg_seconds:51},{start:'2026-02-01',avg_seconds:42},{start:'2026-03-01',avg_seconds:45},{start:'2026-04-01',avg_seconds:47},{start:'2026-05-01',avg_seconds:52},{start:'2026-06-01',avg_seconds:56}];
+  const FALLBACK_Q   = [{start:'2026-01-01',queued:52,abandoned:7},{start:'2026-02-01',queued:48,abandoned:5},{start:'2026-03-01',queued:62,abandoned:9},{start:'2026-04-01',queued:88,abandoned:15},{start:'2026-05-01',queued:95,abandoned:18},{start:'2026-06-01',queued:74,abandoned:15}];
+
+  const k    = D?.kpis       || FALLBACK_KPIS;
+  const tags = D?.tags       || { bot_tags:[], human_tags:[] };
+  const ags  = D?.agents     || [];
+
+  // Prefer daily data; fall back to monthly
+  const rawVol  = D?.daily_volume   || D?.monthly_volume   || FALLBACK_MV;
+  const rawRat  = D?.daily_ratings  || D?.monthly_ratings  || FALLBACK_RAT;
+  const rawResp = D?.daily_response || D?.monthly_response || FALLBACK_RESP;
+  const rawQ    = D?.daily_queue    || D?.monthly_queue    || FALLBACK_Q;
+
+  // Normalise date labels — use "start" or "month" key, format to MMM d or MMM
+  function label(rec) {
+    const s = rec.start || rec.month || '';
+    const d = new Date(s + 'T12:00:00');
+    if (isNaN(d)) return s;
+    // If it looks daily (has day part), show short date; monthly = month abbr
+    const isDailyData = !!(D?.daily_volume);
+    return isDailyData
+      ? d.toLocaleDateString('en-US', { month:'short', day:'numeric' })
+      : d.toLocaleDateString('en-US', { month:'short' });
+  }
+
+  const volLabels  = rawVol.map(label);
+  const ratLabels  = rawRat.map(label);
+  const respLabels = rawResp.map(label);
+  const qLabels    = rawQ.map(label);
+
+  // KPIs
+  const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+  set('p_kTotal',   k.total_chats?.toLocaleString() || '—');
+  set('p_kTotalSub', `Grp 10: ${(k.group_10_chats||0).toLocaleString()} · Grp 15: ${(k.group_15_chats||0).toLocaleString()}`);
+  set('p_kContain', k.containment_rate ? k.containment_rate + '%' : '—');
+  set('p_kCSAT',    k.csat_latest_month ? k.csat_latest_month + '%' : '—');
+  set('p_kEsc',     k.escalation_rate ? k.escalation_rate + '%' : '—');
+  set('p_kAbandon', k.abandon_rate ? k.abandon_rate + '%' : '—');
+  set('p_kResp',    k.avg_response_s ? k.avg_response_s + 's' : '—');
+  set('p_g10chats', (k.group_10_chats||0).toLocaleString());
+  set('p_g15chats', (k.group_15_chats||0).toLocaleString());
+  const total = k.total_chats || 1;
+  set('p_g10share', Math.round((k.group_10_chats||0)/total*100) + '%');
+  set('p_g15share', Math.round((k.group_15_chats||0)/total*100) + '%');
+
+  // Alerts
+  const latest  = rawRat[rawRat.length-1] || {};
+  const prev    = rawRat[rawRat.length-2] || {};
+  const latTot  = (latest.good||0) + (latest.bad||0) || 1;
+  const latPct  = Math.round((latest.good||0)/latTot*100);
+  const prevTot = (prev.good||0) + (prev.bad||0) || 1;
+  const prevPct = Math.round((prev.good||0)/prevTot*100);
+  const drop    = prevPct - latPct;
+  const alertEl = document.getElementById('parkerAlerts');
+  if (alertEl) {
+    let html = '';
+    if (!D) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.2);color:var(--amber)">⏳ <strong>Estimated data</strong> — live LiveChat data is loading. <a href="/api/livechat/refresh" style="color:var(--purple);font-weight:600">Trigger refresh</a> then refresh in ~60s.</div>`;
+    else if (D.stale) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.2);color:var(--blue)">🕐 Data is ${Math.round(D.cache_age_seconds/60)} min old. <a href="/api/livechat/refresh" style="color:var(--blue);font-weight:600">Refresh now</a></div>`;
+    if (latPct < 60) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.2);color:var(--red)">🚨 <strong>CSAT critical:</strong> ${latPct}% good ratings${drop>0?` — down ${drop}pp`:''}</div>`;
+    else if (drop > 5) html += `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.2);color:var(--amber)">⚠️ <strong>CSAT declining:</strong> Down ${drop}pp to ${latPct}%</div>`;
+    if (!html) html = `<div style="padding:9px 14px;border-radius:6px;font-size:13px;background:rgba(5,150,105,.08);border:1px solid rgba(5,150,105,.2);color:var(--green)">✅ All metrics healthy · CSAT ${latPct}% · Abandon ${k.abandon_rate}% · Response ${k.avg_response_s}s</div>`;
+    alertEl.innerHTML = html;
+  }
+
+  // Funnel
+  const totalBot  = total;
+  const botTagN   = (tags.bot_tags||[]).reduce((s,t)=>s+(t.count||0),0);
+  const humanTagN = (tags.human_tags||[]).reduce((s,t)=>s+(t.count||0),0);
+  const allTagN   = botTagN + humanTagN || 1;
+  const containPct = Math.round(botTagN/allTagN*100);
+  const escPct     = 100 - containPct;
+  const [f1,f2,f3,f4,f5] = [totalBot, Math.round(totalBot*containPct/100), Math.round(totalBot*escPct/100), k.total_queued||0, k.total_abandoned||0];
+  set('p_f1val', f1.toLocaleString()); document.getElementById('p_f1bar').style.width='100%';
+  set('p_f2val', f2.toLocaleString()); document.getElementById('p_f2bar').style.width=containPct+'%';
+  set('p_f3val', f3.toLocaleString()); document.getElementById('p_f3bar').style.width=escPct+'%';
+  set('p_f4val', f4.toLocaleString()); document.getElementById('p_f4bar').style.width=Math.round(f4/totalBot*100)+'%';
+  set('p_f5val', f5.toLocaleString()); document.getElementById('p_f5bar').style.width=Math.round(f5/totalBot*100)+'%';
+
+  // Tags
+  const renderTags = (elId, arr, colorClass) => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.innerHTML = arr.length
+      ? arr.map(t=>`<div class="bot-tag-item"><span>${t.label||t.name||''}</span><span class="bot-tag-count">${(t.count||0).toLocaleString()}</span></div>`).join('')
+      : '<div style="font-size:12px;color:var(--text3)">No tags found</div>';
+  };
+  renderTags('p_botTags',   tags.bot_tags||[]);
+  renderTags('p_humanTags', tags.human_tags||[]);
+
+  // ── CHARTS ────────────────────────────────────────────────────────────────
+  const chartOpts = { responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:12,usePointStyle:true}}, tooltip:{mode:'index',intersect:false} },
+  };
+
+  // 1. Daily CSAT — stacked bar + line
+  const goodVals = rawRat.map(r => { const t=(r.good||0)+(r.bad||0)||1; return +(r.good||0)/t*100; });
+  const badVals  = rawRat.map(r => { const t=(r.good||0)+(r.bad||0)||1; return +(r.bad||0)/t*100; });
+  _killChart('p_csatChart');
+  const csatCtx = document.getElementById('p_csatChart');
+  if (csatCtx) {
+    _parkerCharts['p_csatChart'] = new Chart(csatCtx, {
+      type:'bar',
+      data:{ labels:ratLabels, datasets:[
+        {label:'Good %', data:goodVals.map(v=>+v.toFixed(1)), backgroundColor:'rgba(5,150,105,.6)', borderRadius:3, order:1},
+        {label:'Bad %',  data:badVals.map(v=>+v.toFixed(1)),  backgroundColor:'rgba(220,38,38,.5)',  borderRadius:3, order:1},
+        {type:'line',label:'Good % trend',data:goodVals.map(v=>+v.toFixed(1)),borderColor:'#059669',borderWidth:2,pointRadius:ratLabels.length>60?0:2.5,fill:false,tension:.25,order:0,pointBackgroundColor:'#059669'},
+      ]},
+      options:{...chartOpts,
+        scales:{
+          x:{stacked:true,grid:{display:false},ticks:{font:{size:10},maxTicksLimit:ratLabels.length>60?12:30,maxRotation:ratLabels.length>30?45:0}},
+          y:{stacked:true,max:100,ticks:{font:{size:11},callback:v=>v+'%'},grid:{color:_gridColor}}
+        }
+      }
+    });
+  }
+
+  // 2. Daily Volume by group
+  _killChart('p_volChart');
+  const volCtx = document.getElementById('p_volChart');
+  if (volCtx) {
+    const volKey10 = rawVol[0]?.group_10 !== undefined ? 'group_10' : 'g10';
+    const volKey15 = rawVol[0]?.group_15 !== undefined ? 'group_15' : 'g15';
+    _parkerCharts['p_volChart'] = new Chart(volCtx, {
+      type:'bar',
+      data:{ labels:volLabels, datasets:[
+        {label:'Group 10', data:rawVol.map(r=>r[volKey10]||0), backgroundColor:'rgba(37,99,235,.7)', borderRadius:3},
+        {label:'Group 15', data:rawVol.map(r=>r[volKey15]||0), backgroundColor:'rgba(124,58,237,.6)', borderRadius:3},
+      ]},
+      options:{...chartOpts,
+        scales:{
+          x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:volLabels.length>60?12:30,maxRotation:volLabels.length>30?45:0}},
+          y:{ticks:{font:{size:11}},grid:{color:_gridColor}}
+        }
+      }
+    });
+  }
+
+  // 3. Daily Response time
+  _killChart('p_respChart');
+  const respCtx = document.getElementById('p_respChart');
+  if (respCtx) {
+    _parkerCharts['p_respChart'] = new Chart(respCtx, {
+      type:'line',
+      data:{ labels:respLabels, datasets:[{
+        label:'Avg Response (s)', data:rawResp.map(r=>r.avg_seconds||0),
+        borderColor:'#d97706', backgroundColor:'rgba(217,119,6,.08)',
+        borderWidth:2, pointRadius:respLabels.length>60?0:3, tension:.3, fill:true, pointBackgroundColor:'#d97706'
+      }]},
+      options:{...chartOpts,
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:respLabels.length>60?12:30,maxRotation:respLabels.length>30?45:0}},
+          y:{min:0,ticks:{font:{size:11},callback:v=>v+'s'},grid:{color:_gridColor}}
+        }
+      }
+    });
+  }
+
+  // 4. Daily Queue & Abandonment
+  _killChart('p_queueChart');
+  const qCtx = document.getElementById('p_queueChart');
+  if (qCtx) {
+    _parkerCharts['p_queueChart'] = new Chart(qCtx, {
+      type:'bar',
+      data:{ labels:qLabels, datasets:[
+        {label:'Queued',    data:rawQ.map(r=>r.queued||0),    backgroundColor:'rgba(37,99,235,.55)', borderRadius:3},
+        {label:'Abandoned', data:rawQ.map(r=>r.abandoned||0), backgroundColor:'rgba(220,38,38,.7)',  borderRadius:3},
+      ]},
+      options:{...chartOpts,
+        scales:{
+          x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:qLabels.length>60?12:30,maxRotation:qLabels.length>30?45:0}},
+          y:{ticks:{font:{size:11}},grid:{color:_gridColor}}
+        }
+      }
+    });
+  }
+
+  // ── Jamie placeholder charts (flat lines showing shape) ─────────────────
+  _killChart('j_csatChart');
+  const jCsatCtx = document.getElementById('j_csatChart');
+  if (jCsatCtx) {
+    _jamieCharts['j_csatChart'] = new Chart(jCsatCtx, {
+      type:'bar', data:{ labels:ratLabels,
+        datasets:[{label:'No data', data:ratLabels.map(()=>0), backgroundColor:'rgba(13,148,136,.15)', borderRadius:3}]},
+      options:{...chartOpts, plugins:{legend:{display:false}},
+        scales:{x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:12}}, y:{max:100,ticks:{font:{size:11},callback:v=>v+'%'},grid:{color:_gridColor}}}}
+    });
+  }
+  _killChart('j_volChart');
+  const jVolCtx = document.getElementById('j_volChart');
+  if (jVolCtx) {
+    _jamieCharts['j_volChart'] = new Chart(jVolCtx, {
+      type:'bar', data:{ labels:volLabels,
+        datasets:[{label:'No data', data:volLabels.map(()=>0), backgroundColor:'rgba(13,148,136,.15)', borderRadius:3}]},
+      options:{...chartOpts, plugins:{legend:{display:false}},
+        scales:{x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:12}}, y:{ticks:{font:{size:11}},grid:{color:_gridColor}}}}
+    });
+  }
+
+  // ── Agent leaderboard ─────────────────────────────────────────────────────
+  const leaderEl = document.getElementById('p_leaderBody');
+  if (leaderEl) {
+    if (!ags.length) {
+      leaderEl.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">No agent data in API response</td></tr>';
+    } else {
+      leaderEl.innerHTML = ags.slice(0,20).map((a,i) => {
+        const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+        const cc = a.csat>=80?'var(--green)':a.csat>=65?'var(--amber)':'var(--red)';
+        const spark = (a.monthly||[]).filter(v=>v!=null);
+        const mx = Math.max(...spark,100);
+        const bars = spark.map(v=>`<span style="display:inline-block;width:5px;height:${Math.max(2,Math.round(v/mx*14))}px;background:${cc};opacity:.75;border-radius:2px 2px 0 0;margin-right:1px;vertical-align:bottom"></span>`).join('');
+        const grp = a.group || '—';
+        return `<tr>
+          <td style="padding-left:14px;font-weight:500">${medal} ${a.name||a.id}</td>
+          <td class="r"><span class="pill ${grp===10?'blue':grp===15?'purple':'grey'}" style="font-size:10px">Grp ${grp}</span></td>
+          <td class="r mono">${a.chats||0}</td>
+          <td class="r"><span style="font-weight:700;color:${cc};font-family:'JetBrains Mono',monospace">${a.csat||0}%</span></td>
+          <td class="r" style="color:var(--green)">${a.good||0}</td>
+          <td class="r" style="color:var(--red)">${a.bad||0}</td>
+          <td class="r mono">${a.resp||0}s</td>
+          <td class="r" style="padding-right:12px">${bars}</td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  // ── Heatmap ───────────────────────────────────────────────────────────────
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // derive month labels from the agents' monthly arrays
+  const now  = new Date();
+  const hmMonths = (ags[0]?.monthly||[]).map((_,i) => MONTHS[i] || ('M'+(i+1)));
+  const hmHead = document.getElementById('p_hmHead');
+  const hmBody = document.getElementById('p_hmBody');
+  if (hmHead && hmBody) {
+    hmHead.innerHTML = `<tr><th style="padding-left:14px">Agent</th><th>Grp</th>${hmMonths.map(m=>`<th class="r">${m}</th>`).join('')}<th class="r">Avg</th></tr>`;
+    hmBody.innerHTML = ags.map(a => {
+      const cells = (a.monthly||[]).map(v => {
+        if (v===null||v===undefined) return `<td class="r" style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--surface2);color:var(--text3)">—</td>`;
+        const bg = v>=85?'rgba(5,150,105,.15)':v>=70?'rgba(217,119,6,.13)':'rgba(220,38,38,.13)';
+        const cl = v>=85?'var(--green)':v>=70?'var(--amber)':'var(--red)';
+        return `<td class="r" style="background:${bg};color:${cl};font-weight:600;font-family:'JetBrains Mono',monospace;font-size:11px">${v}%</td>`;
+      }).join('');
+      const ac = a.csat>=80?'var(--green)':a.csat>=65?'var(--amber)':'var(--red)';
+      const grp = a.group || '—';
+      return `<tr>
+        <td style="padding-left:14px;font-weight:500">${a.name||a.id}</td>
+        <td><span class="pill ${grp===10?'blue':grp===15?'purple':'grey'}" style="font-size:10px">Grp ${grp}</span></td>
+        ${cells}
+        <td class="r" style="font-weight:700;color:${ac};font-family:'JetBrains Mono',monospace">${a.csat||0}%</td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="${hmMonths.length+3}" style="text-align:center;padding:20px;color:var(--text3)">No agent data</td></tr>`;
+  }
+}
+
+function initJamiePanel() {
+  // Jamie has no live data; just render placeholder charts matching Parker's label set
+  if (_botLive) renderParkerPanel(_botLive);  // reuses Jamie chart canvases as side effect
+}
+
+function _killChart(id) {
+  if (_parkerCharts[id]) { _parkerCharts[id].destroy(); delete _parkerCharts[id]; }
+  if (_jamieCharts[id])  { _jamieCharts[id].destroy();  delete _jamieCharts[id];  }
+}
+
+// Rebuild team dropdown after CSAT data loads (preserve bot options)
+const _origPopulate = window._populateGlobalConsultantBar;
+// Patch the function that overwrites csatGlobalTeamFilter to preserve bot options
+const _patchTeamSel = () => {
+  const teamSel = document.getElementById('csatGlobalTeamFilter');
+  if (!teamSel) return;
+  const hasPark = [...teamSel.options].some(o=>o.value==='__parker__');
+  if (!hasPark) {
+    const p = new Option('🤖 Team Parker','__parker__'); p.style.color='var(--purple)'; p.style.fontWeight='600';
+    const j = new Option('🤖 Team Jamie', '__jamie__');  j.style.color='var(--teal)';  j.style.fontWeight='600';
+    teamSel.add(p, 1);
+    teamSel.add(j, 2);
+  }
+};
+
+// After the page's own populate runs, re-inject bot options
+const _origPopulateBar = typeof _populateGlobalConsultantBar !== 'undefined'
+  ? _populateGlobalConsultantBar : null;
+if (_origPopulateBar) {
+  window._populateGlobalConsultantBar = function() {
+    _origPopulateBar();
+    _patchTeamSel();
+  };
+}
+
+// Also patch on DOMContentLoaded and on each renderCSAT call
+document.addEventListener('DOMContentLoaded', () => setTimeout(_patchTeamSel, 500));
+const _origRenderCSAT = window.renderCSAT;
+if (_origRenderCSAT) {
+  window.renderCSAT = function(...args) {
+    const r = _origRenderCSAT(...args);
+    setTimeout(_patchTeamSel, 100);
+    return r;
+  };
+}
+// Safety net — run after page fully loads
+window.addEventListener('load', () => setTimeout(_patchTeamSel, 800));
 </script>
 
 

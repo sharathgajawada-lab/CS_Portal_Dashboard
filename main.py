@@ -2724,3 +2724,624 @@ async def service_worker():
     with open("sw.js") as f: content = f.read()
     return Response(content=content, media_type="application/javascript",
         headers={"Cache-Control":"public, max-age=86400"})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LiveChat API — ParkerAI / AI Bot Intelligence
+# Groups 10 & 15 · v3.5 + v3.6 endpoints
+# Credentials: LIVECHAT_ACCOUNT_ID, IDLIVECHAT_TOKEN (set in Render env vars)
+# Refreshes on the same 2-hour cycle as the rest of the dashboard.
+# All data served from cache — zero LiveChat calls per page load.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import base64 as _b64
+
+LC_ACCOUNT_ID = os.environ.get("LIVECHAT_ACCOUNT_ID", "")
+LC_TOKEN      = os.environ.get("IDLIVECHAT_TOKEN", "")
+LC_BASE_V35   = "https://api.livechatinc.com/v3.5"
+LC_BASE_V36   = "https://api.livechatinc.com/v3.6"
+LC_GROUPS     = [10, 15]
+
+# Cache keys
+LC_CACHE_KEY  = "livechat:ai_bots"
+LC_CACHE_TTL  = 7200   # 2 hours fresh
+LC_STALE_TTL  = 86400  # 24 hours stale
+
+
+def _lc_headers() -> dict:
+    """Build LiveChat Basic-auth headers from env vars."""
+    if not LC_ACCOUNT_ID or not LC_TOKEN:
+        return {}
+    token = _b64.b64encode(f"{LC_ACCOUNT_ID}:{LC_TOKEN}".encode()).decode()
+    return {
+        "Authorization": f"Basic {token}",
+        "Content-Type":  "application/json",
+    }
+
+
+def _lc_configured() -> bool:
+    return bool(LC_ACCOUNT_ID and LC_TOKEN)
+
+
+async def _lc_get(url: str, params: dict = None, retries: int = 3) -> dict | None:
+    """Single LiveChat API call with retry + backoff."""
+    hdrs = _lc_headers()
+    if not hdrs:
+        return None
+    async with httpx.AsyncClient(timeout=20, headers=hdrs) as client:
+        for attempt in range(retries):
+            try:
+                r = await client.get(url, params=params or {})
+                if r.status_code == 429:
+                    await asyncio.sleep(5 * (attempt + 1))
+                    continue
+                if r.status_code not in (200, 201):
+                    print(f"[livechat] {r.status_code} {url}: {r.text[:150]}", flush=True)
+                    return None
+                return r.json()
+            except Exception as ex:
+                print(f"[livechat] error {url}: {ex}", flush=True)
+                await asyncio.sleep(3 * (attempt + 1))
+    return None
+
+
+def _lc_date_range() -> tuple[str, str]:
+    """Return (from, to) covering Jan–current month of current year."""
+    now = datetime.utcnow()
+    return f"{now.year}-01-01T00:00:00", now.strftime("%Y-%m-%dT23:59:59")
+
+
+async def _lc_chats_summary(date_from: str, date_to: str) -> dict:
+    """
+    Pull chat volume + rating stats for groups 10 & 15 combined and per-group.
+    Uses /v3.5/reports/chats/total_chats and /v3.5/reports/chats/ratings.
+    """
+    result = {
+        "total":    0,
+        "group_10": 0,
+        "group_15": 0,
+        "monthly_total":    [],   # [{month, total, group_10, group_15}]
+        "good_ratings":     0,
+        "bad_ratings":      0,
+        "monthly_ratings":  [],   # [{month, good, bad, good_pct}]
+    }
+
+    # ── Total chats per group ──────────────────────────────────────────────
+    for grp in LC_GROUPS:
+        data = await _lc_get(
+            f"{LC_BASE_V35}/reports/chats/total_chats",
+            {"filters[groups][0]": grp,
+             "distribution": "month",
+             "from": date_from, "to": date_to},
+        )
+        await asyncio.sleep(0.5)
+        if not data:
+            continue
+        records = data.get("records", [])
+        key = f"group_{grp}"
+        for rec in records:
+            result[key] += int(rec.get("total", 0))
+            result["total"] += int(rec.get("total", 0))
+
+    # ── Monthly totals (both groups together) ─────────────────────────────
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/total_chats",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "month",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+    if data:
+        for rec in data.get("records", []):
+            result["monthly_total"].append({
+                "month": rec.get("start", "")[:7],
+                "total": int(rec.get("total", 0)),
+            })
+
+    # ── Monthly totals per-group for volume split chart ────────────────────
+    monthly_g10, monthly_g15 = {}, {}
+    for grp, store in ((10, monthly_g10), (15, monthly_g15)):
+        d = await _lc_get(
+            f"{LC_BASE_V35}/reports/chats/total_chats",
+            {"filters[groups][0]": grp,
+             "distribution": "month",
+             "from": date_from, "to": date_to},
+        )
+        await asyncio.sleep(0.5)
+        if d:
+            for rec in d.get("records", []):
+                store[rec.get("start", "")[:7]] = int(rec.get("total", 0))
+
+    # Merge into monthly_total
+    for entry in result["monthly_total"]:
+        m = entry["month"]
+        entry["group_10"] = monthly_g10.get(m, 0)
+        entry["group_15"] = monthly_g15.get(m, 0)
+
+    # ── Ratings ────────────────────────────────────────────────────────────
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/ratings",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "month",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+    if data:
+        for rec in data.get("records", []):
+            good = int(rec.get("good", 0))
+            bad  = int(rec.get("bad",  0))
+            total_r = good + bad
+            result["good_ratings"] += good
+            result["bad_ratings"]  += bad
+            result["monthly_ratings"].append({
+                "month":    rec.get("start", "")[:7],
+                "good":     good,
+                "bad":      bad,
+                "good_pct": round(good / total_r * 100, 1) if total_r else 0,
+            })
+
+    return result
+
+
+async def _lc_response_times(date_from: str, date_to: str) -> list:
+    """Monthly avg first response time (seconds) for groups 10 & 15."""
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/first_response_time",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "month",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+    if not data:
+        return []
+    return [
+        {
+            "month": rec.get("start", "")[:7],
+            "avg_seconds": round(float(rec.get("avg", 0))),
+        }
+        for rec in data.get("records", [])
+    ]
+
+
+async def _lc_daily_volume(date_from: str, date_to: str) -> list:
+    """Daily chat volume split by group 10 vs group 15."""
+    daily_g10, daily_g15 = {}, {}
+    for grp, store in ((10, daily_g10), (15, daily_g15)):
+        d = await _lc_get(
+            f"{LC_BASE_V35}/reports/chats/total_chats",
+            {"filters[groups][0]": grp,
+             "distribution": "day",
+             "from": date_from, "to": date_to},
+        )
+        await asyncio.sleep(0.4)
+        if d:
+            for rec in d.get("records", []):
+                store[rec.get("start", "")[:10]] = int(rec.get("total", 0))
+
+    all_dates = sorted(set(list(daily_g10.keys()) + list(daily_g15.keys())))
+    return [
+        {
+            "start":    dt,
+            "group_10": daily_g10.get(dt, 0),
+            "group_15": daily_g15.get(dt, 0),
+        }
+        for dt in all_dates
+    ]
+
+
+async def _lc_daily_ratings(date_from: str, date_to: str) -> list:
+    """Daily good/bad ratings for groups 10 & 15."""
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/ratings",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "day",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.4)
+    if not data:
+        return []
+    result = []
+    for rec in data.get("records", []):
+        good  = int(rec.get("good", 0))
+        bad   = int(rec.get("bad",  0))
+        total = good + bad
+        result.append({
+            "start":    rec.get("start", "")[:10],
+            "good":     good,
+            "bad":      bad,
+            "good_pct": round(good / total * 100, 1) if total else 0,
+        })
+    return result
+
+
+async def _lc_daily_response(date_from: str, date_to: str) -> list:
+    """Daily avg first response time (seconds) for groups 10 & 15."""
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/first_response_time",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "day",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.4)
+    if not data:
+        return []
+    return [
+        {
+            "start":       rec.get("start", "")[:10],
+            "avg_seconds": round(float(rec.get("avg", 0))),
+        }
+        for rec in data.get("records", [])
+    ]
+
+
+async def _lc_daily_queue(date_from: str, date_to: str) -> list:
+    """Daily queued + abandoned visitors for groups 10 & 15."""
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/queued_visitors",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "day",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.4)
+    if not data:
+        return []
+    return [
+        {
+            "start":     rec.get("start", "")[:10],
+            "queued":    int(rec.get("queued",    0)),
+            "abandoned": int(rec.get("abandoned", 0)),
+        }
+        for rec in data.get("records", [])
+    ]
+
+
+async def _lc_queue_stats(date_from: str, date_to: str) -> dict:
+    """Queue entries + abandonments for groups 10 & 15."""
+    result = {
+        "queued":    0,
+        "abandoned": 0,
+        "monthly":   [],
+    }
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/queued_visitors",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "month",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+    if not data:
+        return result
+
+    monthly = {}
+    for rec in data.get("records", []):
+        m = rec.get("start", "")[:7]
+        q = int(rec.get("queued", 0))
+        a = int(rec.get("abandoned", 0))
+        result["queued"]    += q
+        result["abandoned"] += a
+        monthly[m] = {"month": m, "queued": q, "abandoned": a}
+
+    result["monthly"] = sorted(monthly.values(), key=lambda x: x["month"])
+    return result
+
+
+async def _lc_tags(date_from: str, date_to: str) -> dict:
+    """Tag frequency for groups 10 & 15."""
+    data = await _lc_get(
+        f"{LC_BASE_V35}/reports/chats/tags",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+    if not data:
+        return {"bot_tags": [], "human_tags": []}
+
+    BOT_KEYWORDS = {"chatbot", "bot", "auto", "automated", "bot-handled",
+                    "bot-faq", "auto-resolved", "virtual", "ai"}
+
+    bot_tags   = []
+    human_tags = []
+    for tag in (data.get("tags") or []):
+        name  = (tag.get("name") or "").lower()
+        count = int(tag.get("count", 0))
+        if any(kw in name for kw in BOT_KEYWORDS):
+            bot_tags.append({"label": tag.get("name", name), "count": count})
+        else:
+            human_tags.append({"label": tag.get("name", name), "count": count})
+
+    bot_tags.sort(key=lambda x: -x["count"])
+    human_tags.sort(key=lambda x: -x["count"])
+    return {"bot_tags": bot_tags[:10], "human_tags": human_tags[:10]}
+
+
+async def _lc_agents(date_from: str, date_to: str) -> list:
+    """
+    Per-agent breakdown for agents active in groups 10 & 15.
+    Pulls /v3.5/reports/agents/total_chats and /v3.5/reports/agents/ratings,
+    excludes the two known bot UUIDs (chatbot tag pattern).
+    """
+    # Known bot UUIDs from handoff — exclude from agent table
+    BOT_IDS = {"e6c7d443", "0dac24bf"}
+
+    # Total chats per agent
+    data_chats = await _lc_get(
+        f"{LC_BASE_V35}/reports/agents/total_chats",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "distribution": "month",
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+
+    # Ratings per agent
+    data_ratings = await _lc_get(
+        f"{LC_BASE_V35}/reports/agents/ratings",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+
+    # Response times per agent
+    data_resp = await _lc_get(
+        f"{LC_BASE_V35}/reports/agents/first_response_time",
+        {"filters[groups][0]": 10, "filters[groups][1]": 15,
+         "from": date_from, "to": date_to},
+    )
+    await asyncio.sleep(0.5)
+
+    if not data_chats:
+        return []
+
+    # Build agent map from chats data
+    agents = {}
+    for rec in (data_chats.get("records") or []):
+        for agent in (rec.get("agents") or []):
+            aid   = str(agent.get("id", "")).strip()
+            name  = str(agent.get("name", aid)).strip()
+            # Skip bots — check against known bot UUID prefixes
+            if any(aid.startswith(b) for b in BOT_IDS):
+                continue
+            total = int(agent.get("total", 0))
+            month = rec.get("start", "")[:7]
+            if aid not in agents:
+                agents[aid] = {
+                    "id":      aid,
+                    "name":    name,
+                    "chats":   0,
+                    "good":    0,
+                    "bad":     0,
+                    "resp":    0,
+                    "monthly": {},   # month -> {chats, good, bad}
+                }
+            agents[aid]["chats"] += total
+            if month not in agents[aid]["monthly"]:
+                agents[aid]["monthly"][month] = {"chats": 0, "good": 0, "bad": 0}
+            agents[aid]["monthly"][month]["chats"] += total
+
+    # Merge ratings
+    if data_ratings:
+        for agent in (data_ratings.get("agents") or []):
+            aid = str(agent.get("id", "")).strip()
+            if aid not in agents:
+                continue
+            agents[aid]["good"] = int(agent.get("good", 0))
+            agents[aid]["bad"]  = int(agent.get("bad",  0))
+
+    # Merge response times
+    if data_resp:
+        for agent in (data_resp.get("agents") or []):
+            aid = str(agent.get("id", "")).strip()
+            if aid not in agents:
+                continue
+            agents[aid]["resp"] = round(float(agent.get("avg", 0)))
+
+    # Finalise
+    result = []
+    for a in agents.values():
+        if a["chats"] == 0:
+            continue
+        good  = a["good"]
+        bad   = a["bad"]
+        total_r = good + bad
+        csat = round(good / total_r * 100) if total_r else 0
+
+        # Build monthly CSAT array [Jan..current] — None if no data that month
+        all_months = sorted(a["monthly"].keys())
+        monthly_csat = []
+        for m in sorted(set(
+            list(a["monthly"].keys()) +
+            [f"{datetime.utcnow().year}-{str(i).zfill(2)}" for i in range(1, 7)]
+        )):
+            md = a["monthly"].get(m, {})
+            g  = md.get("good", 0)
+            b  = md.get("bad",  0)
+            tr = g + b
+            monthly_csat.append(round(g / tr * 100) if tr else None)
+
+        result.append({
+            "id":      a["id"],
+            "name":    a["name"],
+            "chats":   a["chats"],
+            "good":    good,
+            "bad":     bad,
+            "csat":    csat,
+            "resp":    a["resp"],
+            "monthly": monthly_csat,
+        })
+
+    result.sort(key=lambda x: -x["csat"])
+    return result
+
+
+async def _lc_full_refresh():
+    """Pull all LiveChat data for groups 10 & 15 and store in cache."""
+    if not _lc_configured():
+        print("[livechat] not configured — set LIVECHAT_ACCOUNT_ID + IDLIVECHAT_TOKEN", flush=True)
+        return
+
+    print(f"[livechat] starting refresh at {datetime.utcnow().isoformat()}", flush=True)
+    date_from, date_to = _lc_date_range()
+
+    try:
+        chats    = await _lc_chats_summary(date_from, date_to)
+        resp     = await _lc_response_times(date_from, date_to)
+        queue    = await _lc_queue_stats(date_from, date_to)
+        tags     = await _lc_tags(date_from, date_to)
+        agents   = await _lc_agents(date_from, date_to)
+
+        # Daily data for day-by-day charts in the CSAT page bot panel
+        daily_vol  = await _lc_daily_volume(date_from, date_to)
+        daily_rat  = await _lc_daily_ratings(date_from, date_to)
+        daily_resp = await _lc_daily_response(date_from, date_to)
+        daily_q    = await _lc_daily_queue(date_from, date_to)
+
+        # Compute KPIs
+        total_good = chats["good_ratings"]
+        total_bad  = chats["bad_ratings"]
+        total_r    = total_good + total_bad
+        csat_overall = round(total_good / total_r * 100, 1) if total_r else 0
+
+        latest_resp = resp[-1]["avg_seconds"] if resp else 0
+        latest_csat = chats["monthly_ratings"][-1]["good_pct"] if chats["monthly_ratings"] else csat_overall
+
+        total_queued    = queue["queued"]
+        total_abandoned = queue["abandoned"]
+        abandon_rate    = round(total_abandoned / total_queued * 100, 1) if total_queued else 0
+
+        # Containment: bot tags / total tags
+        total_bot_tags   = sum(t["count"] for t in tags["bot_tags"])
+        total_human_tags = sum(t["count"] for t in tags["human_tags"])
+        total_tags = total_bot_tags + total_human_tags
+        containment_rate = round(total_bot_tags / total_tags * 100, 1) if total_tags else 0
+        escalation_rate  = round(100 - containment_rate, 1) if total_tags else 0
+
+        payload = {
+            "available":        True,
+            "generated":        datetime.utcnow().isoformat() + "Z",
+            "date_from":        date_from[:10],
+            "date_to":          date_to[:10],
+            "kpis": {
+                "total_chats":       chats["total"],
+                "group_10_chats":    chats["group_10"],
+                "group_15_chats":    chats["group_15"],
+                "csat_overall":      csat_overall,
+                "csat_latest_month": latest_csat,
+                "good_ratings":      total_good,
+                "bad_ratings":       total_bad,
+                "avg_response_s":    latest_resp,
+                "containment_rate":  containment_rate,
+                "escalation_rate":   escalation_rate,
+                "total_queued":      total_queued,
+                "total_abandoned":   total_abandoned,
+                "abandon_rate":      abandon_rate,
+            },
+            "monthly_volume":   chats["monthly_total"],
+            "monthly_ratings":  chats["monthly_ratings"],
+            "monthly_response": resp,
+            "monthly_queue":    queue["monthly"],
+            "daily_volume":     daily_vol,
+            "daily_ratings":    daily_rat,
+            "daily_response":   daily_resp,
+            "daily_queue":      daily_q,
+            "tags":             tags,
+            "agents":           agents,
+        }
+
+        _cache[LC_CACHE_KEY] = {"ts": time.time(), "data": payload}
+        print(
+            f"[livechat] refresh done — {chats['total']} chats · "
+            f"{len(agents)} agents · {csat_overall}% CSAT",
+            flush=True,
+        )
+
+    except Exception as ex:
+        print(f"[livechat] refresh error: {ex}", flush=True)
+
+
+# ── Hook LiveChat into the existing 2-hour refresh loop ───────────────────────
+# Patch _refresh_loop to also call _lc_full_refresh after each cycle.
+_orig_refresh_loop = _refresh_loop
+
+async def _refresh_loop():
+    await asyncio.sleep(10)
+    while True:
+        try:
+            await full_refresh()
+        except Exception as ex:
+            print(f"[loop] cms error: {ex}", flush=True)
+        if _domo_configured():
+            try:
+                await asyncio.to_thread(_refresh_csat_from_domo)
+            except Exception as ex:
+                print(f"[loop] domo error: {ex}", flush=True)
+        try:
+            await _lc_full_refresh()
+        except Exception as ex:
+            print(f"[loop] livechat error: {ex}", flush=True)
+        await asyncio.sleep(REFRESH_SEC)
+
+
+# ── API endpoints ──────────────────────────────────────────────────────────────
+
+@app.get("/api/livechat/bots")
+async def lc_bots_data():
+    """
+    Serve cached LiveChat data for the AI Bots dashboard.
+    Returns stale data if fresh isn't available yet.
+    Falls back to {available: false} if never fetched.
+    """
+    entry = _cache.get(LC_CACHE_KEY)
+    if entry:
+        payload = entry["data"]
+        age = time.time() - entry["ts"]
+        payload["cache_age_seconds"] = int(age)
+        payload["stale"] = age > LC_CACHE_TTL
+        return JSONResponse(content=payload, headers={
+            "Cache-Control": f"public, max-age=300, stale-while-revalidate={LC_STALE_TTL}",
+        })
+    # Nothing cached yet — trigger background fetch and return placeholder
+    if _lc_configured():
+        asyncio.create_task(_lc_full_refresh())
+    return JSONResponse({"available": False, "note": "Data loading — check back in 60 seconds."})
+
+
+@app.get("/api/livechat/refresh")
+async def lc_refresh():
+    """Manually trigger a LiveChat data refresh."""
+    if not _lc_configured():
+        return JSONResponse(
+            {"status": "not configured",
+             "note": "Set LIVECHAT_ACCOUNT_ID and IDLIVECHAT_TOKEN in Render env vars."},
+            status_code=400,
+        )
+    asyncio.create_task(_lc_full_refresh())
+    return {"status": "refresh started", "note": "Check /api/livechat/bots in ~60s."}
+
+
+@app.get("/debug/livechat")
+async def debug_livechat():
+    """Health check for LiveChat integration."""
+    entry  = _cache.get(LC_CACHE_KEY)
+    cached = entry["data"] if entry else None
+    result = {
+        "configured":    _lc_configured(),
+        "account_id_set": bool(LC_ACCOUNT_ID),
+        "token_set":      bool(LC_TOKEN),
+        "cached":         cached is not None,
+        "cache_age_s":    int(time.time() - entry["ts"]) if entry else None,
+        "groups":         LC_GROUPS,
+    }
+    if cached:
+        result["kpis"]       = cached.get("kpis")
+        result["agents"]     = len(cached.get("agents", []))
+        result["generated"]  = cached.get("generated")
+    # Quick live connectivity test
+    if _lc_configured():
+        data = await _lc_get(
+            f"{LC_BASE_V35}/reports/chats/total_chats",
+            {"filters[groups][0]": 10,
+             "distribution": "day",
+             "from": "2026-06-01T00:00:00",
+             "to":   "2026-06-07T23:59:59"},
+        )
+        result["api_test"] = "ok" if data else "failed — check credentials"
+    return result
