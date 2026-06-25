@@ -1,84 +1,810 @@
-# GitHub root UI fix report
+/* ========================================================================== */
+/* World-class dashboard UX engine                                             */
+/* Universal chart actions, chart studio, command palette, theme, page map.    */
+/* ========================================================================== */
+(function () {
+  'use strict';
+  if (window.DashboardUX && window.DashboardUX.version) return;
 
-This pass addresses the latest screenshots showing the deployed dashboard still rendering with the dense starter UI.
+  const UX = window.DashboardUX = { version: '6.0.0-voice-ai-team-dropdowns-every-chart-expand' };
+  document.documentElement.dataset.dashboardUx = 'root-ready';
+  let studioChart = null;
+  let observerQueued = false;
+  let lastActiveElement = null;
 
-## Root cause fixed
+  const pageMeta = (() => {
+    const path = document.body?.dataset?.dashboardPage || location.pathname || '/';
+    if (path.includes('csat')) {
+      return {
+        key: 'csat',
+        eyebrow: 'Domo-first quality intelligence',
+        title: 'Call Quality Command Center',
+        subtitle: 'A premium CSAT workspace for leaders and analysts: Domo-first data, open call-level drilldowns, Voice AI coverage, and consistent chart inspection everywhere.',
+        source: 'Domo dataset',
+        primary: 'CSAT, solved rate, true FCR, Voice AI',
+        dataNote: 'Domo-backed raw drilldowns are available directly inside the dashboard.'
+      };
+    }
+    if (path.includes('starter-guides')) {
+      return {
+        key: 'starter-guides',
+        eyebrow: 'Journey intelligence',
+        title: 'Starter Guides Experience Center',
+        subtitle: 'Journey search, guide completion, slide engagement, and answer behavior in one guided workspace built for fast support investigation.',
+        source: 'CMS starter-guide events',
+        primary: 'Journeys, guides, answers, completion',
+        dataNote: 'Search a customer journey first, then use Metrics for aggregate patterns.'
+      };
+    }
+    return {
+      key: 'portal',
+      eyebrow: 'Executive portal intelligence',
+      title: 'CS Portal Activity Center',
+      subtitle: 'A redesigned operating dashboard for engagement, self-service behavior, content health, and analyst-grade drilldowns across the selected period.',
+      source: 'CMS metrics API',
+      primary: 'Usage, search, sessions, content',
+      dataNote: 'Article estimates are called out when source granularity is limited.'
+    };
+  })();
 
-The previous package linked the premium UI layer from:
+  function cssVar(name) {
+    return getComputedStyle(document.body).getPropertyValue(name).trim() || getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+  function slug(value) {
+    return String(value || 'chart').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'chart';
+  }
+  function fmtNumber(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value ?? '');
+    if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.00$/, '');
+  }
+  function valueToScalar(value) {
+    if (value == null) return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value === 'object') {
+      const candidate = value.y ?? value.v ?? value.value ?? value.count;
+      const n = Number(candidate);
+      return Number.isFinite(n) ? n : null;
+    }
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  function toast(message) {
+    let el = document.getElementById('uxToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'uxToast';
+      el.className = 'ux-toast';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.classList.add('show');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+  function downloadText(filename, text, type) {
+    const blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(() => true).catch(() => false);
+    }
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    area.remove();
+    return Promise.resolve(ok);
+  }
 
-```text
-/assets/dashboard_ux.css
-/assets/dashboard_ux.js
-```
+  function applyPrefs() {
+    const storedTheme = localStorage.getItem('dashboard.theme');
+    const theme = storedTheme || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    const density = localStorage.getItem('dashboard.density') || 'comfortable';
+    document.body.dataset.theme = theme;
+    document.body.dataset.density = density;
+    recolorAllCharts();
+    updateHeroStats();
+  }
+  function toggleTheme() {
+    const next = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.body.dataset.theme = next;
+    localStorage.setItem('dashboard.theme', next);
+    recolorAllCharts();
+    toast(next === 'dark' ? 'Dark executive mode enabled' : 'Light executive mode enabled');
+  }
+  function toggleDensity() {
+    const next = document.body.dataset.density === 'compact' ? 'comfortable' : 'compact';
+    document.body.dataset.density = next;
+    localStorage.setItem('dashboard.density', next);
+    toast(next === 'compact' ? 'Compact analyst density enabled' : 'Comfortable layout enabled');
+  }
+  function togglePresentation() {
+    const enabled = document.body.dataset.presentation !== 'true';
+    document.body.dataset.presentation = enabled ? 'true' : 'false';
+    toast(enabled ? 'Presentation mode enabled' : 'Presentation mode disabled');
+  }
 
-Your GitHub screenshot shows the repository is being maintained as a flat root upload and does not include an `assets/` directory. That means the premium CSS/JS layer could 404 or remain stale, leaving the dashboard with the older dense layout.
+  function chartInstances() {
+    if (!window.Chart) return [];
+    const canvases = Array.from(document.querySelectorAll('canvas[id]'));
+    return canvases.map(c => Chart.getChart(c)).filter(Boolean);
+  }
+  function recolorAllCharts() {
+    if (!window.Chart) return;
+    const text = cssVar('--text3') || '#64748b';
+    const grid = cssVar('--chart-grid') || cssVar('--border') || '#dde1ec';
+    const title = cssVar('--text2') || text;
+    Chart.defaults.color = text;
+    Chart.defaults.borderColor = grid;
+    chartInstances().forEach(chart => {
+      try {
+        if (chart.options?.scales) {
+          Object.values(chart.options.scales).forEach(scale => {
+            if (scale.grid) scale.grid.color = grid;
+            if (scale.ticks) scale.ticks.color = text;
+            if (scale.title) scale.title.color = title;
+          });
+        }
+        const plugins = chart.options.plugins || {};
+        if (plugins.legend?.labels) plugins.legend.labels.color = text;
+        if (plugins.title) plugins.title.color = title;
+        chart.update('none');
+      } catch (_) {}
+    });
+  }
 
-This package is GitHub-root ready:
+  function injectSkipLink() {
+    if (document.querySelector('.ux-skip')) return;
+    const skip = document.createElement('a');
+    skip.className = 'ux-skip';
+    skip.href = '#appRoot';
+    skip.textContent = 'Skip to dashboard';
+    document.body.insertBefore(skip, document.body.firstChild);
+  }
 
-```text
-portal-overrides.css
-portal-system.js
-```
+  function injectHero() {
+    if (document.getElementById('uxHero')) return;
+    const header = document.querySelector('.header');
+    if (!header) return;
+    const hero = document.createElement('section');
+    hero.id = 'uxHero';
+    hero.className = 'ux-hero';
+    hero.setAttribute('aria-label', 'Dashboard overview and controls');
+    hero.innerHTML = `
+      <div class="ux-hero-main">
+        <div class="ux-eyebrow"><span aria-hidden="true">◆</span>${esc(pageMeta.eyebrow)}</div>
+        <h1>${esc(pageMeta.title)}</h1>
+        <p>${esc(pageMeta.subtitle)}</p>
+        <div class="ux-view-tools" role="toolbar" aria-label="Dashboard view controls">
+          <button type="button" class="ux-btn primary" data-ux-command="palette">⌘ Command center</button>
+          <button type="button" class="ux-btn" data-ux-command="theme">Theme</button>
+          <button type="button" class="ux-btn" data-ux-command="density">Density</button>
+          <button type="button" class="ux-btn" data-ux-command="presentation">Presentation</button>
+          <button type="button" class="ux-btn" data-ux-command="export-all">Export all chart data</button>
+        </div>
+      </div>
+      <div class="ux-hero-side">
+        <div class="ux-status-tile">
+          <div class="ux-status-label">Source</div>
+          <div class="ux-status-value" style="font-size:16px">${esc(pageMeta.source)}</div>
+          <div class="ux-status-sub">${esc(pageMeta.dataNote)}</div>
+        </div>
+        <div class="ux-status-tile">
+          <div class="ux-status-label">Chart tools</div>
+          <div class="ux-status-value" id="uxChartCount">0</div>
+          <div class="ux-status-sub">Every detected chart gets expand, data, export, and click inspect.</div>
+        </div>
+        <div class="ux-status-tile">
+          <div class="ux-status-label">Primary lens</div>
+          <div class="ux-status-value" style="font-size:16px">${esc(pageMeta.primary)}</div>
+          <div class="ux-status-sub">Use chart clicks and filters for cross-analysis.</div>
+        </div>
+        <div class="ux-status-tile">
+          <div class="ux-status-label">QA posture</div>
+          <div class="ux-status-value" style="font-size:16px">Production-aware</div>
+          <div class="ux-status-sub">Accessible, exportable, responsive, Domo-first where applicable.</div>
+        </div>
+      </div>`;
+    header.insertAdjacentElement('afterend', hero);
+  }
 
-The three dashboard HTML files now load those root files directly.
+  function buildPageMap() {
+    if (document.getElementById('uxPageMap')) return;
+    const header = document.querySelector('.ux-hero') || document.querySelector('.header');
+    if (!header) return;
+    const seenTitles = new Set();
+    const titles = Array.from(document.querySelectorAll('.section-title, .card-title'))
+      .filter(el => {
+        if (el.closest('.ux-modal, .ux-chart-toolbar, .ux-chart-data-panel')) return false;
+        const text = (el.textContent || '').trim();
+        if (!text || text.length < 3 || seenTitles.has(text)) return false;
+        const visible = el.offsetParent !== null || el.closest('#s4') || el.closest('#s1') || el.closest('#s2') || el.closest('#s3');
+        if (!visible) return false;
+        seenTitles.add(text);
+        return true;
+      })
+      .slice(0, 12);
+    if (!titles.length) return;
+    const nav = document.createElement('nav');
+    nav.id = 'uxPageMap';
+    nav.className = 'ux-page-map';
+    nav.setAttribute('aria-label', 'Sections on this page');
+    titles.forEach((el, idx) => {
+      if (!el.id) el.id = 'ux-section-' + idx + '-' + slug(el.textContent);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = el.textContent.trim();
+      btn.addEventListener('click', () => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      nav.appendChild(btn);
+    });
+    header.insertAdjacentElement('afterend', nav);
 
-## UI changes in this pass
+    const buttons = Array.from(nav.querySelectorAll('button'));
+    const obs = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      const idx = titles.indexOf(visible.target);
+      buttons.forEach((b, i) => b.classList.toggle('ux-active', i === idx));
+    }, { rootMargin: '-18% 0px -70% 0px', threshold: [0, .25, .5, 1] });
+    titles.forEach(t => obs.observe(t));
+  }
 
-- Root-level premium CSS/JS so the deployed dashboard matches the intended UI.
-- Larger executive shell, improved spacing, larger typography, softer card hierarchy, and a more readable chart canvas layout.
-- Visible top-level dashboard hero for Portal, CSAT, and Starter Guides.
-- Persistent section map after the hero.
-- CSAT remains Domo-first and open, with no Admin access / unlock / protected-drilldown UI.
-- Voice AI remains first-class and visible near the top of CSAT.
-- Every active Chart.js chart gets visible Expand plus Insight, Data, CSV, and PNG actions.
-- The backend now serves both root assets and old `/assets/dashboard_ux.*` aliases to prevent broken deploys.
-- Service worker cache bumped to force clients off the stale UI.
+  function titleForCanvas(canvas) {
+    const card = canvas.closest('.card, .section, .journey-card') || canvas.parentElement;
+    const title = card?.querySelector('.card-title, .section-title, h2, h3')?.textContent?.trim();
+    return title || canvas.getAttribute('aria-label') || canvas.id || 'Dashboard chart';
+  }
+  function getChartById(id) {
+    if (!window.Chart) return null;
+    const canvas = document.getElementById(id);
+    return canvas ? Chart.getChart(canvas) : null;
+  }
+  function pruneStaleChartUx(canvasIds) {
+    const live = canvasIds || new Set(Array.from(document.querySelectorAll('canvas[id]')).map(c => c.id));
+    document.querySelectorAll('.ux-chart-toolbar[data-chart-id]').forEach(el => {
+      if (!live.has(el.dataset.chartId)) el.remove();
+    });
+    document.querySelectorAll('.ux-chart-data-panel[id^="ux-data-panel-"]').forEach(el => {
+      const id = el.id.replace('ux-data-panel-', '');
+      if (!live.has(id)) el.remove();
+    });
+  }
 
-## Files that must be uploaded to GitHub root
+  function enhanceCharts() {
+    const canvases = Array.from(document.querySelectorAll('canvas[id]')).filter(canvas => !canvas.id.startsWith('ux') && canvas.id !== 'chartModalCanvas');
+    pruneStaleChartUx(new Set(canvases.map(c => c.id)));
+    canvases.forEach(canvas => {
+      if (canvas.dataset.uxEnhanced === '1') return;
+      const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
+      if (!wrap) return;
+      document.querySelectorAll('.ux-chart-toolbar').forEach(el => { if (el.dataset.chartId === canvas.id) el.remove(); });
+      const stalePanel = document.getElementById('ux-data-panel-' + canvas.id);
+      if (stalePanel) stalePanel.remove();
+      canvas.dataset.uxEnhanced = '1';
+      wrap.classList.add('ux-chart-wrap');
+      canvas.setAttribute('tabindex', '0');
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', titleForCanvas(canvas));
 
-```text
-index.html
-csat.html
-starter_guides.html
-main.py
-sw.js
-portal-overrides.css
-portal-system.js
-```
+      const title = titleForCanvas(canvas);
+      const toolbar = document.createElement('div');
+      toolbar.className = 'ux-chart-toolbar';
+      toolbar.dataset.chartId = canvas.id;
+      toolbar.innerHTML = `
+        <div class="ux-chart-toolbar-left">
+          <div class="ux-chart-kicker">
+            <span class="ux-chart-name">${esc(title)}</span>
+            <span class="ux-feature-pill">Click inspect</span>
+            <span class="ux-feature-pill">CSV</span>
+            <span class="ux-feature-pill">PNG</span>
+            <span class="ux-feature-pill">Expand</span>
+          </div>
+        </div>
+        <div class="ux-chart-actions">
+          <button type="button" data-ux-action="insight" data-chart-id="${esc(canvas.id)}">Insight</button>
+          <button type="button" data-ux-action="data" data-chart-id="${esc(canvas.id)}">Data</button>
+          <button type="button" data-ux-action="csv" data-chart-id="${esc(canvas.id)}">CSV</button>
+          <button type="button" data-ux-action="png" data-chart-id="${esc(canvas.id)}">PNG</button>
+          <button type="button" data-ux-action="expand" data-chart-id="${esc(canvas.id)}">Expand</button>
+        </div>`;
+      const panel = document.createElement('div');
+      panel.className = 'ux-chart-data-panel';
+      panel.id = 'ux-data-panel-' + canvas.id;
+      panel.setAttribute('aria-live', 'polite');
+      const existingExpand = wrap.querySelector('.chart-expand-btn');
+      if (existingExpand) {
+        existingExpand.type = 'button';
+        existingExpand.dataset.uxAction = 'expand';
+        existingExpand.dataset.chartId = canvas.id;
+        existingExpand.removeAttribute('onclick');
+        existingExpand.removeAttribute('data-chart');
+        existingExpand.removeAttribute('data-title');
+        if (!existingExpand.textContent.trim()) existingExpand.textContent = '⤢ Expand';
+        existingExpand.textContent = '⤢ Expand';
+      } else {
+        const expand = document.createElement('button');
+        expand.type = 'button';
+        expand.className = 'chart-expand-btn ux-generated-expand';
+        expand.dataset.uxAction = 'expand';
+        expand.dataset.chartId = canvas.id;
+        expand.textContent = '⤢ Expand';
+        wrap.insertAdjacentElement('afterbegin', expand);
+      }
+      wrap.insertAdjacentElement('beforebegin', toolbar);
+      wrap.insertAdjacentElement('afterend', panel);
+      installCanvasInspector(canvas);
+    });
+    updateHeroStats();
+  }
 
-The package still includes `/assets/dashboard_ux.css` and `/assets/dashboard_ux.js` as compatibility aliases, but the root files above are the primary ones.
+  function updateHeroStats() {
+    const el = document.getElementById('uxChartCount');
+    if (el) el.textContent = String(document.querySelectorAll('canvas[data-ux-enhanced="1"]').length);
+  }
 
-## Validation
+  function chartToRows(chart) {
+    const labels = Array.isArray(chart?.data?.labels) ? chart.data.labels : [];
+    const datasets = Array.isArray(chart?.data?.datasets) ? chart.data.datasets : [];
+    return labels.map((label, i) => {
+      const row = { label: label ?? '' };
+      datasets.forEach((ds, di) => {
+        const name = ds.label || ('Series ' + (di + 1));
+        row[name] = valueToScalar(ds.data?.[i]) ?? ds.data?.[i] ?? '';
+      });
+      return row;
+    });
+  }
+  function rowsToCsv(rows) {
+    if (!rows.length) return 'label\n';
+    const headers = Array.from(rows.reduce((set, row) => {
+      Object.keys(row).forEach(k => set.add(k));
+      return set;
+    }, new Set()));
+    const quote = value => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    return [headers.map(quote).join(',')].concat(rows.map(row => headers.map(h => quote(row[h])).join(','))).join('\n');
+  }
+  function chartInsight(chart) {
+    const title = titleForCanvas(chart.canvas);
+    const labels = chart.data?.labels || [];
+    const datasets = chart.data?.datasets || [];
+    const lines = [];
+    lines.push(`${title}: ${labels.length} visible category/time point${labels.length === 1 ? '' : 's'} across ${datasets.length} series.`);
+    datasets.forEach(ds => {
+      const nums = (ds.data || []).map(valueToScalar).filter(v => Number.isFinite(v));
+      if (!nums.length) return;
+      const total = nums.reduce((a, b) => a + b, 0);
+      let maxIdx = 0;
+      let minIdx = 0;
+      nums.forEach((v, i) => { if (v > nums[maxIdx]) maxIdx = i; if (v < nums[minIdx]) minIdx = i; });
+      const first = nums[0];
+      const last = nums[nums.length - 1];
+      const delta = first ? ((last - first) / Math.abs(first)) * 100 : null;
+      const label = ds.label || 'Series';
+      const topLabel = labels[maxIdx] ?? ('point ' + (maxIdx + 1));
+      lines.push(`${label} totals ${fmtNumber(total)}; peak is ${topLabel} at ${fmtNumber(nums[maxIdx])}.`);
+      if (Number.isFinite(delta) && nums.length > 1) {
+        const direction = delta > 2 ? 'up' : delta < -2 ? 'down' : 'flat';
+        lines.push(`${label} ends ${direction} vs the first visible point (${delta > 0 ? '+' : ''}${delta.toFixed(1)}%).`);
+      }
+    });
+    if (labels.length < 4) lines.push('Sample is small; treat this view as directional until more points are loaded.');
+    return lines.join(' ');
+  }
 
-```text
-python3 -m py_compile main.py scripts/ui_click_smoke.py
-node --check portal-system.js
-node --check assets/dashboard_ux.js
-node --check sw.js
-node --check extracted inline scripts from index/csat/starter_guides
-pytest -q
-python3 scripts/ui_click_smoke.py
-```
+  function renderDataPanel(chart, mode) {
+    const canvasId = chart.canvas.id;
+    const panel = document.getElementById('ux-data-panel-' + canvasId);
+    if (!panel) return;
+    const rows = chartToRows(chart);
+    const headers = rows.length ? Object.keys(rows[0]) : ['label'];
+    const bodyRows = rows.slice(0, 250).map(row => `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`).join('');
+    const insight = chartInsight(chart);
+    panel.innerHTML = `
+      <div class="ux-chart-data-panel-header">
+        <span>${mode === 'insight' ? 'Analyst insight' : 'Underlying chart data'} · ${rows.length} row${rows.length === 1 ? '' : 's'}</span>
+        <button type="button" class="ux-mini-btn" data-ux-action="close-panel" data-chart-id="${esc(canvasId)}">Close</button>
+      </div>
+      ${mode === 'insight' ? `<div class="ux-insight-box"><strong>Readout:</strong> ${esc(insight)}</div>` : ''}
+      <div class="ux-chart-data-scroll">
+        <table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${bodyRows || `<tr><td>No chart data available yet.</td></tr>`}</tbody></table>
+      </div>`;
+    panel.classList.add('open');
+  }
 
-Result:
+  function installCanvasInspector(canvas) {
+    if (canvas.dataset.uxInspector === '1') return;
+    canvas.dataset.uxInspector = '1';
+    const inspect = evt => {
+      const chart = getChartById(canvas.id);
+      if (!chart) return;
+      const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+      if (!points.length) return;
+      const point = points[0];
+      const ds = chart.data.datasets[point.datasetIndex] || {};
+      const label = chart.data.labels?.[point.index] ?? ('Point ' + (point.index + 1));
+      const raw = ds.data?.[point.index];
+      const value = valueToScalar(raw) ?? raw ?? '';
+      showPointPopover(evt.clientX, evt.clientY, {
+        title: titleForCanvas(canvas),
+        label,
+        series: ds.label || 'Series',
+        value
+      });
+    };
+    canvas.addEventListener('click', inspect);
+    canvas.addEventListener('keydown', evt => {
+      if (evt.key === 'Enter' || evt.key === ' ') {
+        evt.preventDefault();
+        openStudio(canvas.id);
+      }
+    });
+  }
+  function showPointPopover(x, y, item) {
+    document.querySelectorAll('.ux-click-popover').forEach(el => el.remove());
+    const el = document.createElement('div');
+    el.className = 'ux-click-popover';
+    el.innerHTML = `
+      <div class="ux-pop-title">${esc(item.title)}</div>
+      <div class="ux-pop-row"><span>Point</span><span class="ux-pop-value">${esc(item.label)}</span></div>
+      <div class="ux-pop-row"><span>Series</span><span class="ux-pop-value">${esc(item.series)}</span></div>
+      <div class="ux-pop-row"><span>Value</span><span class="ux-pop-value">${esc(fmtNumber(item.value))}</span></div>`;
+    document.body.appendChild(el);
+    const rect = el.getBoundingClientRect();
+    el.style.left = Math.min(window.innerWidth - rect.width - 12, Math.max(12, x + 14)) + 'px';
+    el.style.top = Math.min(window.innerHeight - rect.height - 12, Math.max(12, y + 14)) + 'px';
+    clearTimeout(showPointPopover._timer);
+    showPointPopover._timer = setTimeout(() => el.remove(), 4200);
+  }
 
-```text
-78 passed
-Browser click QA passed
-24 enhanced charts
-24 expand clicks tested
-```
+  function downloadPng(chart) {
+    try {
+      const a = document.createElement('a');
+      a.download = slug(titleForCanvas(chart.canvas)) + '.png';
+      a.href = chart.toBase64Image('image/png', 1);
+      a.click();
+      toast('PNG exported');
+    } catch (_) {
+      toast('This chart cannot be exported as PNG yet');
+    }
+  }
+  function downloadCsv(chart) {
+    const rows = chartToRows(chart);
+    downloadText(slug(titleForCanvas(chart.canvas)) + '.csv', rowsToCsv(rows), 'text/csv;charset=utf-8');
+    toast('CSV exported');
+  }
+  function exportAllCharts() {
+    const charts = chartInstances();
+    if (!charts.length) { toast('No chart data is available yet'); return; }
+    const blocks = charts.map(chart => {
+      const name = titleForCanvas(chart.canvas);
+      return '### ' + name + '\n' + rowsToCsv(chartToRows(chart));
+    }).join('\n\n');
+    downloadText(slug(pageMeta.title) + '-all-chart-data.csv', blocks, 'text/csv;charset=utf-8');
+    toast('All chart data exported');
+  }
 
-## Browser/deploy note
+  function ensureStudioModal() {
+    let modal = document.getElementById('uxChartStudio');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'uxChartStudio';
+    modal.className = 'ux-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div class="ux-modal-card">
+        <div class="ux-modal-head">
+          <div>
+            <div class="ux-modal-title" id="uxStudioTitle">Expanded chart studio</div>
+            <div class="ux-modal-sub" id="uxStudioSub">Expand the chart, inspect data, export, and copy the readout.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            <button type="button" class="ux-btn" id="uxStudioCsv">CSV</button>
+            <button type="button" class="ux-btn" id="uxStudioPng">PNG</button>
+            <button type="button" class="ux-btn" id="uxStudioCopy">Copy insight</button>
+            <button type="button" class="ux-btn primary" data-ux-close="studio">Close</button>
+          </div>
+        </div>
+        <div class="ux-modal-body">
+          <div class="ux-studio-grid">
+            <div class="ux-studio-chart"><canvas id="uxStudioCanvas"></canvas></div>
+            <div class="ux-studio-side">
+              <div class="ux-studio-panel"><h3>Analyst readout</h3><div class="ux-panel-body" id="uxStudioInsight"></div></div>
+              <div class="ux-studio-panel"><h3>Visible data</h3><div class="ux-panel-body" id="uxStudioTable" style="max-height:360px;overflow:auto;padding:0"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-ux-close="studio"]')) closeStudio(); });
+    return modal;
+  }
+  function openStudio(canvasId) {
+    const chart = getChartById(canvasId);
+    if (!chart) { toast('Chart is still loading'); return; }
+    const modal = ensureStudioModal();
+    const title = titleForCanvas(chart.canvas);
+    const insight = chartInsight(chart);
+    lastActiveElement = document.activeElement;
+    document.getElementById('uxStudioTitle').textContent = title;
+    document.getElementById('uxStudioSub').textContent = 'Expanded chart studio · click points in the dashboard for instant point inspection.';
+    document.getElementById('uxStudioInsight').innerHTML = esc(insight).replace(/(peak|totals|ends|Sample)/g, '<strong>$1</strong>');
+    const rows = chartToRows(chart);
+    const headers = rows.length ? Object.keys(rows[0]) : ['label'];
+    document.getElementById('uxStudioTable').innerHTML = `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.slice(0, 250).map(row => `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`).join('') || '<tr><td>No data yet.</td></tr>'}</tbody></table>`;
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    if (studioChart) { studioChart.destroy(); studioChart = null; }
+    const cfg = {
+      type: chart.config.type,
+      data: JSON.parse(JSON.stringify(chart.data || {})),
+      options: JSON.parse(JSON.stringify(chart.options || {}))
+    };
+    cfg.options.responsive = true;
+    cfg.options.maintainAspectRatio = false;
+    cfg.options.animation = false;
+    cfg.options.plugins = cfg.options.plugins || {};
+    cfg.options.plugins.legend = cfg.options.plugins.legend || {};
+    cfg.options.plugins.legend.position = cfg.options.plugins.legend.position || 'bottom';
+    const ctx = document.getElementById('uxStudioCanvas').getContext('2d');
+    studioChart = new Chart(ctx, cfg);
+    recolorAllCharts();
+    document.getElementById('uxStudioCsv').onclick = () => downloadCsv(chart);
+    document.getElementById('uxStudioPng').onclick = () => downloadPng(chart);
+    document.getElementById('uxStudioCopy').onclick = () => copyText(insight).then(ok => toast(ok ? 'Insight copied' : 'Copy failed'));
+    modal.querySelector('[data-ux-close="studio"]').focus();
+  }
+  function closeStudio() {
+    const modal = document.getElementById('uxChartStudio');
+    if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
+    if (studioChart) { studioChart.destroy(); studioChart = null; }
+    if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
+  }
 
-After deploying this version, hard refresh once or unregister the old service worker if the browser still shows the old UI:
+  function ensureCommandPalette() {
+    let modal = document.getElementById('uxCommandPalette');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'uxCommandPalette';
+    modal.className = 'ux-modal ux-command-palette';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div class="ux-modal-card">
+        <div class="ux-modal-head">
+          <div>
+            <div class="ux-modal-title">Dashboard command center</div>
+            <div class="ux-modal-sub">Search actions, jump between views, and operate the dashboard faster. Press Esc to close.</div>
+          </div>
+          <button type="button" class="ux-btn primary" data-ux-close="palette">Close</button>
+        </div>
+        <div class="ux-modal-body">
+          <input class="ux-command-input" id="uxCommandInput" placeholder="Type a command, e.g. export, theme, CSAT, clear filters..." autocomplete="off">
+          <div class="ux-command-list" id="uxCommandList"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-ux-close="palette"]')) closePalette(); });
+    document.getElementById('uxCommandInput').addEventListener('input', renderCommands);
+    return modal;
+  }
+  function commandDefs() {
+    const defs = [
+      { title: 'Go to Portal Activity', sub: 'Usage, content, sessions, search', kbd: '/', run: () => { location.href = '/'; } },
+      { title: 'Go to Call Quality', sub: 'Domo-first CSAT and call quality', kbd: '/csat', run: () => { location.href = '/csat'; } },
+      { title: 'Go to Starter Guides', sub: 'Journey and guide analytics', kbd: '/starter-guides', run: () => { location.href = '/starter-guides'; } },
+      { title: 'Toggle theme', sub: 'Switch light/dark executive mode', kbd: 'T', run: toggleTheme },
+      { title: 'Toggle density', sub: 'Comfortable vs compact analyst layout', kbd: 'D', run: toggleDensity },
+      { title: 'Presentation mode', sub: 'Reduce stickiness and make cards easier to present', kbd: 'P', run: togglePresentation },
+      { title: 'Export all chart data', sub: 'Download a combined CSV for every loaded chart', kbd: 'E', run: exportAllCharts },
+      { title: 'Expand first chart', sub: 'Open the first loaded chart in the expanded chart studio', kbd: 'F', run: () => { const c = document.querySelector('canvas[data-ux-enhanced="1"]'); if (c) openStudio(c.id); else toast('No chart is loaded yet'); } },
+      { title: 'Scroll to top', sub: 'Return to dashboard overview', kbd: 'Home', run: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
+    ];
+    if (typeof window.clearAllFilters === 'function') defs.push({ title: 'Clear filters', sub: 'Reset active dashboard filters', kbd: 'C', run: () => window.clearAllFilters() });
+    if (typeof window.loadMetrics === 'function') defs.push({ title: 'Reload Starter Guide metrics', sub: 'Refresh aggregate metrics view', kbd: 'R', run: () => window.loadMetrics() });
+    if (typeof window.refreshFromDomo === 'function') defs.push({ title: 'Refresh CSAT from Domo', sub: 'Pull latest Domo CSAT data', kbd: 'R', run: () => window.refreshFromDomo() });
+    else if (typeof window.refreshCsat === 'function') defs.push({ title: 'Refresh CSAT from Domo', sub: 'CSAT refresh action', kbd: 'R', run: () => window.refreshCsat() });
+    return defs;
+  }
+  function renderCommands() {
+    const list = document.getElementById('uxCommandList');
+    const query = (document.getElementById('uxCommandInput')?.value || '').toLowerCase().trim();
+    if (!list) return;
+    const defs = commandDefs().filter(c => !query || (c.title + ' ' + c.sub).toLowerCase().includes(query));
+    list.innerHTML = defs.map((c, i) => `
+      <div class="ux-command-item" role="button" tabindex="0" data-command-index="${i}">
+        <div><div class="ux-command-item-title">${esc(c.title)}</div><div class="ux-command-item-sub">${esc(c.sub)}</div></div>
+        <span class="ux-kbd">${esc(c.kbd)}</span>
+      </div>`).join('') || '<div class="ux-command-item"><div><div class="ux-command-item-title">No commands found</div><div class="ux-command-item-sub">Try export, chart, CSAT, theme, or filters.</div></div></div>';
+    Array.from(list.querySelectorAll('[data-command-index]')).forEach(el => {
+      const idx = Number(el.dataset.commandIndex);
+      el.addEventListener('click', () => { closePalette(); defs[idx].run(); });
+      el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closePalette(); defs[idx].run(); } });
+    });
+  }
+  function openPalette() {
+    const modal = ensureCommandPalette();
+    lastActiveElement = document.activeElement;
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    renderCommands();
+    const input = document.getElementById('uxCommandInput');
+    input.value = '';
+    setTimeout(() => input.focus(), 0);
+  }
+  function closePalette() {
+    const modal = document.getElementById('uxCommandPalette');
+    if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
+    if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
+  }
 
-```text
-Cmd/Ctrl + Shift + R
-```
+  function installGlobalHandlers() {
+    document.addEventListener('click', e => {
+      const chartBtn = e.target.closest('[data-ux-action][data-chart-id]');
+      if (chartBtn) {
+        const id = chartBtn.dataset.chartId;
+        const action = chartBtn.dataset.uxAction;
+        const chart = getChartById(id);
+        if (action === 'close-panel') {
+          document.getElementById('ux-data-panel-' + id)?.classList.remove('open');
+          return;
+        }
+        if (!chart) { toast('Chart is still loading'); return; }
+        if (action === 'insight') renderDataPanel(chart, 'insight');
+        if (action === 'data') renderDataPanel(chart, 'data');
+        if (action === 'csv') downloadCsv(chart);
+        if (action === 'png') downloadPng(chart);
+        if (action === 'focus' || action === 'expand') openStudio(id);
+        return;
+      }
+      const cmd = e.target.closest('[data-ux-command]')?.dataset.uxCommand;
+      if (!cmd) return;
+      if (cmd === 'palette') openPalette();
+      if (cmd === 'theme') toggleTheme();
+      if (cmd === 'density') toggleDensity();
+      if (cmd === 'presentation') togglePresentation();
+      if (cmd === 'export-all') exportAllCharts();
+    });
+    document.addEventListener('keydown', e => {
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openPalette();
+      }
+      if (e.key === 'Escape') {
+        closePalette();
+        closeStudio();
+        document.querySelectorAll('.ux-click-popover').forEach(el => el.remove());
+      }
+    });
+  }
 
-The service worker name is now:
+  function observeDom() {
+    const target = document.getElementById('appRoot') || document.body;
+    const observer = new MutationObserver(() => {
+      if (observerQueued) return;
+      observerQueued = true;
+      requestAnimationFrame(() => {
+        observerQueued = false;
+        enhanceCharts();
+        forceEveryChartExpandable();
+        ensureVoiceAiInTeamDropdowns();
+      });
+    });
+    observer.observe(target, { childList: true, subtree: true });
+    setInterval(() => { enhanceCharts(); recolorAllCharts(); }, 3500);
+  }
 
-```text
-cs-portal-v5-github-root-pro-ui
-```
+
+  function removeKnownNoisyUi() {
+    // Defensive cleanup for older cached markup or manually merged files. The current CSAT UI is open and Domo-first.
+    const forbiddenText = ['Data quality:', 'Protected drilldowns', 'Admin access', 'Unlock raw drilldowns'];
+    document.querySelectorAll('button, .card, .alert, .section, [id]').forEach(el => {
+      const txt = (el.textContent || '').trim();
+      if (forbiddenText.some(term => txt.includes(term))) {
+        if (el.id === 'domoRefreshBtn') return;
+        el.style.display = 'none';
+        el.setAttribute('aria-hidden', 'true');
+      }
+    });
+    document.querySelectorAll('[id*="domoAccess"], [id*="protected"], [id*="Protected"]').forEach(el => {
+      el.style.display = 'none';
+      el.setAttribute('aria-hidden', 'true');
+    });
+  }
+
+
+  function compactTeamName(value) {
+    return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  }
+
+  function ensureVoiceAiInTeamDropdowns() {
+    const likelyTeamSelects = Array.from(document.querySelectorAll('select')).filter(sel => {
+      const idName = ((sel.id || '') + ' ' + (sel.name || '') + ' ' + (sel.getAttribute('aria-label') || '')).toLowerCase();
+      const prevLabel = sel.closest('label')?.textContent?.toLowerCase() || '';
+      return idName.includes('team') || idName.includes('csatglobalteamfilter') || idName.includes('csatteamfilter') || prevLabel.includes('team');
+    });
+    likelyTeamSelects.forEach(sel => {
+      const hasVoiceAi = Array.from(sel.options || []).some(opt => compactTeamName(opt.value || opt.textContent) === 'voiceai');
+      if (!hasVoiceAi) {
+        const opt = document.createElement('option');
+        opt.value = 'Voice AI';
+        opt.textContent = 'Voice AI';
+        // Keep the global "All teams" option first, then show Voice AI near the top.
+        if (sel.options && sel.options.length > 1) sel.insertBefore(opt, sel.options[1]);
+        else sel.appendChild(opt);
+      }
+    });
+  }
+
+  function forceEveryChartExpandable() {
+    // The existing chart enhancer is Chart.js-aware; this adds a defensive visible
+    // Expand button for any canvas that still slipped through because it rendered late.
+    document.querySelectorAll('canvas[id]').forEach(canvas => {
+      const chart = window.Chart && Chart.getChart(canvas);
+      const host = canvas.closest('.chart-wrap, .card, section, div');
+      if (!host || !chart) return;
+      if (host.querySelector(`[data-ux-action="expand"][data-chart-id="${canvas.id}"]`)) return;
+      let bar = host.querySelector('.ux-chart-toolbar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'ux-chart-toolbar';
+        const parent = canvas.parentElement || host;
+        parent.insertBefore(bar, parent.firstChild);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ux-chart-action ux-expand-guarantee';
+      btn.dataset.uxAction = 'expand';
+      btn.dataset.chartId = canvas.id;
+      btn.textContent = '⤢ Expand';
+      btn.setAttribute('aria-label', 'Expand chart');
+      bar.appendChild(btn);
+    });
+  }
+
+  function init() {
+    document.body.classList.add('pro-dashboard');
+    removeKnownNoisyUi();
+    ensureVoiceAiInTeamDropdowns();
+    applyPrefs();
+    injectSkipLink();
+    injectHero();
+    buildPageMap();
+    installGlobalHandlers();
+    enhanceCharts();
+    forceEveryChartExpandable();
+    ensureVoiceAiInTeamDropdowns();
+    observeDom();
+    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 800);
+    setTimeout(() => { enhanceCharts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
+    setInterval(() => { ensureVoiceAiInTeamDropdowns(); forceEveryChartExpandable(); }, 1800);
+    console.info('[DashboardUX] World-class UX engine active', UX.version);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+})();
