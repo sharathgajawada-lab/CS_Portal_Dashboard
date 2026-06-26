@@ -1603,30 +1603,27 @@ async function _chartCtrlRender(id) {
     setStatus('sessionStatus', 'loading', 'Loading…');
     try {
       const r = await fetch(`/api/sessions/full?date_from=${from}&date_to=${to}`);
-      if (r.ok) {
-        const d = await r.json();
-        if (d.available) {
-          sessionData = d;
-          // Fetch prev period BEFORE rendering so compare line appears immediately
-          if (compare) {
-            const { prevFrom, prevTo } = _getPrevPeriod(from, to);
-            try {
-              const r2 = await fetch(`/api/sessions/full?date_from=${prevFrom}&date_to=${prevTo}`);
-              window._prevSessionData = (r2.ok) ? await r2.json() : null;
-            } catch(e) { window._prevSessionData = null; }
-          } else {
-            window._prevSessionData = null;
-          }
-          const coverage = d.total_users >= 50 ? 'full coverage' : d.total_users + ' users';
-          setStatus('sessionStatus', 'loaded',
-            `${fmt(d.total_sessions)} sessions · ${coverage} · ${fmtDate(from)} → ${fmtDate(to)}`);
-          renderSessionSection(d);
-          const hourDist = d.hour_distribution || {};
-          if (Object.keys(hourDist).length > 0) renderHourGridFromInsights(hourDist);
-        } else {
-          setStatus('sessionStatus', 'error', 'No session data for selected period');
-        }
+      if (!r.ok) throw new Error('Session API failed (' + r.status + ')');
+      const d = await r.json();
+      if (!d.available) throw new Error('No session data for selected period');
+      sessionData = ensureSessionAnalyticsPayload(d);
+      // Fetch prev period BEFORE rendering so compare line appears immediately
+      if (compare) {
+        const { prevFrom, prevTo } = _getPrevPeriod(from, to);
+        try {
+          const r2 = await fetch(`/api/sessions/full?date_from=${prevFrom}&date_to=${prevTo}`);
+          window._prevSessionData = (r2.ok) ? ensureSessionAnalyticsPayload(await r2.json()) : null;
+        } catch(e) { window._prevSessionData = null; }
+      } else {
+        window._prevSessionData = null;
       }
+      const coverage = sessionData.total_users >= 50 ? 'full coverage' : (sessionData.total_users || 0) + ' users';
+      setStatus('sessionStatus', 'loaded',
+        `${fmt(sessionData.total_sessions || 0)} sessions · ${coverage} · ${fmtDate(from)} → ${fmtDate(to)}${sessionData._metric_proxy ? ' · event-level proxy' : ''}`);
+      renderSessionSection(sessionData);
+      setTimeout(() => window.DashboardUX?.refreshCharts?.(), 120);
+      const hourDist = sessionData.hour_distribution || {};
+      if (Object.keys(hourDist).length > 0) renderHourGridFromInsights(hourDist);
     } catch(e) {
       const proxy = buildSessionProxyFromMetrics('Selected-period session endpoint unavailable');
       if (proxy) {
@@ -3220,7 +3217,7 @@ async function loadSessions() {
     }
     // Fall back to legacy sample
     const r2 = await fetch('/api/sessions');
-    if (!r2.ok) { setStatus('sessionStatus', 'error', 'Failed (' + r2.status + ')'); return; }
+    if (!r2.ok) throw new Error('Session API failed (' + r2.status + ')');
     sessionData = ensureSessionAnalyticsPayload(await r2.json());
     const n = sessionData?.total_sessions || 0;
     setStatus('sessionStatus', n > 0 ? 'loaded' : 'error',
@@ -3256,16 +3253,22 @@ async function loadVideos() {
 
 async function loadCategories() {
   setStatus('catStatus', 'loading', 'Loading…');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const r = await fetch('/api/categories');
-    if (!r.ok) { setStatus('catStatus', 'error', 'Failed'); return; }
+    const r = await fetch('/api/categories', { signal: controller.signal });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error('Failed (' + r.status + ')');
     catData = await r.json();
     const n = catData?.categories?.length || 0;
     setStatus('catStatus', n > 0 ? 'loaded' : 'error', n > 0 ? n + ' categories' : 'No data');
     renderCategories();
+    setTimeout(() => window.DashboardUX?.refreshCharts?.(), 120);
   } catch (e) {
-    setStatus('catStatus', 'error', 'Error');
+    clearTimeout(timer);
     console.warn('Categories failed:', e);
+    // Keep the page useful: show a non-blocking status instead of locking the card in loading state.
+    setStatus('catStatus', 'error', e.name === 'AbortError' ? 'Category API timed out — retrying on next refresh' : 'Category API unavailable');
   }
 }
 

@@ -1527,3 +1527,90 @@ body.pro-dashboard .ux-studio-chart,
 #uxChartStudio .ux-modal-card { transform: none !important; }
 body[data-ux-studio-open="true"] { overflow: hidden !important; }
 body.pro-dashboard #catChart { cursor: pointer; }
+
+
+/* ========================================================================== */
+/* v7.6 chart visibility fix: stable canvas stage + no blank dashboard charts  */
+/* ========================================================================== */
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  box-sizing: border-box !important;
+  min-height: 340px !important;
+  height: clamp(340px, 40vh, 520px) !important;
+  overflow: visible !important;
+  padding: 14px !important;
+}
+body.pro-dashboard .chart-wrap.ux-mini-chart,
+body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
+body.pro-dashboard .chart-wrap:has(#hourInsightChart),
+body.pro-dashboard #hourChartWrap {
+  min-height: 280px !important;
+  height: 280px !important;
+  max-height: 300px !important;
+  padding: 12px !important;
+}
+body.pro-dashboard .chart-wrap:has(#catChart) {
+  min-height: 360px !important;
+  height: 360px !important;
+}
+body.pro-dashboard .ux-canvas-stage {
+  position: relative !important;
+  display: block !important;
+  flex: 1 1 auto !important;
+  min-height: 230px !important;
+  width: 100% !important;
+  overflow: hidden !important;
+  border-radius: 16px !important;
+}
+body.pro-dashboard .ux-mini-chart .ux-canvas-stage,
+body.pro-dashboard .chart-wrap:has(#hourInsightChart) .ux-canvas-stage,
+body.pro-dashboard #hourChartWrap .ux-canvas-stage {
+  min-height: 190px !important;
+}
+body.pro-dashboard .ux-canvas-stage > canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+body.pro-dashboard .chart-wrap > canvas:not(.ux-staged),
+body.pro-dashboard .ux-chart-wrap > canvas:not(.ux-staged) {
+  display: block !important;
+  width: 100% !important;
+  height: 280px !important;
+  min-height: 240px !important;
+  max-height: none !important;
+}
+body.pro-dashboard .ux-chart-toolbar {
+  flex: 0 0 auto !important;
+  position: relative !important;
+  z-index: 3 !important;
+}
+#uxChartStudio .ux-studio-chart,
+body.pro-dashboard #uxChartStudio .ux-studio-chart {
+  display: block !important;
+  height: min(68vh, 720px) !important;
+  min-height: 520px !important;
+  padding: 18px !important;
+  overflow: hidden !important;
+}
+#uxChartStudio .ux-studio-chart .ux-canvas-stage,
+#uxChartStudio .ux-studio-chart .ux-chart-toolbar,
+#uxChartStudio .ux-studio-chart [data-ux-action="expand"],
+#chartModal .ux-chart-toolbar,
+#chartModal [data-ux-action="expand"] {
+  display: none !important;
+}
+#uxChartStudio .ux-studio-chart canvas,
+#chartModal canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}

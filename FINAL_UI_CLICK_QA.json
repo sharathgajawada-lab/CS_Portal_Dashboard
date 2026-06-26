@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-06-26T13:47:20.981637Z",
+  "generated_at": "2026-06-26T14:51:14.973236Z",
   "rendering_method": "real HTML with local assets inlined; API calls stubbed by Playwright routes",
   "results": [
     {
       "page": "Portal Activity",
-      "ux_version": "7.5.0-chart-polish-session-fallback",
+      "ux_version": "7.6.0-visible-chart-stage",
       "enhanced_charts": 9,
       "expand_action_buttons": 9,
       "visible_expand_buttons": 9,
@@ -24,7 +24,7 @@
     },
     {
       "page": "CSAT / Call Quality",
-      "ux_version": "7.5.0-chart-polish-session-fallback",
+      "ux_version": "7.6.0-visible-chart-stage",
       "enhanced_charts": 9,
       "expand_action_buttons": 9,
       "visible_expand_buttons": 9,
@@ -44,7 +44,7 @@
     },
     {
       "page": "Starter Guides",
-      "ux_version": "7.5.0-chart-polish-session-fallback",
+      "ux_version": "7.6.0-visible-chart-stage",
       "enhanced_charts": 5,
       "expand_action_buttons": 5,
       "visible_expand_buttons": 5,

@@ -1,5 +1,5 @@
-// cs-portal-v7-5-chart-polish-session-fallback — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v7-5-chart-polish-session-fallback';
+// cs-portal-v7-6-visible-charts-stage — bumped to force cache clear on all clients
+const CACHE_NAME = 'cs-portal-v7-6-visible-charts-stage';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {

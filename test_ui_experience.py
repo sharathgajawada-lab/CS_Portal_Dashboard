@@ -114,7 +114,7 @@ def test_shared_assets_are_served_by_backend_with_expected_content_types():
     assert js.status_code == 200
     assert "javascript" in js.headers.get("content-type", "")
     assert "World-class dashboard UX engine" in js.text
-    assert "7.5.0-chart-polish-session-fallback" in js.text
+    assert "7.6.0-visible-chart-stage" in js.text
     assert legacy_css.status_code == 200
     assert legacy_js.status_code == 200
     assert missing.status_code == 404
