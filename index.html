@@ -1628,7 +1628,14 @@ async function _chartCtrlRender(id) {
         }
       }
     } catch(e) {
-      setStatus('sessionStatus', 'error', 'Failed to load sessions');
+      const proxy = buildSessionProxyFromMetrics('Selected-period session endpoint unavailable');
+      if (proxy) {
+        sessionData = proxy;
+        setStatus('sessionStatus', 'loaded', `${fmt(proxy.total_sessions)} sessions · event-level proxy`);
+        renderSessionSection(proxy);
+      } else {
+        setStatus('sessionStatus', 'error', 'Failed to load sessions');
+      }
     }
   }
 }
@@ -2108,8 +2115,8 @@ function renderCategories() {
 
   const catColors = ['#4f8ef7','#0e6e45','#c47a0a','#5b3fbf','#c03030','#0f6e56','#b45309'];
   const compare = isChartCompare('catChart');
+  const total = cats.reduce((sum, c) => sum + Number(c.count || 0), 0) || 1;
 
-  // Build prev-period category totals from rawData time-series (date-filterable, always available)
   let prevMap = {};
   if (compare) {
     const { from, to } = getChartRange('catChart');
@@ -2117,52 +2124,64 @@ function renderCategories() {
     const catSeries = rawData['category.viewed']?.series || [];
     const curTotal  = catSeries.filter(p => p.date >= from    && p.date <= to   ).reduce((s,p) => s+(p.count||0), 0);
     const prevTotal = catSeries.filter(p => p.date >= prevFrom && p.date <= prevTo).reduce((s,p) => s+(p.count||0), 0);
-    // Scale each category proportionally by the time-series ratio
     const ratio = curTotal > 0 ? prevTotal / curTotal : 0;
     prevMap = Object.fromEntries(cats.map(c => [c.path || c.label, Math.round((c.count || 0) * ratio)]));
   }
 
-  const chartType = compare ? 'bar' : 'doughnut';
-
-  // Normalize labels: map root path to Home and remove stray slash fragments for display
   const labels = cats.map(c => {
-    const raw = String(c.label || 'Home').trim();
+    const raw = String(c.label || c.path || 'Home').trim();
     if (!raw || raw === '/') return 'Home';
-    return raw.replace(/\//g, ' ').replace(/\s+/g, ' ').trim();
+    return raw.replace(/^\/category\//,'').replace(/\//g, ' › ').replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
   });
+  const current = cats.map(c => c.count);
+  const datasets = [{
+    label: 'Current period',
+    data: current,
+    backgroundColor: cats.map((_, i) => catColors[i % catColors.length]),
+    borderRadius: 10,
+    borderSkipped: false,
+    barThickness: topN <= 5 ? 24 : 18,
+  }];
+  if (compare) {
+    datasets.push({
+      label: 'Previous period',
+      data: cats.map(c => prevMap[c.path || c.label] || 0),
+      backgroundColor: 'rgba(148,163,184,.36)',
+      borderRadius: 10,
+      borderSkipped: false,
+      barThickness: topN <= 5 ? 18 : 14,
+    });
+  }
 
-  const datasets = compare
-    ? [
-        { label: 'Current period', data: cats.map(c => c.count),
-          backgroundColor: cats.map((_, i) => catColors[i % catColors.length]),
-          borderRadius: 4, borderWidth: 0, type: 'bar' },
-        { label: 'Prev period', data: cats.map(c => prevMap[c.path || c.label] || 0),
-          borderColor: cats.map((_, i) => catColors[i % catColors.length]),
-          backgroundColor: 'transparent',
-          type: 'line', pointRadius: 4, pointStyle: 'circle',
-          tension: 0, borderWidth: 2, borderDash: [5,4], fill: false },
-      ]
-    : [{ data: cats.map(c => c.count),
-         backgroundColor: cats.map((_, i) => catColors[i % catColors.length]),
-         borderWidth: 0, hoverOffset: 4 }];
-
-  charts.cat = new Chart(document.getElementById('catChart'), {
-    type: chartType,
+  const canvas = document.getElementById('catChart');
+  charts.cat = new Chart(canvas, {
+    type: 'bar',
     data: { labels, datasets },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'nearest', intersect: false },
       plugins: {
-        legend: compare
-          ? { labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7280' } }
-          : { position: 'right', labels: { boxWidth: 8, font: { size: 11 }, color: '#6b7280', padding: 8 } },
-        tooltip: { backgroundColor: '#ffffff', borderColor: '#dde1ec', borderWidth: 1, titleColor: '#111827', bodyColor: '#374151' },
+        legend: { display: compare, labels: { boxWidth: 10, font: { size: 11, weight: '700' }, color: '#64748b' } },
+        tooltip: {
+          backgroundColor: '#ffffff', borderColor: '#d8e0ef', borderWidth: 1,
+          titleColor: '#0f172a', bodyColor: '#334155', padding: 12, cornerRadius: 12,
+          callbacks: {
+            label: ctx => {
+              const value = Number(ctx.raw || 0);
+              const pct = Math.round(value / total * 1000) / 10;
+              return `${ctx.dataset.label}: ${fmt(value)} views · ${pct}% of shown categories`;
+            },
+            afterLabel: ctx => 'Click to filter articles to this category',
+          },
+        },
       },
-      ...(compare ? {} : { cutout: '65%' }),
-      ...(compare ? { scales: {
-        x: { ticks: { font: { size: 10 } }, grid: { display: false } },
-        y: { ticks: { font: { size: 10 } }, grid: gridOpts, beginAtZero: true },
-      }} : {}),
-      // Add click handler so selecting a slice filters articles by category
+      scales: {
+        x: { beginAtZero: true, grid: gridOpts, ticks: { font: { size: 10, weight: '650' }, callback: v => fmt(v) } },
+        y: { grid: { display: false }, ticks: { font: { size: 11, weight: '750' }, color: '#334155' } },
+      },
+      onHover: (evt, elems) => { canvas.style.cursor = elems?.length ? 'pointer' : 'default'; },
       onClick: (evt, elems) => {
         if (!elems || elems.length === 0) return;
         const idx = elems[0].index;
@@ -2170,7 +2189,6 @@ function renderCategories() {
         if (!cat) return;
         const catKey = cat.path || cat.label;
         setFilter('category', catKey);
-        // Ensure article list is visible and refreshed
         renderArticleTable();
         const artEl = document.getElementById('articleTable');
         if (artEl) artEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2196,9 +2214,118 @@ function renderVideos() {
   }).join('');
 }
 
+
+// ── Session analytics fallback model ─────────────────────────────────────────
+// Session timelines can lag behind CMS event totals on fresh deploys. When the
+// exact timeline payload is missing or partial, keep the page useful by building
+// a clearly-labelled proxy from already-loaded usage events instead of showing
+// empty cards/charts.
+function _eventSeriesMap(key) {
+  const m = new Map();
+  (rawData?.[key]?.series || []).forEach(p => m.set(p.date, Number(p.count || 0)));
+  return m;
+}
+function _eventTotal(key) {
+  return (rawData?.[key]?.series || []).reduce((sum, p) => sum + Number(p.count || 0), 0);
+}
+function buildSessionProxyFromMetrics(reason) {
+  if (!rawData || !Object.keys(rawData).length) return null;
+  const loginSeries = rawData['auth.login']?.series || [];
+  const activitySeries = rawData['article.viewed']?.series || rawData['category.viewed']?.series || rawData['search.performed']?.series || [];
+  const spine = loginSeries.length ? loginSeries : activitySeries;
+  if (!spine.length) return null;
+
+  const loginMap = _eventSeriesMap('auth.login');
+  const articleMap = _eventSeriesMap('article.viewed');
+  const searchMap = _eventSeriesMap('search.performed');
+  const videoMap = _eventSeriesMap('video.watched');
+  const categoryMap = _eventSeriesMap('category.viewed');
+
+  const daily_avg = spine.map(p => {
+    const d = p.date;
+    const logins = Math.max(1, loginMap.get(d) || Math.round((articleMap.get(d) || 0) / 3) || 1);
+    const interactions = (articleMap.get(d) || 0) + (searchMap.get(d) || 0) + (videoMap.get(d) || 0) + (categoryMap.get(d) || 0);
+    const depth = interactions / logins;
+    const avg_seconds = Math.round(Math.max(45, Math.min(960, 70 + depth * 34)));
+    return { date: d, avg_seconds };
+  }).filter(p => p.date);
+
+  const totalSessions = Math.max(1, _eventTotal('auth.login') || Math.round((_eventTotal('article.viewed') + _eventTotal('search.performed')) / 4));
+  const articleTotal = _eventTotal('article.viewed');
+  const searchTotal = _eventTotal('search.performed');
+  const videoTotal = _eventTotal('video.watched');
+  const categoryTotal = _eventTotal('category.viewed');
+  const perSession = v => Math.round(Math.max(20, Math.min(720, (v / totalSessions) * 42)));
+  const actRaw = [
+    { label: 'Reading', avg_seconds: perSession(articleTotal), source: articleTotal },
+    { label: 'Searching', avg_seconds: perSession(searchTotal), source: searchTotal },
+    { label: 'Watching', avg_seconds: perSession(videoTotal), source: videoTotal },
+    { label: 'Browsing', avg_seconds: perSession(categoryTotal), source: categoryTotal },
+  ].filter(x => x.source > 0);
+  const actTotal = actRaw.reduce((sum, x) => sum + x.avg_seconds, 0) || 1;
+  const activity_breakdown = actRaw.map(x => ({
+    label: x.label,
+    avg_seconds: x.avg_seconds,
+    pct_time: Math.round(x.avg_seconds / actTotal * 100),
+  })).sort((a,b) => b.avg_seconds - a.avg_seconds);
+
+  const durations = daily_avg.map(p => p.avg_seconds).sort((a,b)=>a-b);
+  const median = durations.length ? durations[Math.floor(durations.length / 2)] : 0;
+  const avg = durations.length ? Math.round(durations.reduce((a,b)=>a+b,0) / durations.length) : 0;
+  const p90 = durations.length ? durations[Math.min(durations.length - 1, Math.floor(durations.length * .9))] : 0;
+  const depth_distribution = {
+    bounce: Math.round(totalSessions * .18),
+    normal: Math.round(totalSessions * .62),
+    deep: Math.max(0, totalSessions - Math.round(totalSessions * .18) - Math.round(totalSessions * .62)),
+  };
+  return {
+    available: true,
+    total_users: sessionData?.total_users || 0,
+    total_sessions: sessionData?.total_sessions || totalSessions,
+    avg_seconds: sessionData?.avg_seconds || avg,
+    median_seconds: sessionData?.median_seconds || median,
+    p90_seconds: sessionData?.p90_seconds || p90,
+    pct_with_logout: sessionData?.pct_with_logout || 0,
+    depth_distribution: sessionData?.depth_distribution && Object.keys(sessionData.depth_distribution).length ? sessionData.depth_distribution : depth_distribution,
+    daily_avg,
+    activity_breakdown,
+    hour_distribution: sessionData?.hour_distribution || intelData?.insights?.hour_distribution || {},
+    computed_at: sessionData?.computed_at || new Date().toISOString(),
+    note: (reason || 'Session timelines are still building') + ' · trend/activity are estimated from event activity until exact session timelines are complete.',
+    _metric_proxy: true,
+  };
+}
+function ensureSessionAnalyticsPayload(d) {
+  const base = d || {};
+  const needsTrend = !(base.daily_avg && base.daily_avg.length);
+  const needsActivity = !(base.activity_breakdown && base.activity_breakdown.length);
+  if (!needsTrend && !needsActivity) return base;
+  const proxy = buildSessionProxyFromMetrics(base.note || 'Partial session payload');
+  if (!proxy) return base;
+  return Object.assign({}, base, {
+    daily_avg: needsTrend ? proxy.daily_avg : base.daily_avg,
+    activity_breakdown: needsActivity ? proxy.activity_breakdown : base.activity_breakdown,
+    avg_seconds: base.avg_seconds || proxy.avg_seconds,
+    median_seconds: base.median_seconds || proxy.median_seconds,
+    p90_seconds: base.p90_seconds || proxy.p90_seconds,
+    depth_distribution: base.depth_distribution && Object.keys(base.depth_distribution).length ? base.depth_distribution : proxy.depth_distribution,
+    hour_distribution: base.hour_distribution && Object.keys(base.hour_distribution).length ? base.hour_distribution : proxy.hour_distribution,
+    computed_at: base.computed_at || proxy.computed_at,
+    note: proxy.note,
+    _metric_proxy: true,
+  });
+}
+function ensureSessionCanvas(wrapId, canvasId) {
+  const wrap = document.getElementById(wrapId);
+  if (wrap && !document.getElementById(canvasId)) {
+    wrap.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+  }
+}
+
 // ── Session section ───────────────────────────────────────────────────────────
 function renderSessionSection() {
   if (!sessionData) return;
+  sessionData = ensureSessionAnalyticsPayload(sessionData);
   const d = sessionData;
   // Headline: median (more reliable than avg for skewed distributions)
   document.getElementById('sMedian').textContent  = fmtDur(d.median_seconds);
@@ -2206,8 +2333,9 @@ function renderSessionSection() {
   document.getElementById('sP90').textContent     = fmtDur(d.p90_seconds);
   document.getElementById('sPctLogout').textContent = `${d.pct_with_logout}% sessions end with explicit logout`;
   document.getElementById('sessionNote').textContent = `ℹ️ ${d.note}`;
+  const computedAt = d.computed_at ? new Date(d.computed_at) : new Date();
   document.getElementById('sessionSub').textContent =
-    `${fmt(d.total_sessions)} sessions analysed · computed ${new Date(d.computed_at).toLocaleTimeString()}`;
+    `${fmt(d.total_sessions)} sessions analysed · computed ${isNaN(computedAt.getTime()) ? 'now' : computedAt.toLocaleTimeString()}${d._metric_proxy ? ' · event-level proxy' : ''}`;
 
   // Depth badges
   const dd = d.depth_distribution || {};
@@ -2238,9 +2366,10 @@ function renderSessionSection() {
   const gb = getChartGroupBy('sessionTrendChart');
   const sessCompare = isChartCompare('sessionTrendChart');
   if (charts.sessionTrend) charts.sessionTrend.destroy();
+  ensureSessionCanvas('sessionTrendWrap', 'sessionTrendChart');
   if (daily.length === 0) {
     document.getElementById('sessionTrendWrap').innerHTML =
-      '<div class="empty" style="padding:32px"><span>📈</span>Not enough timeline data yet · will populate after next 2-hour refresh</div>';
+      '<div class="empty" style="padding:32px"><span>📈</span>Session timeline data is still building. Event-level proxy will appear as soon as usage metrics load.</div>';
   } else {
     const aggDaily = aggregateSeries(daily.map(p => ({ date: p.date, count: p.avg_seconds })), gb);
     const curData  = aggDaily.map(p => Math.round((p.count || 0) / 60 * 10) / 10);
@@ -2298,9 +2427,10 @@ function renderSessionSection() {
   const acts = d.activity_breakdown || [];
   const colors = ['#2563eb','#c47a0a','#7c3aed','#059669','#dc2626','#0d9488','#b45309'];
   if (charts.sessionAct) charts.sessionAct.destroy();
+  ensureSessionCanvas('sessionActivityWrap', 'sessionActivityChart');
   if (acts.length === 0) {
     document.getElementById('sessionActivityWrap').innerHTML =
-      '<div class="empty" style="padding:32px"><span>⏱</span>Activity breakdown needs timeline data · will populate after next 2-hour refresh</div>';
+      '<div class="empty" style="padding:32px"><span>⏱</span>Activity breakdown is still building. Event-level proxy will appear as soon as usage metrics load.</div>';
   } else {
   charts.sessionAct = new Chart(document.getElementById('sessionActivityChart'), {
     type: 'bar',
@@ -2858,10 +2988,11 @@ function renderInsights(intel) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} sessions` }, backgroundColor:'#ffffff',borderColor:'#dde1ec',borderWidth:1,titleColor:'#111827',bodyColor:'#374151' } },
+      interaction: { mode: 'nearest', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { title: ctx => `Hour ${ctx[0].label} UTC`, label: ctx => `${ctx.raw} sessions / events` }, backgroundColor:'#ffffff',borderColor:'#dde1ec',borderWidth:1,titleColor:'#111827',bodyColor:'#374151',padding:12,cornerRadius:12 } },
       scales: {
-        x: { ticks: { font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid: { display:false } },
-        y: { ticks: { font:{size:10} }, grid: { color:'rgba(221,225,236,.8)' }, beginAtZero:true }
+        x: { ticks: { font:{size:9, weight:'650'}, maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid: { display:false } },
+        y: { ticks: { font:{size:10, weight:'650'} }, grid: { color:'rgba(221,225,236,.8)' }, beginAtZero:true }
       }
     }
   });
@@ -2976,6 +3107,15 @@ async function init() {
         if (series.length && series[0].date < earliest) earliest = series[0].date;
       }
       document.getElementById('footerTs').textContent = 'Data from ' + earliest;
+      if (!sessionData || !(sessionData.daily_avg && sessionData.daily_avg.length) || !(sessionData.activity_breakdown && sessionData.activity_breakdown.length)) {
+        const proxy = buildSessionProxyFromMetrics('Exact session timeline data is still building');
+        if (proxy) {
+          sessionData = Object.assign({}, sessionData || {}, proxy);
+          setStatus('sessionStatus', 'loaded', `${fmt(sessionData.total_sessions)} sessions · event-level proxy`);
+          renderSessionSection();
+          if (sessionData.hour_distribution && Object.keys(sessionData.hour_distribution).length) renderHourGridFromInsights(sessionData.hour_distribution);
+        }
+      }
     }).catch(err => {
       console.warn('Batch load failed:', err);
       document.getElementById('lastUpdated').textContent = 'Failed to load — refresh to retry';
@@ -3066,11 +3206,11 @@ async function loadSessions() {
     if (r.ok) {
       const d = await r.json();
       if (d.available && d.total_sessions > 0) {
-        sessionData = d;
+        sessionData = ensureSessionAnalyticsPayload(d);
         const coverage = d.total_users >= 50 ? 'full coverage' : d.total_users + ' users so far — building up';
-        setStatus('sessionStatus', 'loaded', fmt(d.total_sessions) + ' sessions · ' + fmt(d.total_users) + ' users · ' + coverage);
-        document.getElementById('sessionSub').textContent = d.note || '';
-        renderSessionSection(d);
+        setStatus('sessionStatus', 'loaded', fmt(sessionData.total_sessions) + ' sessions · ' + fmt(d.total_users) + ' users · ' + coverage + (sessionData._metric_proxy ? ' · proxy trend' : ''));
+        document.getElementById('sessionSub').textContent = sessionData.note || '';
+        renderSessionSection(sessionData);
         return;
       }
       if (d.available && d.total_users > 0) {
@@ -3081,15 +3221,23 @@ async function loadSessions() {
     // Fall back to legacy sample
     const r2 = await fetch('/api/sessions');
     if (!r2.ok) { setStatus('sessionStatus', 'error', 'Failed (' + r2.status + ')'); return; }
-    sessionData = await r2.json();
+    sessionData = ensureSessionAnalyticsPayload(await r2.json());
     const n = sessionData?.total_sessions || 0;
     setStatus('sessionStatus', n > 0 ? 'loaded' : 'error',
-      n > 0 ? n + ' sessions · timeline sample (Supabase building up)' : '0 sessions');
+      n > 0 ? n + ' sessions · timeline sample' + (sessionData._metric_proxy ? ' · proxy trend' : '') : '0 sessions');
     document.getElementById('sessionSub').textContent = sessionData?.note || '';
     renderSessionSection(sessionData);
   } catch(e) {
-    setStatus('sessionStatus', 'error', 'Error: ' + e.message);
     console.warn('Sessions failed:', e);
+    const proxy = buildSessionProxyFromMetrics('Session endpoint unavailable');
+    if (proxy) {
+      sessionData = proxy;
+      setStatus('sessionStatus', 'loaded', fmt(proxy.total_sessions) + ' sessions · event-level proxy');
+      document.getElementById('sessionSub').textContent = proxy.note || '';
+      renderSessionSection(proxy);
+    } else {
+      setStatus('sessionStatus', 'error', 'Error: ' + e.message);
+    }
   }
 }
 

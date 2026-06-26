@@ -1,5 +1,5 @@
-// cs-portal-v10-frank-ai-axis-visible — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v10-frank-ai-axis-visible';
+// cs-portal-v7-5-chart-polish-session-fallback — bumped to force cache clear on all clients
+const CACHE_NAME = 'cs-portal-v7-5-chart-polish-session-fallback';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {

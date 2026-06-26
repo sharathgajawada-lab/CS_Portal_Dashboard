@@ -6,7 +6,7 @@
   'use strict';
   if (window.DashboardUX && window.DashboardUX.version) return;
 
-  const UX = window.DashboardUX = { version: '7.4.0-frank-ai-axis-visible' };
+  const UX = window.DashboardUX = { version: '7.5.0-chart-polish-session-fallback' };
   document.documentElement.dataset.dashboardUx = 'root-ready';
   let studioChart = null;
   let observerQueued = false;
@@ -137,30 +137,56 @@
     toast(enabled ? 'Presentation mode enabled' : 'Presentation mode disabled');
   }
 
+  function isUxInternalCanvas(canvas) {
+    const id = String(canvas?.id || '');
+    return !id || id.startsWith('ux') || id === 'chartModalCanvas';
+  }
   function chartInstances() {
     if (!window.Chart) return [];
-    const canvases = Array.from(document.querySelectorAll('canvas[id]'));
+    const canvases = Array.from(document.querySelectorAll('canvas[id]')).filter(c => !isUxInternalCanvas(c));
     return canvases.map(c => Chart.getChart(c)).filter(Boolean);
   }
   function polishChartLayout(chart) {
     if (!chart || !chart.options) return;
     const canvas = chart.canvas;
+    if (isUxInternalCanvas(canvas)) return;
     const wrap = canvas && (canvas.closest('.chart-wrap') || canvas.parentElement);
     if (wrap) {
       wrap.classList.add('ux-axis-safe-chart');
       const id = String(canvas.id || '').toLowerCase();
-      const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant') || id.includes('category');
-      wrap.style.minHeight = dense ? '430px' : '380px';
-      if (!wrap.style.height || /^(1[0-9]{2}|2[0-9]{2})px$/.test(wrap.style.height)) {
-        wrap.style.height = dense ? 'clamp(430px, 52vh, 620px)' : 'clamp(380px, 46vh, 560px)';
+      const styleHeight = (wrap.getAttribute('style') || '').match(/height\s*:\s*(\d+)px/i);
+      const explicitHeight = styleHeight ? Number(styleHeight[1]) : 0;
+      const mini = explicitHeight > 0 && explicitHeight <= 230 || id.includes('insight') || id.includes('mini');
+      const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant');
+      wrap.classList.toggle('ux-mini-chart', !!mini);
+      if (!mini && !wrap.style.height) {
+        wrap.style.height = dense ? 'clamp(390px, 48vh, 590px)' : 'clamp(320px, 38vh, 500px)';
       }
+      if (!mini) wrap.style.minHeight = dense ? '390px' : '320px';
     }
     chart.options.responsive = true;
     chart.options.maintainAspectRatio = false;
+    chart.options.interaction = Object.assign({ mode: 'nearest', intersect: false }, chart.options.interaction || {});
+    chart.options.hover = Object.assign({ mode: 'nearest', intersect: false }, chart.options.hover || {});
+    chart.options.plugins = chart.options.plugins || {};
+    chart.options.plugins.tooltip = Object.assign({
+      enabled: true,
+      displayColors: true,
+      backgroundColor: '#ffffff',
+      borderColor: '#d8e0ef',
+      borderWidth: 1,
+      titleColor: '#0f172a',
+      bodyColor: '#334155',
+      padding: 12,
+      cornerRadius: 12,
+      caretSize: 6,
+      titleFont: { weight: '800', size: 12 },
+      bodyFont: { weight: '650', size: 12 }
+    }, chart.options.plugins.tooltip || {});
     chart.options.layout = chart.options.layout || {};
     const oldPadding = typeof chart.options.layout.padding === 'object' ? chart.options.layout.padding : {};
-    chart.options.layout.padding = Object.assign({ top: 10, right: 14, bottom: 34, left: 8 }, oldPadding, {
-      bottom: Math.max(Number(oldPadding.bottom || 0), 34)
+    chart.options.layout.padding = Object.assign({ top: 10, right: 14, bottom: 38, left: 8 }, oldPadding, {
+      bottom: Math.max(Number(oldPadding.bottom || 0), 38)
     });
     const scales = chart.options.scales || {};
     Object.entries(scales).forEach(([id, scale]) => {
@@ -168,14 +194,14 @@
       scale.ticks = scale.ticks || {};
       scale.ticks.display = true;
       scale.ticks.color = scale.ticks.color || (cssVar('--text3') || '#64748b');
-      scale.ticks.font = Object.assign({ size: 11, weight: '600' }, scale.ticks.font || {});
+      scale.ticks.font = Object.assign({ size: 11, weight: '650' }, scale.ticks.font || {});
       scale.ticks.padding = Math.max(Number(scale.ticks.padding || 0), 8);
       if (String(id).startsWith('x')) {
         scale.display = scale.display !== false;
         scale.ticks.autoSkip = true;
-        scale.ticks.maxTicksLimit = scale.ticks.maxTicksLimit || 8;
+        scale.ticks.maxTicksLimit = scale.ticks.maxTicksLimit || 9;
         scale.ticks.minRotation = 0;
-        scale.ticks.maxRotation = Math.max(Number(scale.ticks.maxRotation || 0), 28);
+        scale.ticks.maxRotation = Math.max(Number(scale.ticks.maxRotation || 0), 24);
       }
       if (String(id).startsWith('y')) {
         scale.ticks.autoSkip = scale.ticks.autoSkip ?? false;
@@ -335,11 +361,11 @@
           <div class="ux-chart-kicker"><span class="ux-chart-name">${esc(title)}</span></div>
         </div>
         <div class="ux-chart-actions" role="toolbar" aria-label="Chart actions for ${esc(title)}">
-          <button type="button" class="ux-chart-action" data-ux-action="insight" data-chart-id="${esc(canvas.id)}" title="Show insight" aria-label="Show chart insight">✦</button>
-          <button type="button" class="ux-chart-action" data-ux-action="data" data-chart-id="${esc(canvas.id)}" title="View data table" aria-label="View chart data table">▦</button>
-          <button type="button" class="ux-chart-action" data-ux-action="csv" data-chart-id="${esc(canvas.id)}" title="Download CSV" aria-label="Download chart data as CSV">CSV</button>
-          <button type="button" class="ux-chart-action" data-ux-action="png" data-chart-id="${esc(canvas.id)}" title="Download PNG" aria-label="Download chart image as PNG">PNG</button>
-          <button type="button" class="ux-chart-action" data-ux-action="expand" data-chart-id="${esc(canvas.id)}" title="Expand chart" aria-label="Expand chart">⤢</button>
+          <button type="button" class="ux-chart-action" data-ux-action="insight" data-chart-id="${esc(canvas.id)}" title="Show chart insight" aria-label="Show chart insight"><span aria-hidden="true">✦</span><span>Insight</span></button>
+          <button type="button" class="ux-chart-action" data-ux-action="data" data-chart-id="${esc(canvas.id)}" title="View data table" aria-label="View chart data table"><span aria-hidden="true">▦</span><span>Data</span></button>
+          <button type="button" class="ux-chart-action" data-ux-action="csv" data-chart-id="${esc(canvas.id)}" title="Download CSV" aria-label="Download chart data as CSV"><span>CSV</span></button>
+          <button type="button" class="ux-chart-action" data-ux-action="png" data-chart-id="${esc(canvas.id)}" title="Download PNG" aria-label="Download chart image as PNG"><span>PNG</span></button>
+          <button type="button" class="ux-chart-action primary" data-ux-action="expand" data-chart-id="${esc(canvas.id)}" title="Expand chart" aria-label="Expand chart"><span aria-hidden="true">⤢</span><span>Expand</span></button>
         </div>`;
       const panel = document.createElement('div');
       panel.className = 'ux-chart-data-panel';
@@ -538,6 +564,18 @@
     modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-ux-close="studio"]')) closeStudio(); });
     return modal;
   }
+  function lockBodyForStudio() {
+    const scrollBar = window.innerWidth - document.documentElement.clientWidth;
+    document.body.dataset.uxStudioOpen = 'true';
+    document.body.style.overflow = 'hidden';
+    if (scrollBar > 0) document.body.style.paddingRight = scrollBar + 'px';
+  }
+  function unlockBodyForStudio() {
+    document.body.dataset.uxStudioOpen = 'false';
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+  }
+
   function openStudio(canvasId) {
     const chart = getChartById(canvasId);
     if (!chart) { toast('Chart is still loading'); return; }
@@ -546,13 +584,13 @@
     const insight = chartInsight(chart);
     lastActiveElement = document.activeElement;
     document.getElementById('uxStudioTitle').textContent = title;
-    document.getElementById('uxStudioSub').textContent = 'Expanded chart studio · click points in the dashboard for instant point inspection.';
+    document.getElementById('uxStudioSub').textContent = 'Expanded chart studio · hover any point for details, export the data, or copy the readout.';
     document.getElementById('uxStudioInsight').innerHTML = esc(insight).replace(/(peak|totals|ends|Sample)/g, '<strong>$1</strong>');
     const rows = chartToRows(chart);
     const headers = rows.length ? Object.keys(rows[0]) : ['label'];
     document.getElementById('uxStudioTable').innerHTML = `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.slice(0, 250).map(row => `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`).join('') || '<tr><td>No data yet.</td></tr>'}</tbody></table>`;
     modal.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    lockBodyForStudio();
     if (studioChart) { studioChart.destroy(); studioChart = null; }
     const cfg = {
       type: chart.config.type,
@@ -567,7 +605,7 @@
     cfg.options.plugins.legend.position = cfg.options.plugins.legend.position || 'bottom';
     const ctx = document.getElementById('uxStudioCanvas').getContext('2d');
     studioChart = new Chart(ctx, cfg);
-    recolorAllCharts();
+    try { polishChartLayout(studioChart); studioChart.resize(); studioChart.update('none'); } catch (_) {}
     document.getElementById('uxStudioCsv').onclick = () => downloadCsv(chart);
     document.getElementById('uxStudioPng').onclick = () => downloadPng(chart);
     document.getElementById('uxStudioCopy').onclick = () => copyText(insight).then(ok => toast(ok ? 'Insight copied' : 'Copy failed'));
@@ -576,7 +614,7 @@
   function closeStudio() {
     const modal = document.getElementById('uxChartStudio');
     if (modal) modal.classList.remove('open');
-    document.body.style.overflow = '';
+    unlockBodyForStudio();
     if (studioChart) { studioChart.destroy(); studioChart = null; }
     if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
   }
@@ -645,7 +683,7 @@
     const modal = ensureCommandPalette();
     lastActiveElement = document.activeElement;
     modal.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    lockBodyForStudio();
     renderCommands();
     const input = document.getElementById('uxCommandInput');
     input.value = '';
@@ -712,7 +750,7 @@
       });
     });
     observer.observe(target, { childList: true, subtree: true });
-    setInterval(() => { enhanceCharts(); polishAllChartLayouts(); recolorAllCharts(); }, 3500);
+    setInterval(() => { enhanceCharts(); forceEveryChartExpandable(); }, 7000);
   }
 
 
@@ -761,6 +799,7 @@
     // Defensive guarantee: every Chart.js canvas must have exactly one expand action.
     // Older packages could create duplicated toolbars; this consolidates the action into the primary toolbar.
     document.querySelectorAll('canvas[id]').forEach(canvas => {
+      if (isUxInternalCanvas(canvas)) return;
       const chart = window.Chart && Chart.getChart(canvas);
       if (!chart) return;
       const allButtons = Array.from(document.querySelectorAll('[data-ux-action="expand"][data-chart-id]'))
@@ -814,7 +853,7 @@
     observeDom();
     setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 800);
     setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
-    setInterval(() => { ensureVoiceAiInTeamDropdowns(); polishAllChartLayouts(); forceEveryChartExpandable(); }, 1800);
+    setInterval(() => { ensureVoiceAiInTeamDropdowns(); forceEveryChartExpandable(); }, 6000);
     console.info('[DashboardUX] World-class UX engine active', UX.version);
   }
 

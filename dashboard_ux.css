@@ -1433,3 +1433,97 @@ body.pro-dashboard .card:has(.ux-chart-wrap) {
 }
 body.pro-dashboard .ux-chart-toolbar { flex: 0 0 auto !important; }
 body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
+
+
+/* ========================================================================== */
+/* v7.5 chart polish: stable studio, no overflow, cleaner toolbars             */
+/* ========================================================================== */
+body.pro-dashboard .ux-chart-toolbar,
+.ux-chart-toolbar {
+  margin: 0 0 12px !important;
+  padding: 9px 10px !important;
+  min-height: 46px !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, rgba(255,255,255,.98), rgba(248,251,255,.94)) !important;
+  border: 1px solid rgba(148,163,184,.28) !important;
+  box-shadow: 0 10px 22px rgba(15,23,42,.045), inset 0 1px 0 rgba(255,255,255,.95) !important;
+}
+body.pro-dashboard .ux-chart-actions,
+.ux-chart-actions {
+  gap: 4px !important;
+  padding: 2px !important;
+  border-radius: 14px !important;
+  background: rgba(248,250,252,.82) !important;
+}
+body.pro-dashboard .ux-chart-action,
+body.pro-dashboard .ux-chart-actions button,
+.ux-chart-action,
+.ux-chart-actions button {
+  height: 30px !important;
+  min-height: 30px !important;
+  min-width: 30px !important;
+  padding: 0 9px !important;
+  border-radius: 12px !important;
+  font-size: 10.5px !important;
+  font-weight: 850 !important;
+  color: #475569 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+body.pro-dashboard .ux-chart-action span,
+.ux-chart-action span { display: inline-flex !important; align-items: center !important; }
+body.pro-dashboard .ux-chart-action.primary,
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
+.ux-chart-action.primary,
+.ux-chart-action[data-ux-action="expand"] {
+  background: #0f172a !important;
+  border-color: #0f172a !important;
+  color: #fff !important;
+  box-shadow: 0 9px 18px rgba(15,23,42,.18) !important;
+}
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  min-height: 320px !important;
+  height: auto !important;
+  overflow: hidden !important;
+  padding: 14px 14px 20px !important;
+}
+body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
+body.pro-dashboard .chart-wrap:has(#hourInsightChart) {
+  min-height: 240px !important;
+  height: 240px !important;
+  padding: 12px 12px 18px !important;
+  overflow: hidden !important;
+}
+body.pro-dashboard .chart-wrap canvas,
+body.pro-dashboard .ux-chart-wrap canvas,
+body.pro-dashboard .ux-axis-safe-chart canvas {
+  min-height: 0 !important;
+  max-height: 100% !important;
+}
+body.pro-dashboard .ux-studio-chart,
+#uxChartStudio .ux-studio-chart {
+  display: block !important;
+  min-height: 520px !important;
+  height: min(68vh, 720px) !important;
+  overflow: hidden !important;
+  padding: 18px !important;
+}
+#uxChartStudio .ux-studio-chart canvas {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+#uxChartStudio .ux-chart-toolbar,
+#uxChartStudio .ux-expand-guarantee,
+#uxChartStudio [data-ux-action="expand"][data-chart-id="uxStudioCanvas"] {
+  display: none !important;
+}
+#uxChartStudio.ux-modal.open { align-items: center !important; }
+#uxChartStudio .ux-modal-card { transform: none !important; }
+body[data-ux-studio-open="true"] { overflow: hidden !important; }
+body.pro-dashboard #catChart { cursor: pointer; }

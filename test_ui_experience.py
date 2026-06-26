@@ -114,7 +114,7 @@ def test_shared_assets_are_served_by_backend_with_expected_content_types():
     assert js.status_code == 200
     assert "javascript" in js.headers.get("content-type", "")
     assert "World-class dashboard UX engine" in js.text
-    assert "7.4.0-frank-ai-axis-visible" in js.text
+    assert "7.5.0-chart-polish-session-fallback" in js.text
     assert legacy_css.status_code == 200
     assert legacy_js.status_code == 200
     assert missing.status_code == 404
@@ -146,7 +146,8 @@ def test_axis_safe_chart_layout_rules_present():
     css = ROOT.joinpath("portal-overrides.css").read_text()
     js = ROOT.joinpath("portal-system.js").read_text()
     assert "v7.4 axis visibility" in css
-    assert "grid-template-rows: auto minmax(300px, 1fr)" in css
+    assert "v7.5 chart polish" in css
+    assert "grid-template-rows: auto minmax(0, 1fr)" in css
     assert "polishChartLayout" in js
     assert "scale.ticks.display = true" in js
     assert "layout.padding" in js
@@ -157,3 +158,24 @@ def test_frank_ai_frontend_mapping_present():
     assert "_isFrankAiConsultant" in html
     assert "frankai" in html.lower()
     assert "Voice AI" in html
+
+
+def test_v75_session_fallback_and_chart_studio_stability_present():
+    html = ROOT.joinpath("index.html").read_text()
+    js = ROOT.joinpath("portal-system.js").read_text()
+    css = ROOT.joinpath("portal-overrides.css").read_text()
+    assert "buildSessionProxyFromMetrics" in html
+    assert "ensureSessionAnalyticsPayload" in html
+    assert "Session endpoint unavailable" in html
+    assert "isUxInternalCanvas" in js
+    assert "lockBodyForStudio" in js
+    assert "uxStudioCanvas" in js
+    assert "v7.5 chart polish" in css
+    assert "#uxChartStudio .ux-chart-toolbar" in css
+
+
+def test_top_categories_uses_readable_horizontal_bar_not_doughnut():
+    html = ROOT.joinpath("index.html").read_text()
+    assert "indexAxis: 'y'" in html
+    assert "Click to filter articles to this category" in html
+    assert "type: 'doughnut'" not in html[html.index("function renderCategories"):html.index("// ── Videos table")]
