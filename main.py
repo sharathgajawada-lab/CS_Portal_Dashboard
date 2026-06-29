@@ -2735,7 +2735,7 @@ async def _sg_get(path: str, params: dict = None, *, auth: bool = True) -> "_SgR
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(url, params=params or {}, headers=headers)
-            print(f"[sg] GET {path} → {r.status_code}", flush=True)
+            print(f"[sg] GET {path} -> {r.status_code}", flush=True)
             try:
                 body = r.json()
             except Exception:
@@ -2744,6 +2744,29 @@ async def _sg_get(path: str, params: dict = None, *, auth: bool = True) -> "_SgR
     except Exception as ex:
         print(f"[sg] GET {path} connection error: {ex}", flush=True)
         return _SgResponse(503, {"error": str(ex)})
+
+
+@app.get("/api/sg/journeys/active-customers")
+async def sg_active_customers(limit: int = 20, skip: int = 0):
+    """Proxy: GET /api/v1/journeys/active-customers.
+
+    Returns every customer that has at least one active (in-progress) journey,
+    each with its full journey objects embedded (title, locale, expectedGuides,
+    completedIds, expiredIds, progress, startedOn). This is the entry point the
+    Starter Guides tab uses to discover all active guides without needing a
+    customer GID up front.
+
+    NOTE: this route MUST stay declared before /api/sg/journeys/{customer_gid},
+    otherwise FastAPI matches "active-customers" as a customer_gid path param.
+    """
+    resp = await _sg_get("/api/v1/journeys/active-customers",
+                         {"limit": limit, "skip": skip})
+    if resp.ok:
+        return resp.body
+    if resp.not_found:
+        return {"data": [], "meta": {"total": 0}}
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
 
 
 @app.get("/api/sg/journeys/{customer_gid}")
@@ -2859,9 +2882,10 @@ async def sg_journey_guides_public(journey_id: str):
 
 # ── CMS metrics for Starter Guides ───────────────────────────────────────────
 # SG_CMS_PROJECT: set STARTER_GUIDE_CMS_PROJECT env var to match whatever project
-# name your CMS uses for starter guide events. The default mirrors the naming
-# convention used by the existing cs-portal-* projects in this dashboard.
-SG_PROJECT = os.environ.get("STARTER_GUIDE_CMS_PROJECT", "cs-portal-starter-guide-events")
+# name your CMS uses for starter guide events. The Starter Guide Service emits its
+# events under the "starter-guide-events" project (NOT the cs-portal-* namespace
+# used by the rest of this dashboard).
+SG_PROJECT = os.environ.get("STARTER_GUIDE_CMS_PROJECT", "starter-guide-events")
 
 
 @app.get("/api/sg/metrics/timeseries")
@@ -2877,6 +2901,94 @@ async def sg_metrics_topn(event: str = "starter_guide.slide_viewed",
     """Top-N from CMS metrics for starter guide events."""
     rows = await _topn(SG_PROJECT, event, group_by=group_by, n=n)
     return {"event": event, "project": SG_PROJECT, "groupBy": group_by, "top": rows}
+
+
+@app.get("/api/sg/metrics/summary")
+async def sg_metrics_summary(max_pages: int = 20):
+    """API-derived Starter Guide metrics — computed from the journeys service
+    itself rather than from CMS event tracking.
+
+    Pages through /api/v1/journeys/active-customers and aggregates the embedded
+    journey data into the figures the Metrics dashboard needs:
+      - activeCustomers / activeJourneys counts
+      - guide totals + overall completion rate
+      - funnel: how many journeys have 0,1,2,3,4+ guides completed
+      - perGuide: completed vs expected count per guide template (with titles)
+      - startsByDay: journeys started per calendar day (from startedOn)
+
+    This complements the CMS event charts (opens / answers) which can't be
+    derived from the REST data.
+    """
+    PAGE = 100
+    customers: list = []
+    skip = 0
+    reachable = True
+    for _ in range(max(1, max_pages)):
+        resp = await _sg_get("/api/v1/journeys/active-customers",
+                             {"limit": PAGE, "skip": skip})
+        if not resp.ok:
+            if skip == 0:
+                reachable = resp.not_found  # 404 = simply no active customers
+            break
+        batch = (resp.body or {}).get("data", []) or []
+        customers.extend(batch)
+        if len(batch) < PAGE:
+            break
+        skip += PAGE
+
+    # Flatten every active journey across customers.
+    journeys = [j for c in customers for j in (c.get("journeys") or [])]
+
+    funnel = {"0": 0, "1": 0, "2": 0, "3": 0, "4+": 0}
+    per_guide: dict = {}        # templateId -> {title, expected, completed}
+    starts_by_day: dict = {}
+    total_guides = completed_guides = 0
+
+    for j in journeys:
+        prog = j.get("progress") or {}
+        total = int(prog.get("total") or 0)
+        done  = int(prog.get("completed") or 0)
+        total_guides     += total
+        completed_guides += done
+
+        funnel["4+" if done >= 4 else str(done)] = \
+            funnel.get("4+" if done >= 4 else str(done), 0) + 1
+
+        completed_ids = set(j.get("completedIds") or [])
+        for eg in (j.get("expectedGuides") or []):
+            tid = eg.get("templateId")
+            if not tid:
+                continue
+            slot = per_guide.setdefault(tid, {
+                "templateId": tid, "title": eg.get("title") or tid,
+                "expected": 0, "completed": 0,
+            })
+            slot["expected"] += 1
+            if tid in completed_ids:
+                slot["completed"] += 1
+
+        started = (j.get("startedOn") or "")[:10]
+        if started:
+            starts_by_day[started] = starts_by_day.get(started, 0) + 1
+
+    completion_rate = round(completed_guides / total_guides * 100, 1) if total_guides else 0.0
+    per_guide_list = sorted(per_guide.values(),
+                            key=lambda r: r["completed"], reverse=True)
+    starts_series = [{"date": d, "count": starts_by_day[d]}
+                     for d in sorted(starts_by_day)]
+
+    return {
+        "source": "starter-guide-service-api",
+        "reachable": reachable,
+        "activeCustomers": len(customers),
+        "activeJourneys":  len(journeys),
+        "totalGuides":     total_guides,
+        "completedGuides": completed_guides,
+        "completionRate":  completion_rate,
+        "funnel":          funnel,
+        "perGuide":        per_guide_list,
+        "startsByDay":     starts_series,
+    }
 
 
 @app.get("/debug/sg")
@@ -3085,7 +3197,7 @@ async def debug_sg_projects(admin_ok: bool = Depends(require_admin_token)):
 @app.get("/starter-guides", response_class=HTMLResponse)
 async def starter_guides_page():
     """Starter Guides tab — served from starter_guides.html."""
-    with open("starter_guides.html") as f: html = f.read()
+    with open("starter_guides.html", encoding="utf-8") as f: html = f.read()
     return HTMLResponse(content=html,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache"})
