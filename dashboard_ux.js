@@ -6,7 +6,7 @@
   'use strict';
   if (window.DashboardUX && window.DashboardUX.version) return;
 
-  const UX = window.DashboardUX = { version: '7.7.0-expand-close-restore' };
+  const UX = window.DashboardUX = { version: '7.8.0-portal-modal-close-restore' };
   document.documentElement.dataset.dashboardUx = 'root-ready';
   let studioChart = null;
   let observerQueued = false;
@@ -668,6 +668,9 @@
     setTimeout(restore, 260);
     setTimeout(restore, 650);
   }
+
+  UX.restoreCharts = restoreDashboardChartsAfterStudio;
+  UX.restoreDashboardCharts = restoreDashboardChartsAfterStudio;
 
   function closeStudio() {
     const modal = document.getElementById('uxChartStudio');

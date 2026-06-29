@@ -3421,9 +3421,32 @@ function resetChartWindow() {
 }
 
 function closeChartModal() {
+  const _scrollX = window.scrollX;
+  const _scrollY = window.scrollY;
   document.getElementById('chartModal').style.display = 'none';
   document.body.style.overflow = '';
   if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+  // Portal Activity uses this legacy modal path. After closing, force the
+  // dashboard canvases to remeasure so charts do not disappear until refresh.
+  const _restorePortalCharts = () => {
+    try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+    try { window.DashboardUX?.restoreCharts?.(); } catch (_) {}
+    try {
+      if (window.Chart) {
+        document.querySelectorAll('canvas[id]').forEach(canvas => {
+          if (!canvas.id || canvas.id === 'chartModalCanvas' || canvas.closest('#chartModal') || canvas.closest('#uxChartStudio')) return;
+          const chart = Chart.getChart(canvas);
+          if (!chart) return;
+          try { chart.resize(); chart.update('none'); } catch (_) {}
+        });
+      }
+    } catch (_) {}
+    try { window.scrollTo(_scrollX, _scrollY); } catch (_) {}
+  };
+  requestAnimationFrame(_restorePortalCharts);
+  setTimeout(_restorePortalCharts, 80);
+  setTimeout(_restorePortalCharts, 250);
+  setTimeout(_restorePortalCharts, 650);
 }
 
 // Chart modal listeners — attached in init()
