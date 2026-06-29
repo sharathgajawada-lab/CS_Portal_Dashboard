@@ -1625,3 +1625,72 @@ body.pro-dashboard:not([data-ux-studio-open="true"]) .ux-canvas-stage > canvas {
   visibility: visible !important;
   opacity: 1 !important;
 }
+
+
+/* ========================================================================== */
+/* v7.9: no hero banner + direct-canvas chart stability fix                    */
+/* ========================================================================== */
+body.pro-dashboard.ux-no-hero #uxHero,
+body.pro-dashboard.ux-no-hero .ux-hero,
+#uxHero,
+.ux-hero {
+  display: none !important;
+}
+
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart {
+  position: relative !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  padding: 56px 14px 18px 14px !important;
+  min-height: 280px !important;
+}
+body.pro-dashboard .chart-wrap.ux-mini-chart,
+body.pro-dashboard .ux-chart-wrap.ux-mini-chart,
+body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
+body.pro-dashboard .chart-wrap:has(#hourInsightChart),
+body.pro-dashboard #hourChartWrap {
+  min-height: 220px !important;
+  height: 240px !important;
+  padding-top: 52px !important;
+}
+body.pro-dashboard .ux-chart-toolbar {
+  position: absolute !important;
+  top: 12px !important;
+  left: 14px !important;
+  right: 14px !important;
+  z-index: 8 !important;
+  flex: none !important;
+  margin: 0 !important;
+  pointer-events: auto !important;
+}
+body.pro-dashboard .chart-wrap > canvas,
+body.pro-dashboard .ux-chart-wrap > canvas,
+body.pro-dashboard .ux-axis-safe-chart > canvas,
+body.pro-dashboard canvas.ux-staged {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 180px !important;
+  max-height: none !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+body.pro-dashboard .ux-canvas-stage {
+  display: contents !important;
+}
+body.pro-dashboard .ux-canvas-stage > canvas {
+  display: block !important;
+  width: 100% !important;
+  min-height: 180px !important;
+}
+#uxChartStudio,
+#chartModal {
+  z-index: 99999 !important;
+}
+#uxChartStudio .ux-hero,
+#chartModal .ux-hero {
+  display: none !important;
+}

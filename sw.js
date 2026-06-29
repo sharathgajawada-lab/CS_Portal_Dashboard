@@ -1,5 +1,4 @@
-// cs-portal-v7-8-portal-modal-close-restore — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v7-8-portal-modal-close-restore';
+// cs-portal-v7-9-no-hero-direct-canvas'cs-portal-v7-9-no-hero-direct-canvas';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {

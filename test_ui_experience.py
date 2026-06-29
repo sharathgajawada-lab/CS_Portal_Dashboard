@@ -74,7 +74,7 @@ def test_csat_ui_is_domo_first_not_excel_upload_first():
 def test_accessibility_and_power_user_controls_are_present_in_ux_engine():
     js = _asset("dashboard_ux.js")
     assert "Skip to dashboard" in js
-    assert "Dashboard overview and controls" in js
+    assert "v7.9: remove the large UX banner" in js
     assert "role=\"toolbar\"" in js
     assert "aria-modal" in js
     assert "e.key.toLowerCase() === 'k'" in js
@@ -114,7 +114,7 @@ def test_shared_assets_are_served_by_backend_with_expected_content_types():
     assert js.status_code == 200
     assert "javascript" in js.headers.get("content-type", "")
     assert "World-class dashboard UX engine" in js.text
-    assert "7.7.0-expand-close-restore" in js.text
+    assert "7.9.0-no-hero-stable-direct-canvas" in js.text
     assert legacy_css.status_code == 200
     assert legacy_js.status_code == 200
     assert missing.status_code == 404
@@ -147,7 +147,8 @@ def test_axis_safe_chart_layout_rules_present():
     js = ROOT.joinpath("portal-system.js").read_text()
     assert "v7.4 axis visibility" in css
     assert "v7.5 chart polish" in css
-    assert "grid-template-rows: auto minmax(0, 1fr)" in css
+    assert "v7.9: no hero banner" in css
+    assert "ux-no-hero" in js
     assert "polishChartLayout" in js
     assert "scale.ticks.display = true" in js
     assert "layout.padding" in js

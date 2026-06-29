@@ -6,7 +6,7 @@
   'use strict';
   if (window.DashboardUX && window.DashboardUX.version) return;
 
-  const UX = window.DashboardUX = { version: '7.8.0-portal-modal-close-restore' };
+  const UX = window.DashboardUX = { version: '7.9.0-no-hero-stable-direct-canvas' };
   document.documentElement.dataset.dashboardUx = 'root-ready';
   let studioChart = null;
   let observerQueued = false;
@@ -148,34 +148,45 @@
   }
 
   function ensureCanvasStage(canvas, wrap) {
+    // v7.9 stable rendering fix: keep live Chart.js canvases in their
+    // original parent. Moving Portal Activity canvases after Chart.js has
+    // created them can make dashboard charts appear blank while expanded
+    // clones still render correctly.
     if (!canvas || isUxInternalCanvas(canvas)) return canvas?.parentElement || null;
     if (canvas.closest('#uxChartStudio, #chartModal')) return canvas.parentElement || null;
-    const container = wrap || canvas.closest('.chart-wrap') || canvas.parentElement;
-    if (!container) return canvas.parentElement || null;
-    if (canvas.parentElement && canvas.parentElement.classList.contains('ux-canvas-stage')) {
-      canvas.classList.add('ux-staged');
-      return canvas.parentElement;
+    const stage = canvas.parentElement && canvas.parentElement.classList && canvas.parentElement.classList.contains('ux-canvas-stage') ? canvas.parentElement : null;
+    if (stage) {
+      const parent = stage.parentElement;
+      if (parent) {
+        parent.insertBefore(canvas, stage);
+        stage.remove();
+      }
     }
-    const stage = document.createElement('div');
-    stage.className = 'ux-canvas-stage';
-    stage.setAttribute('aria-hidden', 'false');
-    container.insertBefore(stage, canvas);
-    stage.appendChild(canvas);
     canvas.classList.add('ux-staged');
-    return stage;
+    return wrap || canvas.closest('.chart-wrap') || canvas.parentElement;
   }
 
   function scheduleChartResize(chart) {
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
     const resize = () => {
       try {
+        const canvas = chart.canvas;
+        const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
+        if (wrap) {
+          wrap.classList.add('ux-chart-wrap', 'ux-direct-canvas');
+          if (wrap.getBoundingClientRect().height < 80) wrap.style.minHeight = '280px';
+        }
+        canvas.style.display = 'block';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
         chart.resize();
         chart.update('none');
       } catch (_) {}
     };
     requestAnimationFrame(resize);
-    setTimeout(resize, 80);
-    setTimeout(resize, 350);
+    setTimeout(resize, 50);
+    setTimeout(resize, 180);
+    setTimeout(resize, 500);
   }
 
   function polishChartLayout(chart) {
@@ -283,26 +294,9 @@
   }
 
   function injectHero() {
-    if (document.getElementById('uxHero')) return;
-    const header = document.querySelector('.header');
-    if (!header) return;
-    const hero = document.createElement('section');
-    hero.id = 'uxHero';
-    hero.className = 'ux-hero';
-    hero.setAttribute('aria-label', 'Dashboard overview and controls');
-    hero.innerHTML = `
-      <div class="ux-hero-main">
-        <div class="ux-eyebrow"><span aria-hidden="true">◆</span>${esc(pageMeta.eyebrow)}</div>
-        <h1>${esc(pageMeta.title)}</h1>
-        <p>${esc(pageMeta.subtitle)}</p>
-        <div class="ux-view-tools" role="toolbar" aria-label="Dashboard view controls">
-          <button type="button" class="ux-btn primary" data-ux-command="palette">⌘ Command center</button>
-          <button type="button" class="ux-btn" data-ux-command="density">Density</button>
-          <button type="button" class="ux-btn" data-ux-command="presentation">Presentation</button>
-          <button type="button" class="ux-btn" data-ux-command="export-all">Export all chart data</button>
-        </div>
-      </div>`;
-    header.insertAdjacentElement('afterend', hero);
+    // v7.9: remove the large UX banner/hero on every page.
+    document.querySelectorAll('#uxHero, .ux-hero').forEach(el => el.remove());
+    return;
   }
 
   function buildPageMap() {
@@ -655,11 +649,10 @@
         const chart = Chart.getChart(canvas);
         if (!chart) return;
         try {
-          const wrap = canvas.closest('.chart-wrap') || canvas.closest('.ux-canvas-stage')?.parentElement || canvas.parentElement;
+          const wrap = canvas.closest('.chart-wrap') || canvas.parentElement;
           ensureCanvasStage(canvas, wrap);
           polishChartLayout(chart);
-          chart.resize();
-          chart.update('none');
+          scheduleChartResize(chart);
         } catch (_) {}
       });
     };
@@ -671,6 +664,11 @@
 
   UX.restoreCharts = restoreDashboardChartsAfterStudio;
   UX.restoreDashboardCharts = restoreDashboardChartsAfterStudio;
+  UX.settleCharts = function settleCharts() {
+    enhanceCharts();
+    polishAllChartLayouts();
+    chartInstances().forEach(scheduleChartResize);
+  };
 
   function closeStudio() {
     const modal = document.getElementById('uxChartStudio');
@@ -907,7 +905,7 @@
   }
 
   function init() {
-    document.body.classList.add('pro-dashboard');
+    document.body.classList.add('pro-dashboard', 'ux-no-hero');
     removeKnownNoisyUi();
     ensureVoiceAiInTeamDropdowns();
     applyPrefs();
@@ -920,8 +918,9 @@
     forceEveryChartExpandable();
     ensureVoiceAiInTeamDropdowns();
     observeDom();
-    setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 800);
-    setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
+    setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); chartInstances().forEach(scheduleChartResize); }, 800);
+    setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); chartInstances().forEach(scheduleChartResize); }, 2200);
+    setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); chartInstances().forEach(scheduleChartResize); }, 4200);
     setInterval(() => { ensureVoiceAiInTeamDropdowns(); enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); }, 2500);
     UX.refreshCharts = () => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); };
     console.info('[DashboardUX] World-class UX engine active', UX.version);
