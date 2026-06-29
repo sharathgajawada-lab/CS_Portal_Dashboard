@@ -168,12 +168,14 @@
   function scheduleChartResize(chart) {
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
     const resize = () => {
-      try { chart.resize(); chart.update('none'); } catch (_) {}
+      try {
+        chart.resize();
+        chart.update('none');
+      } catch (_) {}
     };
     requestAnimationFrame(resize);
     setTimeout(resize, 80);
-    setTimeout(resize, 300);
-    setTimeout(resize, 600);
+    setTimeout(resize, 350);
   }
 
   function polishChartLayout(chart) {
@@ -188,14 +190,15 @@
       const mini = id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
       const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant');
       wrap.classList.toggle('ux-mini-chart', !!mini);
-      // Do not set inline height — it overrides CSS and breaks canvas sizing
-      wrap.style.removeProperty('height');
-      wrap.style.removeProperty('min-height');
+      if (!mini && !wrap.style.height) {
+        wrap.style.height = dense ? 'clamp(390px, 48vh, 590px)' : 'clamp(320px, 38vh, 500px)';
+      }
+      if (!mini) wrap.style.minHeight = dense ? '390px' : '320px';
     }
     chart.options.responsive = true;
     chart.options.maintainAspectRatio = false;
-    chart.options.interaction = Object.assign({ mode: 'index', axis: 'x', intersect: false }, chart.options.interaction || {});
-    chart.options.hover = Object.assign({ mode: 'index', axis: 'x', intersect: false }, chart.options.hover || {});
+    chart.options.interaction = Object.assign({ mode: 'nearest', intersect: false }, chart.options.interaction || {});
+    chart.options.hover = Object.assign({ mode: 'nearest', intersect: false }, chart.options.hover || {});
     chart.options.plugins = chart.options.plugins || {};
     chart.options.plugins.tooltip = Object.assign({
       enabled: true,
@@ -280,9 +283,6 @@
   }
 
   function injectHero() {
-    // Only inject hero on the CSAT page — not on portal or starter-guides
-    const _pg = document.body?.dataset?.dashboardPage || location.pathname || '/';
-    if (!_pg.includes('csat')) return;
     if (document.getElementById('uxHero')) return;
     const header = document.querySelector('.header');
     if (!header) return;
@@ -649,14 +649,6 @@
     unlockBodyForStudio();
     if (studioChart) { studioChart.destroy(); studioChart = null; }
     if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
-    // Resize every dashboard chart so none appear blank after modal closes
-    const _ra = () => { if (!window.Chart) return;
-      document.querySelectorAll('canvas').forEach(c => {
-        if (!c.id || c.id === 'uxStudioCanvas' || c.id === 'chartModalCanvas') return;
-        const ch = Chart.getChart(c); if (!ch) return;
-        try { ch.resize(); ch.update('none'); } catch(_) {}
-      }); };
-    requestAnimationFrame(_ra); setTimeout(_ra, 150); setTimeout(_ra, 500);
   }
 
   function ensureCommandPalette() {

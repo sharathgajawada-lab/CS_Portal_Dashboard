@@ -652,7 +652,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           </div>
           <div id="csatDist_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" id="csatDistWrap">
+        <div class="chart-wrap" style="height:230px" id="csatDistWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.csatDist,'Rating distribution')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="csatDistChart"></canvas>
         </div>
@@ -729,7 +729,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 
           </div>
         </div>
-        <div class="chart-wrap" id="csatTrendWrap">
+        <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="csatTrendChart"></canvas>
         </div>
@@ -766,7 +766,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           <div class="card" style="box-shadow:none;padding:12px">
             <div class="card-title" style="font-size:12px">Top reasons by volume</div>
             <div class="card-sub">Survey share by reason</div>
-            <div class="chart-wrap" id="callReasonChartWrap">
+            <div class="chart-wrap" style="height:220px" id="callReasonChartWrap">
               <canvas id="callReasonChart"></canvas>
             </div>
           </div>
@@ -803,7 +803,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
               </div>
               <div id="opsTrend_controls_placeholder"></div>
             </div>
-            <div class="chart-wrap" id="opsTrendWrap">
+            <div class="chart-wrap" style="height:220px" id="opsTrendWrap">
               <canvas id="opsTrendChart"></canvas>
             </div>
           </div>
@@ -815,7 +815,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
               </div>
               <div id="opsConsultant_controls_placeholder"></div>
             </div>
-            <div class="chart-wrap" id="opsConsultantWrap">
+            <div class="chart-wrap" style="height:220px" id="opsConsultantWrap">
               <canvas id="opsConsultantChart"></canvas>
             </div>
           </div>
@@ -850,7 +850,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           </div>
           <div id="fcrChart_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" id="fcrChartWrap">
+        <div class="chart-wrap" style="height:190px" id="fcrChartWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.fcrChart,'Solved rate trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="fcrChart"></canvas>
         </div>
@@ -867,7 +867,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           </div>
           <div id="trueFcrChart_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" id="trueFcrChartWrap">
+        <div class="chart-wrap" style="height:190px" id="trueFcrChartWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.trueFcrChart,'True first-call resolution')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="trueFcrChart"></canvas>
         </div>
@@ -897,13 +897,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           <div style="display:flex;flex-direction:column;gap:16px">
             <div>
               <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Daily avg rating</div>
-              <div class="chart-wrap" id="csTeamTrendWrap">
+              <div class="chart-wrap" style="height:180px" id="csTeamTrendWrap">
                 <canvas id="csTeamTrendChart"></canvas>
               </div>
             </div>
             <div>
               <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Daily solved %</div>
-              <div class="chart-wrap" id="csTeamSolvedWrap">
+              <div class="chart-wrap" style="height:180px" id="csTeamSolvedWrap">
                 <canvas id="csTeamSolvedChart"></canvas>
               </div>
             </div>
@@ -2068,13 +2068,7 @@ function _renderCsatCompare(curFrom, curTo, gb) {
 
   if (charts.csatTrend) charts.csatTrend.destroy();
   if (!document.getElementById('csatTrendChart'))
-    (function(){
-      var _w = typeof 'csatTrendWrap' === 'string' ? document.getElementById('csatTrendWrap') : 'csatTrendWrap';
-      if (!_w) return;
-      var _c = document.getElementById('csatTrendChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'csatTrendChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+    document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
 
   charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
     type: 'bar',
@@ -2181,13 +2175,7 @@ function renderCSAT(d) {
       '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
   } else {
     if (!document.getElementById('csatTrendChart')) {
-      (function(){
-      var _w = typeof 'csatTrendWrap' === 'string' ? document.getElementById('csatTrendWrap') : 'csatTrendWrap';
-      if (!_w) return;
-      var _c = document.getElementById('csatTrendChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'csatTrendChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+      document.getElementById('csatTrendWrap').innerHTML = '<canvas id="csatTrendChart"></canvas>';
       (function() {
         var _b = document.createElement('button');
         _b.className = 'chart-expand-btn';
@@ -2248,13 +2236,7 @@ function renderCSAT(d) {
   const distCompare = isChartCompare('csatDist');
   if (charts.csatDist) charts.csatDist.destroy();
   if (!document.getElementById('csatDistChart')) {
-    (function(){
-      var _w = typeof 'csatDistWrap' === 'string' ? document.getElementById('csatDistWrap') : 'csatDistWrap';
-      if (!_w) return;
-      var _c = document.getElementById('csatDistChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'csatDistChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+    document.getElementById('csatDistWrap').innerHTML = '<canvas id="csatDistChart"></canvas>';
     (function() {
       var _b = document.createElement('button');
       _b.className = 'chart-expand-btn';
@@ -2737,13 +2719,7 @@ function renderCallReasons(reasons, totalSurveys) {
   };
 
   if (!document.getElementById('callReasonChart')) {
-    (function(){
-      var _w = typeof chartWrap.id === 'string' ? document.getElementById(chartWrap.id) : chartWrap.id;
-      if (!_w) return;
-      var _c = document.getElementById('callReasonChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'callReasonChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+    chartWrap.innerHTML = '<canvas id="callReasonChart"></canvas>';
   }
   if (charts.callReasonChart) charts.callReasonChart.destroy();
 
@@ -2899,13 +2875,7 @@ function renderFCR() {
 
   if (charts.fcrChart) charts.fcrChart.destroy();
   if (!document.getElementById('fcrChart')) {
-    (function(){
-      var _w = typeof 'fcrChartWrap' === 'string' ? document.getElementById('fcrChartWrap') : 'fcrChartWrap';
-      if (!_w) return;
-      var _c = document.getElementById('fcrChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'fcrChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+    document.getElementById('fcrChartWrap').innerHTML = '<canvas id="fcrChart"></canvas>';
   }
   charts.fcrChart = new Chart(document.getElementById('fcrChart'), {
     type: 'bar',
@@ -3037,13 +3007,7 @@ function renderTrueFCR() {
 
   if (charts.trueFcrChart) charts.trueFcrChart.destroy();
   if (!document.getElementById('trueFcrChart')) {
-    (function(){
-      var _w = typeof wrapEl.id === 'string' ? document.getElementById(wrapEl.id) : wrapEl.id;
-      if (!_w) return;
-      var _c = document.getElementById('trueFcrChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'trueFcrChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+    wrapEl.innerHTML = '<canvas id="trueFcrChart"></canvas>';
   }
   charts.trueFcrChart = new Chart(document.getElementById('trueFcrChart'), {
     type: 'bar',
@@ -3459,13 +3423,7 @@ function renderCSTeams(teamsData, teamDailyData) {
 
   // ── Rating chart ───────────────────────────────────────────────────────────
   // Rebuild canvas fresh to avoid stale Chart instance conflicts
-  (function(){
-      var _w = typeof chartWrap.id === 'string' ? document.getElementById(chartWrap.id) : chartWrap.id;
-      if (!_w) return;
-      var _c = document.getElementById('csTeamTrendChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'csTeamTrendChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+  chartWrap.innerHTML = '<canvas id="csTeamTrendChart"></canvas>';
   charts.csTeamTrend = null;
 
   const ratingDatasets = activeTeams.map(ct => {
@@ -3498,13 +3456,7 @@ function renderCSTeams(teamsData, teamDailyData) {
   // ── Solved % chart ─────────────────────────────────────────────────────────
   const solvedWrap = document.getElementById('csTeamSolvedWrap');
   if (solvedWrap) {
-    (function(){
-      var _w = typeof solvedWrap.id === 'string' ? document.getElementById(solvedWrap.id) : solvedWrap.id;
-      if (!_w) return;
-      var _c = document.getElementById('csTeamSolvedChart');
-      if (!_c) { _c = document.createElement('canvas'); _c.id = 'csTeamSolvedChart'; _c.style.cssText='display:block;width:100%;height:100%'; _w.appendChild(_c); }
-      else { _c.style.cssText='display:block;width:100%;height:100%'; }
-    })();
+    solvedWrap.innerHTML = '<canvas id="csTeamSolvedChart"></canvas>';
     charts.csTeamSolved = null;
 
     const solvedDatasets = activeTeams.map(ct => {
@@ -3964,23 +3916,6 @@ function closeChartModal() {
   document.getElementById('chartModal').style.display = 'none';
   document.body.style.overflow = '';
   if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
-  // Resize all charts so none are blank after modal closes
-  setTimeout(function() {
-    if (!window.Chart) return;
-    document.querySelectorAll('canvas').forEach(function(c) {
-      if (c.id === 'chartModalCanvas' || c.id === 'uxStudioCanvas') return;
-      var ch = Chart.getChart(c); if (!ch) return;
-      try { ch.resize(); ch.update('none'); } catch(e) {}
-    });
-  }, 100);
-  setTimeout(function() {
-    if (!window.Chart) return;
-    document.querySelectorAll('canvas').forEach(function(c) {
-      if (c.id === 'chartModalCanvas' || c.id === 'uxStudioCanvas') return;
-      var ch = Chart.getChart(c); if (!ch) return;
-      try { ch.resize(); ch.update('none'); } catch(e) {}
-    });
-  }, 450);
 }
 
 // Chart modal listeners — attached in init()
@@ -4018,180 +3953,5 @@ waitForChart(init);
 
 
 <script defer src="portal-system.js?v=2026-06-25-v10-frank-ai-axis"></script>
-
-<!-- ═══ CHART FIX PATCH v2 ═══════════════════════════════════════════════════
-     Self-contained inline fix. Works regardless of portal-system.js version.
-     Fixes: chart scale, blank after close/filter, hover/tooltip, hero on wrong pages
-════════════════════════════════════════════════════════════════════════════ -->
-<style>
-/* Remove overflow:clip/hidden that clips charts + tooltips */
-.card { overflow: visible !important; }
-.chart-wrap, .ux-chart-wrap { overflow: visible !important; }
-.ux-canvas-stage { overflow: visible !important; }
-.card:has(.chart-wrap) { overflow: visible !important; }
-
-/* Every chart-wrap gets a real height — Chart.js needs a measurable container */
-.chart-wrap, .ux-chart-wrap, .ux-axis-safe-chart {
-  display: flex !important; flex-direction: column !important;
-  box-sizing: border-box !important;
-  min-height: 320px !important;
-  height: clamp(320px, 40vh, 500px) !important;
-}
-/* Per-chart explicit heights */
-#csatDistWrap        { height: 340px !important; min-height: 340px !important; }
-#csatTrendWrap       { height: 360px !important; min-height: 360px !important; }
-#callReasonChartWrap { height: 440px !important; min-height: 440px !important; }
-#opsTrendWrap        { height: 340px !important; min-height: 340px !important; }
-#opsConsultantWrap   { height: 440px !important; min-height: 440px !important; }
-#fcrChartWrap        { height: 320px !important; min-height: 320px !important; }
-#trueFcrChartWrap    { height: 320px !important; min-height: 320px !important; }
-#csTeamTrendWrap     { height: 300px !important; min-height: 300px !important; }
-#csTeamSolvedWrap    { height: 300px !important; min-height: 300px !important; }
-#voiceAiTrendWrap    { height: 340px !important; min-height: 340px !important; }
-
-/* Canvas fills its parent */
-.ux-canvas-stage { flex: 1 1 auto !important; display: block !important; width: 100% !important; min-height: 180px !important; }
-.ux-canvas-stage > canvas, .chart-wrap > canvas, .ux-chart-wrap > canvas {
-  display: block !important; width: 100% !important; height: 100% !important;
-  min-height: 0 !important; pointer-events: auto !important;
-}
-
-/* Hero: only show on /csat page */
-body:not([data-dashboard-page="/csat"]) #uxHero { display: none !important; }
-</style>
-
-<script>
-(function() {
-  'use strict';
-
-  /* Resize every chart on the page */
-  function _resizeAll() {
-    if (!window.Chart) return;
-    document.querySelectorAll('canvas').forEach(function(c) {
-      if (c.id === 'chartModalCanvas' || c.id === 'uxStudioCanvas') return;
-      var ch = Chart.getChart(c); if (!ch) return;
-      try { ch.resize(); ch.update('none'); } catch(e) {}
-    });
-  }
-
-  /* Strip inline height styles that portal-system.js writes */
-  function _stripHeights() {
-    document.querySelectorAll('.chart-wrap, .ux-chart-wrap').forEach(function(el) {
-      el.style.removeProperty('height');
-      el.style.removeProperty('min-height');
-    });
-  }
-
-  /* Wrap a close function to also resize all charts */
-  function _wrapClose(fn) {
-    return function() {
-      fn.apply(this, arguments);
-      setTimeout(_resizeAll, 50);
-      setTimeout(_resizeAll, 200);
-      setTimeout(_resizeAll, 500);
-    };
-  }
-
-  function _applyPatches() {
-    if (!window.Chart) { setTimeout(_applyPatches, 80); return; }
-
-    /* Fix Chart.js defaults to use index mode (fires anywhere, not just near points) */
-    if (Chart.defaults) {
-      Chart.defaults.interaction = { mode: 'index', axis: 'x', intersect: false };
-      Chart.defaults.hover      = { mode: 'index', axis: 'x', intersect: false };
-    }
-
-    /* Intercept every new Chart() to fix options and force resize after creation */
-    var _Orig = window.Chart;
-    function _Fixed(canvas, cfg) {
-      if (cfg && cfg.options) {
-        cfg.options.responsive = true;
-        cfg.options.maintainAspectRatio = false;
-        cfg.options.interaction = Object.assign({ mode: 'index', axis: 'x', intersect: false }, cfg.options.interaction || {});
-        cfg.options.hover       = Object.assign({ mode: 'index', axis: 'x', intersect: false }, cfg.options.hover || {});
-      }
-      var inst = new _Orig(canvas, cfg);
-      /* Force resize so chart reads real CSS dimensions, not 0 */
-      requestAnimationFrame(function() { try { inst.resize(); inst.update('none'); } catch(e) {} });
-      setTimeout(function() { try { inst.resize(); inst.update('none'); } catch(e) {} }, 150);
-      setTimeout(function() { try { inst.resize(); inst.update('none'); } catch(e) {} }, 500);
-      return inst;
-    }
-    /* Copy all static properties (getChart, register, etc.) */
-    Object.getOwnPropertyNames(_Orig).forEach(function(k) {
-      try { var d = Object.getOwnPropertyDescriptor(_Orig, k); if (d) Object.defineProperty(_Fixed, k, d); } catch(e) {}
-    });
-    _Fixed.prototype = _Orig.prototype;
-    window.Chart = _Fixed;
-
-    /* Patch closeChartModal */
-    if (typeof window.closeChartModal === 'function' && !window.closeChartModal._patched) {
-      window.closeChartModal = _wrapClose(window.closeChartModal);
-      window.closeChartModal._patched = true;
-    }
-    /* Watch for closeChartModal being defined later */
-    var _ccm = window.closeChartModal;
-    try {
-      Object.defineProperty(window, 'closeChartModal', {
-        configurable: true, enumerable: true,
-        get: function() { return _ccm; },
-        set: function(fn) { _ccm = (fn && !fn._patched) ? _wrapClose(fn) : fn; if (_ccm) _ccm._patched = true; }
-      });
-    } catch(e) {}
-
-    /* Patch UX.closeStudio when portal-system.js defines it */
-    setInterval(function() {
-      if (window.UX && window.UX.closeStudio && !window.UX._fp) {
-        window.UX.closeStudio = _wrapClose(window.UX.closeStudio.bind(window.UX));
-        window.UX._fp = true;
-      }
-    }, 300);
-
-    /* Strip inline heights (portal-system.js writes these) */
-    _stripHeights();
-    setTimeout(_stripHeights, 500);
-    setTimeout(_stripHeights, 1500);
-
-    /* MutationObserver: whenever a canvas is added, resize its chart */
-    new MutationObserver(function(muts) {
-      muts.forEach(function(m) {
-        m.addedNodes.forEach(function(n) {
-          if (n.tagName !== 'CANVAS') return;
-          [50, 150, 400].forEach(function(ms) {
-            setTimeout(function() {
-              var ch = window.Chart && Chart.getChart ? Chart.getChart(n) : null;
-              if (ch) { try { ch.resize(); ch.update('none'); } catch(e) {} }
-            }, ms);
-          });
-        });
-      });
-    }).observe(document.body, { childList: true, subtree: true });
-
-    /* Periodic resize for first 8 seconds (catches any late-rendered charts) */
-    var _n = 0, _iv = setInterval(function() {
-      _resizeAll(); _stripHeights();
-      if (++_n >= 10) clearInterval(_iv);
-    }, 800);
-
-    /* Hide hero on non-CSAT pages */
-    var _page = (document.body.dataset || {}).dashboardPage || '';
-    if (_page && _page !== '/csat') {
-      function _hideHero() { var h = document.getElementById('uxHero'); if (h) h.style.display = 'none'; }
-      _hideHero();
-      new MutationObserver(_hideHero).observe(document.body, { childList: true, subtree: false });
-    }
-
-    console.log('[ChartFix v2] active, page=' + _page);
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _applyPatches);
-  } else {
-    _applyPatches();
-  }
-})();
-</script>
-<!-- ═══ END CHART FIX PATCH v2 ══════════════════════════════════════════════ -->
-
 </body>
 </html>
