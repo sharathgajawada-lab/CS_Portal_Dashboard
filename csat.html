@@ -2068,7 +2068,7 @@ function _renderCsatCompare(curFrom, curTo, gb) {
 
   if (charts.csatTrend) charts.csatTrend.destroy();
   if (!document.getElementById('csatTrendChart'))
-    { const _c = _safeCanvas('csatTrendWrap','csatTrendChart'); if(!_c) return; }
+    _safeCanvas('csatTrendWrap','csatTrendChart');
 
   charts.csatTrend = new Chart(document.getElementById('csatTrendChart'), {
     type: 'bar',
@@ -2176,7 +2176,7 @@ function renderCSAT(d) {
       '<div class="empty" style="padding:32px"><span>📈</span>No trend data for this period</div>';
   } else {
     if (!document.getElementById('csatTrendChart')) {
-      { const _c = _safeCanvas('csatTrendWrap','csatTrendChart'); if(!_c) return; }
+      _safeCanvas('csatTrendWrap','csatTrendChart');
       (function() {
         var _b = document.createElement('button');
         _b.className = 'chart-expand-btn';
@@ -2238,7 +2238,7 @@ function renderCSAT(d) {
   const distCompare = isChartCompare('csatDist');
   if (charts.csatDist) charts.csatDist.destroy();
   if (!document.getElementById('csatDistChart')) {
-    { const _c = _safeCanvas('csatDistWrap','csatDistChart'); if(!_c) return; }
+    _safeCanvas('csatDistWrap','csatDistChart');
     (function() {
       var _b = document.createElement('button');
       _b.className = 'chart-expand-btn';
@@ -2724,7 +2724,7 @@ function renderCallReasons(reasons, totalSurveys) {
   };
 
   if (!document.getElementById('callReasonChart')) {
-    { const _c = _safeCanvas(chartWrap.id,'callReasonChart'); if(!_c) return; }
+    _safeCanvas(chartWrap.id,'callReasonChart');
   }
   if (charts.callReasonChart) charts.callReasonChart.destroy();
 
@@ -2881,7 +2881,7 @@ function renderFCR() {
 
   if (charts.fcrChart) charts.fcrChart.destroy();
   if (!document.getElementById('fcrChart')) {
-    { const _c = _safeCanvas('fcrChartWrap','fcrChart'); if(!_c) return; }
+    _safeCanvas('fcrChartWrap','fcrChart');
   }
   charts.fcrChart = new Chart(document.getElementById('fcrChart'), {
     type: 'bar',
@@ -3014,7 +3014,7 @@ function renderTrueFCR() {
 
   if (charts.trueFcrChart) charts.trueFcrChart.destroy();
   if (!document.getElementById('trueFcrChart')) {
-    { const _c = _safeCanvas(wrapEl.id,'trueFcrChart'); if(!_c) return; }
+    _safeCanvas(wrapEl.id,'trueFcrChart');
   }
   charts.trueFcrChart = new Chart(document.getElementById('trueFcrChart'), {
     type: 'bar',
@@ -3431,7 +3431,7 @@ function renderCSTeams(teamsData, teamDailyData) {
 
   // ── Rating chart ───────────────────────────────────────────────────────────
   // Rebuild canvas fresh to avoid stale Chart instance conflicts
-  { const _c = _safeCanvas(chartWrap.id,'csTeamTrendChart'); if(!_c) return; }
+  _safeCanvas(chartWrap.id,'csTeamTrendChart');
   charts.csTeamTrend = null;
 
   const ratingDatasets = activeTeams.map(ct => {
@@ -3465,7 +3465,7 @@ function renderCSTeams(teamsData, teamDailyData) {
   // ── Solved % chart ─────────────────────────────────────────────────────────
   const solvedWrap = document.getElementById('csTeamSolvedWrap');
   if (solvedWrap) {
-    { const _c = _safeCanvas(solvedWrap.id,'csTeamSolvedChart'); if(!_c) return; }
+    _safeCanvas(solvedWrap.id,'csTeamSolvedChart');
     charts.csTeamSolved = null;
 
     const solvedDatasets = activeTeams.map(ct => {
@@ -3923,66 +3923,50 @@ function resetChartWindow() {
 }
 
 
-// ── Safe canvas replacement helper ──────────────────────────────────────────
-// Replaces or re-uses a canvas inside a chart-wrap WITHOUT destroying the wrap's
-// layout (critical: wrap.innerHTML = '<canvas>' wipes .ux-canvas-stage and
-// any toolbar injected by portal-system.js, causing blank charts after close).
-function _safeCanvas(wrapId, canvasId) {
-  const wrap = document.getElementById(wrapId);
+// ── _safeCanvas: safely create/reuse a canvas without wiping the wrap ──────
+// The old pattern  wrap.innerHTML = '<canvas id="X"></canvas>'  was destroying
+// the toolbar and canvas-stage injected by portal-system.js, leaving the new
+// Chart() with a zero-height canvas and no parent dimensions.
+function _safeCanvas(wrapIdOrEl, canvasId) {
+  const wrap = typeof wrapIdOrEl === 'string'
+    ? document.getElementById(wrapIdOrEl) : wrapIdOrEl;
   if (!wrap) return null;
-  let canvas = document.getElementById(canvasId);
-  if (canvas) {
-    // Canvas already exists — just ensure it fills its parent
-    canvas.style.width  = '100%';
-    canvas.style.height = '100%';
-    canvas.style.display = 'block';
-    return canvas;
+  // Remove any stale canvas with this id
+  const stale = document.getElementById(canvasId);
+  if (stale && stale.parentElement !== wrap) stale.remove();
+  let c = document.getElementById(canvasId);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.id = canvasId;
+    wrap.appendChild(c);
   }
-  // Canvas doesn't exist — create it cleanly without wiping the wrap
-  canvas = document.createElement('canvas');
-  canvas.id = canvasId;
-  canvas.style.width  = '100%';
-  canvas.style.height = '100%';
-  canvas.style.display = 'block';
-  // Remove any stale canvas with the same id (safety)
-  const old = document.getElementById(canvasId);
-  if (old) old.remove();
-  wrap.appendChild(canvas);
-  return canvas;
+  c.style.cssText = 'display:block;width:100%;height:100%;';
+  return c;
 }
 
-// ── After new Chart() is created, force a resize so dimensions are correct ──
+// ── _chartReady: force Chart.js to re-measure dimensions after creation ──────
 function _chartReady(chart) {
-  if (!chart) return;
-  requestAnimationFrame(() => {
-    try { chart.resize(); chart.update('none'); } catch(_) {}
-  });
-  setTimeout(() => {
-    try { chart.resize(); chart.update('none'); } catch(_) {}
-  }, 150);
+  if (!chart || !chart.canvas) return;
+  const go = () => { try { chart.resize(); chart.update('none'); } catch(_){} };
+  requestAnimationFrame(go);
+  setTimeout(go, 100);
+  setTimeout(go, 400);
 }
 
 function closeChartModal() {
   document.getElementById('chartModal').style.display = 'none';
   document.body.style.overflow = '';
   if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
-  // CRITICAL: Force all dashboard charts to re-read their CSS dimensions.
-  // Chart.js caches stale px sizes while the body was overflow:hidden,
-  // causing blank/empty charts when this modal closes.
-  const _resizeDashCharts = () => {
+  // Resize all charts so none appear blank after modal closes
+  const _rd = () => {
     if (!window.Chart) return;
-    // Resize ALL chart canvases, not just enhanced ones
-    // (freshly recreated canvases may not yet have data-ux-enhanced set)
     document.querySelectorAll('canvas').forEach(c => {
       if (!c.id || c.id === 'chartModalCanvas' || c.id === 'uxStudioCanvas') return;
-      const ch = Chart.getChart(c);
-      if (!ch) return;
-      try { ch.resize(); ch.update('none'); } catch (_) {}
+      const ch = Chart.getChart(c); if (!ch) return;
+      try { ch.resize(); ch.update('none'); } catch(_) {}
     });
   };
-  requestAnimationFrame(_resizeDashCharts);
-  setTimeout(_resizeDashCharts, 100);
-  setTimeout(_resizeDashCharts, 420);
+  requestAnimationFrame(_rd); setTimeout(_rd, 150); setTimeout(_rd, 500);
 }
 
 // Chart modal listeners — attached in init()

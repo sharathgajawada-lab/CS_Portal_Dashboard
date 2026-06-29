@@ -1392,17 +1392,55 @@ body.pro-dashboard .ux-chart-wrap {
 
 
 /* ========================================================================== */
-/* CHART LAYOUT — single authoritative block (replaces v7.4 / v7.5 / v7.6)   */
-/* Fixes: scale, blank-after-close, tooltip/hover hit-testing                 */
+/* v7.4 axis visibility and Voice AI team cleanup                              */
+/* Gives Chart.js enough room so x-axis labels are not clipped by toolbar/canvas */
 /* ========================================================================== */
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart {
+  display: grid !important;
+  grid-template-rows: auto minmax(300px, 1fr) !important;
+  align-content: stretch !important;
+  min-height: 380px !important;
+  height: clamp(380px, 46vh, 560px) !important;
+  overflow: visible !important;
+  padding: 14px 14px 24px !important;
+}
+body.pro-dashboard .chart-wrap canvas,
+body.pro-dashboard .ux-chart-wrap canvas,
+body.pro-dashboard .ux-axis-safe-chart canvas {
+  align-self: stretch !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 300px !important;
+  max-height: none !important;
+}
+body.pro-dashboard #callReasonChartWrap,
+body.pro-dashboard #opsConsultantWrap,
+body.pro-dashboard #csTeamTrendWrap,
+body.pro-dashboard #csTeamSolvedWrap,
+body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="reason" i]),
+body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="consultant" i]),
+body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="question" i]) {
+  min-height: 430px !important;
+  height: clamp(430px, 52vh, 640px) !important;
+  grid-template-rows: auto minmax(350px, 1fr) !important;
+}
+body.pro-dashboard .card:has(.chart-wrap),
+body.pro-dashboard .card:has(.ux-chart-wrap) {
+  min-height: auto !important;
+  overflow: visible !important;
+}
+body.pro-dashboard .ux-chart-toolbar { flex: 0 0 auto !important; }
+body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
 
-/* ── Toolbar (unchanged appearance) ────────────────────────────────────────── */
+
+/* ========================================================================== */
+/* v7.5 chart polish: stable studio, no overflow, cleaner toolbars             */
+/* ========================================================================== */
 body.pro-dashboard .ux-chart-toolbar,
 .ux-chart-toolbar {
-  flex: 0 0 auto !important;
-  position: relative !important;
-  z-index: 3 !important;
-  margin: 0 0 10px !important;
+  margin: 0 0 12px !important;
   padding: 9px 10px !important;
   min-height: 46px !important;
   border-radius: 16px !important;
@@ -1444,146 +1482,135 @@ body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
   color: #fff !important;
   box-shadow: 0 9px 18px rgba(15,23,42,.18) !important;
 }
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  min-height: 320px !important;
+  height: auto !important;
+  overflow: hidden !important;
+  padding: 14px 14px 20px !important;
+}
+body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
+body.pro-dashboard .chart-wrap:has(#hourInsightChart) {
+  min-height: 240px !important;
+  height: 240px !important;
+  padding: 12px 12px 18px !important;
+  overflow: hidden !important;
+}
+body.pro-dashboard .chart-wrap canvas,
+body.pro-dashboard .ux-chart-wrap canvas,
+body.pro-dashboard .ux-axis-safe-chart canvas {
+  min-height: 0 !important;
+  max-height: 100% !important;
+}
+body.pro-dashboard .ux-studio-chart,
+#uxChartStudio .ux-studio-chart {
+  display: block !important;
+  min-height: 520px !important;
+  height: min(68vh, 720px) !important;
+  overflow: hidden !important;
+  padding: 18px !important;
+}
+#uxChartStudio .ux-studio-chart canvas {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+#uxChartStudio .ux-chart-toolbar,
+#uxChartStudio .ux-expand-guarantee,
+#uxChartStudio [data-ux-action="expand"][data-chart-id="uxStudioCanvas"] {
+  display: none !important;
+}
+#uxChartStudio.ux-modal.open { align-items: center !important; }
+#uxChartStudio .ux-modal-card { transform: none !important; }
+body[data-ux-studio-open="true"] { overflow: hidden !important; }
+body.pro-dashboard #catChart { cursor: pointer; }
 
-/* ── Chart wrap container ───────────────────────────────────────────────────── */
-/* Uses flex-column so toolbar takes its natural height and canvas fills rest.  */
-/* overflow:visible so Chart.js tooltips (which render outside the canvas bbox) */
-/* are never clipped — this is the #1 cause of hover/tooltip failures.          */
+
+/* ========================================================================== */
+/* v7.6 chart visibility fix: stable canvas stage + no blank dashboard charts  */
+/* ========================================================================== */
 body.pro-dashboard .chart-wrap,
 body.pro-dashboard .ux-chart-wrap,
 body.pro-dashboard .ux-axis-safe-chart {
   position: relative !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 0 !important;
+  gap: 10px !important;
   box-sizing: border-box !important;
-  min-height: 380px !important;
-  height: clamp(380px, 44vh, 560px) !important;
-  /* CRITICAL: visible so Chart.js tooltip DOM node (appended to body) is not   */
-  /* clipped by a parent with overflow:hidden. Also lets axis labels breathe.   */
+  min-height: 340px !important;
+  height: clamp(340px, 40vh, 520px) !important;
   overflow: visible !important;
-  padding: 14px 14px 10px !important;
+  padding: 14px !important;
 }
-
-/* Tall charts (horizontal bars, consultant, call-reason) */
-body.pro-dashboard #callReasonChartWrap,
-body.pro-dashboard #opsConsultantWrap,
-body.pro-dashboard .chart-wrap:has(canvas[id*="reason" i]),
-body.pro-dashboard .chart-wrap:has(canvas[id*="consultant" i]),
-body.pro-dashboard .chart-wrap:has(canvas[id*="question" i]) {
-  min-height: 440px !important;
-  height: clamp(440px, 52vh, 640px) !important;
-}
-
-/* Small/mini charts */
 body.pro-dashboard .chart-wrap.ux-mini-chart,
 body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
 body.pro-dashboard .chart-wrap:has(#hourInsightChart),
 body.pro-dashboard #hourChartWrap {
-  min-height: 260px !important;
-  height: 260px !important;
-  max-height: 290px !important;
+  min-height: 280px !important;
+  height: 280px !important;
+  max-height: 300px !important;
   padding: 12px !important;
 }
 body.pro-dashboard .chart-wrap:has(#catChart) {
   min-height: 360px !important;
   height: 360px !important;
 }
-
-/* Cards containing chart wraps should not clip overflow either */
-body.pro-dashboard .card:has(.chart-wrap),
-body.pro-dashboard .card:has(.ux-chart-wrap) {
-  overflow: visible !important;
-  min-height: auto !important;
-}
-
-/* ── Canvas stage (the inner flex-child that holds the canvas) ──────────────── */
-/* flex:1 so it expands to fill all remaining height after the toolbar.         */
-/* overflow:visible so tooltips from Chart.js are NOT clipped.                  */
 body.pro-dashboard .ux-canvas-stage {
   position: relative !important;
   display: block !important;
   flex: 1 1 auto !important;
-  /* subtract toolbar+gap from min-height so canvas always has room */
-  min-height: 260px !important;
+  min-height: 230px !important;
   width: 100% !important;
-  /* CRITICAL: must NOT be overflow:hidden — that was clipping tooltips and      */
-  /* causing hit-test mismatches (Chart.js internal size ≠ visible size).       */
-  overflow: visible !important;
+  overflow: hidden !important;
   border-radius: 16px !important;
 }
 body.pro-dashboard .ux-mini-chart .ux-canvas-stage,
 body.pro-dashboard .chart-wrap:has(#hourInsightChart) .ux-canvas-stage,
 body.pro-dashboard #hourChartWrap .ux-canvas-stage {
-  min-height: 180px !important;
+  min-height: 190px !important;
 }
-
-/* ── Canvas element itself ──────────────────────────────────────────────────── */
-/* width/height 100% makes Chart.js responsive=true fill the stage.            */
-/* pointer-events:auto ensures mouse events are never blocked.                  */
 body.pro-dashboard .ux-canvas-stage > canvas {
   display: block !important;
-  position: relative !important;
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
   max-height: none !important;
-  pointer-events: auto !important;
-  z-index: 1 !important;
 }
-/* Fallback: un-staged canvas (before DashboardUX wraps it) */
 body.pro-dashboard .chart-wrap > canvas:not(.ux-staged),
 body.pro-dashboard .ux-chart-wrap > canvas:not(.ux-staged) {
   display: block !important;
-  flex: 1 1 auto !important;
   width: 100% !important;
-  height: 100% !important;
-  min-height: 260px !important;
+  height: 280px !important;
+  min-height: 240px !important;
   max-height: none !important;
-  pointer-events: auto !important;
 }
-
-/* ── Chart data panel ────────────────────────────────────────────────────────── */
-body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
-
-/* ── Studio modal (expanded view) ───────────────────────────────────────────── */
-body.pro-dashboard #catChart { cursor: pointer; }
-body[data-ux-studio-open="true"] { overflow: hidden !important; }
-#uxChartStudio.ux-modal.open { align-items: center !important; }
-#uxChartStudio .ux-modal-card { transform: none !important; }
-
-body.pro-dashboard .ux-studio-chart,
-#uxChartStudio .ux-studio-chart {
+body.pro-dashboard .ux-chart-toolbar {
+  flex: 0 0 auto !important;
+  position: relative !important;
+  z-index: 3 !important;
+}
+#uxChartStudio .ux-studio-chart,
+body.pro-dashboard #uxChartStudio .ux-studio-chart {
   display: block !important;
   height: min(68vh, 720px) !important;
   min-height: 520px !important;
   padding: 18px !important;
-  /* Studio is a purposefully contained modal – overflow:hidden is fine here */
   overflow: hidden !important;
 }
-#uxChartStudio .ux-studio-chart canvas {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 0 !important;
-}
-/* Hide the canvas-stage wrapper and extra expand buttons inside the studio */
 #uxChartStudio .ux-studio-chart .ux-canvas-stage,
-#uxChartStudio .ux-chart-toolbar,
-#uxChartStudio .ux-expand-guarantee,
-#uxChartStudio [data-ux-action="expand"][data-chart-id="uxStudioCanvas"] {
-  display: none !important;
-}
-
-/* ── Legacy chart modal (csat.html's own chartModal) ────────────────────────── */
+#uxChartStudio .ux-studio-chart .ux-chart-toolbar,
+#uxChartStudio .ux-studio-chart [data-ux-action="expand"],
 #chartModal .ux-chart-toolbar,
 #chartModal [data-ux-action="expand"] {
   display: none !important;
 }
+#uxChartStudio .ux-studio-chart canvas,
 #chartModal canvas {
   display: block !important;
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
-  pointer-events: auto !important;
 }

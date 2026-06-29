@@ -169,18 +169,13 @@
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
     const resize = () => {
       try {
-        // resetSize forces Chart.js to re-read the CSS pixel dimensions from the DOM,
-        // fixing blank canvases after expand-modal closes (stale cached size).
-        if (typeof chart.resetSize === 'function') chart.resetSize();
-        else chart.resize();
+        chart.resize();
         chart.update('none');
       } catch (_) {}
     };
     requestAnimationFrame(resize);
-    setTimeout(resize, 60);
-    setTimeout(resize, 200);
-    // Extra pass after modal fade-out transition (~300ms) completes
-    setTimeout(resize, 500);
+    setTimeout(resize, 80);
+    setTimeout(resize, 350);
   }
 
   function polishChartLayout(chart) {
@@ -195,18 +190,15 @@
       const mini = id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
       const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant');
       wrap.classList.toggle('ux-mini-chart', !!mini);
-      // CRITICAL: Do NOT set inline style.height/minHeight — they override CSS !important
-      // clamp() rules and cause canvas pixel size mismatches, breaking tooltips/hover.
-      // Clear any stale inline heights from previous runs.
-      wrap.style.removeProperty('height');
-      wrap.style.removeProperty('min-height');
+      if (!mini && !wrap.style.height) {
+        wrap.style.height = dense ? 'clamp(390px, 48vh, 590px)' : 'clamp(320px, 38vh, 500px)';
+      }
+      if (!mini) wrap.style.minHeight = dense ? '390px' : '320px';
     }
     chart.options.responsive = true;
     chart.options.maintainAspectRatio = false;
-    // 'index' mode triggers tooltip for any x-position in the chart, not just near a point.
-    // This is the canonical fix for hover/tooltip not working in normal (non-expanded) view.
-    chart.options.interaction = Object.assign({ mode: 'index', axis: 'x', intersect: false }, chart.options.interaction || {});
-    chart.options.hover = Object.assign({ mode: 'index', axis: 'x', intersect: false }, chart.options.hover || {});
+    chart.options.interaction = Object.assign({ mode: 'nearest', intersect: false }, chart.options.interaction || {});
+    chart.options.hover = Object.assign({ mode: 'nearest', intersect: false }, chart.options.hover || {});
     chart.options.plugins = chart.options.plugins || {};
     chart.options.plugins.tooltip = Object.assign({
       enabled: true,
@@ -291,10 +283,6 @@
   }
 
   function injectHero() {
-    // Only inject the hero on the CSAT page — the user explicitly set it up there.
-    // On the portal and starter-guides pages it is unwanted (screenshot bug report).
-    const page = document.body?.dataset?.dashboardPage || location.pathname || '/';
-    if (!page.includes('csat')) return;
     if (document.getElementById('uxHero')) return;
     const header = document.querySelector('.header');
     if (!header) return;
@@ -661,25 +649,6 @@
     unlockBodyForStudio();
     if (studioChart) { studioChart.destroy(); studioChart = null; }
     if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
-    // CRITICAL: After the modal closes, force all dashboard charts to re-read their
-    // CSS dimensions. Chart.js caches the pixel size from before the modal opened
-    // (when body.overflow was hidden + scrollbar width was compensated). Without
-    // this, canvases appear blank/empty until the next 1800ms polling interval.
-    const _resizeAllDashboard = () => {
-      if (!window.Chart) return;
-      document.querySelectorAll('canvas[data-ux-enhanced="1"]').forEach(c => {
-        const ch = Chart.getChart(c);
-        if (!ch) return;
-        try {
-          if (typeof ch.resetSize === 'function') ch.resetSize();
-          else ch.resize();
-          ch.update('none');
-        } catch (_) {}
-      });
-    };
-    requestAnimationFrame(_resizeAllDashboard);
-    setTimeout(_resizeAllDashboard, 100);
-    setTimeout(_resizeAllDashboard, 420);
   }
 
   function ensureCommandPalette() {

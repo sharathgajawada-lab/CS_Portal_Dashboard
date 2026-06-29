@@ -168,18 +168,12 @@
   function scheduleChartResize(chart) {
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
     const resize = () => {
-      try {
-        // resetSize forces Chart.js to re-read CSS pixel dimensions from the DOM.
-        // Critical after expand-modal closes — stale cached size causes blank canvas.
-        if (typeof chart.resetSize === 'function') chart.resetSize();
-        else chart.resize();
-        chart.update('none');
-      } catch (_) {}
+      try { chart.resize(); chart.update('none'); } catch (_) {}
     };
     requestAnimationFrame(resize);
-    setTimeout(resize, 60);
-    setTimeout(resize, 200);
-    setTimeout(resize, 500);
+    setTimeout(resize, 80);
+    setTimeout(resize, 300);
+    setTimeout(resize, 600);
   }
 
   function polishChartLayout(chart) {
@@ -194,9 +188,7 @@
       const mini = id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
       const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant');
       wrap.classList.toggle('ux-mini-chart', !!mini);
-      // Do NOT set inline style.height/minHeight — they override CSS !important
-      // clamp() rules and cause canvas pixel-size mismatches breaking tooltips/hover.
-      // Clear any stale inline heights left by previous runs.
+      // Do not set inline height — it overrides CSS and breaks canvas sizing
       wrap.style.removeProperty('height');
       wrap.style.removeProperty('min-height');
     }
@@ -288,10 +280,9 @@
   }
 
   function injectHero() {
-    // Hero banner is only for the Call Quality (CSAT) page.
-    // On portal and starter-guides pages it is unwanted — user explicitly flagged this.
-    const _page = document.body?.dataset?.dashboardPage || location.pathname || '/';
-    if (!_page.includes('csat')) return;
+    // Only inject hero on the CSAT page — not on portal or starter-guides
+    const _pg = document.body?.dataset?.dashboardPage || location.pathname || '/';
+    if (!_pg.includes('csat')) return;
     if (document.getElementById('uxHero')) return;
     const header = document.querySelector('.header');
     if (!header) return;
@@ -658,22 +649,14 @@
     unlockBodyForStudio();
     if (studioChart) { studioChart.destroy(); studioChart = null; }
     if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
-    // CRITICAL: Force all dashboard charts to re-read CSS dimensions after modal.
-    // Chart.js caches stale px sizes while body was overflow:hidden — without this
-    // canvases appear completely blank until the 1800ms polling interval fires.
-    const _resizeAllDashboard = () => {
-      if (!window.Chart) return;
-      // Resize ALL chart canvases (not just data-ux-enhanced ones)
+    // Resize every dashboard chart so none appear blank after modal closes
+    const _ra = () => { if (!window.Chart) return;
       document.querySelectorAll('canvas').forEach(c => {
         if (!c.id || c.id === 'uxStudioCanvas' || c.id === 'chartModalCanvas') return;
-        const ch = Chart.getChart(c);
-        if (!ch) return;
-        try { ch.resize(); ch.update('none'); } catch (_) {}
-      });
-    };
-    requestAnimationFrame(_resizeAllDashboard);
-    setTimeout(_resizeAllDashboard, 100);
-    setTimeout(_resizeAllDashboard, 420);
+        const ch = Chart.getChart(c); if (!ch) return;
+        try { ch.resize(); ch.update('none'); } catch(_) {}
+      }); };
+    requestAnimationFrame(_ra); setTimeout(_ra, 150); setTimeout(_ra, 500);
   }
 
   function ensureCommandPalette() {

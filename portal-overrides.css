@@ -1392,8 +1392,9 @@ body.pro-dashboard .ux-chart-wrap {
 
 
 /* ========================================================================== */
-/* CHART LAYOUT — single authoritative block (replaces v7.4 / v7.5 / v7.6)   */
-/* Fixes: scale, blank-after-close, tooltip/hover hit-testing on normal view  */
+/* DEFINITIVE CHART LAYOUT — single source of truth                           */
+/* Replaces conflicting v7.4 / v7.5 / v7.6 blocks                            */
+/* Fixes: chart scale, blank-after-close, tooltip/hover in normal view        */
 /* ========================================================================== */
 
 /* ── Toolbar ────────────────────────────────────────────────────────────────── */
@@ -1445,10 +1446,9 @@ body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
   box-shadow: 0 9px 18px rgba(15,23,42,.18) !important;
 }
 
-/* ── Chart wrap container ───────────────────────────────────────────────────── */
-/* flex-column: toolbar takes its natural height, canvas-stage fills the rest.  */
-/* overflow:visible so Chart.js tooltip DOM nodes are NEVER clipped — this was  */
-/* the primary cause of hover/tooltip failures in the normal (non-expanded) view.*/
+/* ── Chart wrap — flex column so toolbar sits above canvas ─────────────────── */
+/* overflow:visible is CRITICAL — tooltips render outside the canvas bounding  */
+/* box; any hidden/clip ancestor will cut them off and break hover hit-testing  */
 body.pro-dashboard .chart-wrap,
 body.pro-dashboard .ux-chart-wrap,
 body.pro-dashboard .ux-axis-safe-chart {
@@ -1457,111 +1457,87 @@ body.pro-dashboard .ux-axis-safe-chart {
   flex-direction: column !important;
   gap: 0 !important;
   box-sizing: border-box !important;
-  min-height: 380px !important;
-  height: clamp(380px, 44vh, 560px) !important;
   overflow: visible !important;
   padding: 14px 14px 10px !important;
+  /* Default height — overridden by per-ID rules below */
+  min-height: 380px !important;
+  height: clamp(380px, 44vh, 540px) !important;
 }
 
-/* Tall charts: horizontal bars, consultants, call-reasons */
+/* ── Per-chart-wrap explicit heights ───────────────────────────────────────── */
+/* Giving EVERY wrap an explicit px height guarantees Chart.js can measure the  */
+/* container at creation time (maintainAspectRatio:false requires a real height) */
+#csatDistWrap        { min-height: 340px !important; height: 340px !important; }
+#csatTrendWrap       { min-height: 360px !important; height: 360px !important; }
+#voiceAiTrendWrap    { min-height: 340px !important; height: 340px !important; }
+#callReasonChartWrap { min-height: 440px !important; height: 440px !important; }
+#opsTrendWrap        { min-height: 340px !important; height: 340px !important; }
+#opsConsultantWrap   { min-height: 440px !important; height: 440px !important; }
+#fcrChartWrap        { min-height: 320px !important; height: 320px !important; }
+#trueFcrChartWrap    { min-height: 320px !important; height: 320px !important; }
+#csTeamTrendWrap     { min-height: 300px !important; height: 300px !important; }
+#csTeamSolvedWrap    { min-height: 300px !important; height: 300px !important; }
+/* Portal / Starter-guides pages */
+#timeseriesWrap      { min-height: 360px !important; height: 360px !important; }
+#metricsTimeseriesWrap { min-height: 360px !important; height: 360px !important; }
+
+/* Tall charts need extra space */
 body.pro-dashboard #callReasonChartWrap,
-body.pro-dashboard #opsConsultantWrap,
-body.pro-dashboard .chart-wrap:has(canvas[id*="reason" i]),
-body.pro-dashboard .chart-wrap:has(canvas[id*="consultant" i]),
-body.pro-dashboard .chart-wrap:has(canvas[id*="question" i]) {
+body.pro-dashboard #opsConsultantWrap {
   min-height: 440px !important;
-  height: clamp(440px, 52vh, 640px) !important;
+  height: 440px !important;
 }
-
-/* Small/mini charts */
+/* Mini charts */
 body.pro-dashboard .chart-wrap.ux-mini-chart,
 body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
-body.pro-dashboard .chart-wrap:has(#hourInsightChart),
 body.pro-dashboard #hourChartWrap {
-  min-height: 260px !important;
-  height: 260px !important;
-  max-height: 290px !important;
-  padding: 12px !important;
-}
-body.pro-dashboard .chart-wrap:has(#catChart) {
-  min-height: 360px !important;
-  height: 360px !important;
+  min-height: 240px !important;
+  height: 240px !important;
 }
 
-/* Cards containing charts should not clip overflow */
+/* ── Cards containing charts must not clip ──────────────────────────────────── */
 body.pro-dashboard .card:has(.chart-wrap),
 body.pro-dashboard .card:has(.ux-chart-wrap) {
   overflow: visible !important;
-  min-height: auto !important;
 }
 
-body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
-
-
-/* ── Per-chart explicit heights (ensures canvas always has a definite parent height) ── */
-/* These override any height:auto fallback and guarantee Chart.js can measure the container */
-#csatDistWrap   { min-height: 340px !important; height: clamp(340px, 38vh, 480px) !important; }
-#csatTrendWrap  { min-height: 360px !important; height: clamp(360px, 42vh, 520px) !important; }
-#callReasonChartWrap { min-height: 440px !important; height: clamp(440px, 50vh, 600px) !important; }
-#opsTrendWrap   { min-height: 340px !important; height: clamp(340px, 38vh, 480px) !important; }
-#opsConsultantWrap { min-height: 440px !important; height: clamp(440px, 50vh, 600px) !important; }
-#fcrChartWrap   { min-height: 320px !important; height: clamp(320px, 36vh, 460px) !important; }
-#trueFcrChartWrap { min-height: 320px !important; height: clamp(320px, 36vh, 460px) !important; }
-#csTeamTrendWrap  { min-height: 300px !important; height: clamp(300px, 34vh, 420px) !important; }
-#csTeamSolvedWrap { min-height: 300px !important; height: clamp(300px, 34vh, 420px) !important; }
-#voiceAiTrendWrap { min-height: 340px !important; height: clamp(340px, 38vh, 480px) !important; }
-/* Portal / starter-guides pages */
-#timeseriesWrap { min-height: 360px !important; height: clamp(360px, 42vh, 520px) !important; }
-#metricsTimeseriesWrap { min-height: 360px !important; height: clamp(360px, 42vh, 520px) !important; }
-
-/* ── Canvas stage ───────────────────────────────────────────────────────────── */
-/* flex:1 fills all height after toolbar. overflow:visible is critical —        */
-/* the old overflow:hidden clipped tooltips AND caused hit-test mismatches       */
-/* (Chart.js internal pixel size != visible size → hover missed).               */
+/* ── Canvas stage ─────────────────────────────────────────────────────────── */
+/* flex:1 so it fills all remaining height after toolbar                        */
+/* overflow:visible so Chart.js tooltips are never clipped                      */
 body.pro-dashboard .ux-canvas-stage {
   position: relative !important;
   display: block !important;
   flex: 1 1 auto !important;
-  min-height: 260px !important;
+  min-height: 240px !important;
   width: 100% !important;
   overflow: visible !important;
-  border-radius: 16px !important;
+  border-radius: 12px !important;
 }
 body.pro-dashboard .ux-mini-chart .ux-canvas-stage,
-body.pro-dashboard .chart-wrap:has(#hourInsightChart) .ux-canvas-stage,
 body.pro-dashboard #hourChartWrap .ux-canvas-stage {
-  min-height: 180px !important;
+  min-height: 160px !important;
 }
 
-/* ── Canvas element ─────────────────────────────────────────────────────────── */
-body.pro-dashboard .ux-canvas-stage > canvas {
+/* ── Canvas element ──────────────────────────────────────────────────────────── */
+body.pro-dashboard .ux-canvas-stage > canvas,
+body.pro-dashboard .chart-wrap > canvas,
+body.pro-dashboard .ux-chart-wrap > canvas {
   display: block !important;
-  position: relative !important;
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
   max-height: none !important;
   pointer-events: auto !important;
-  z-index: 1 !important;
-}
-/* Fallback: un-staged canvas (before JS wraps it) */
-body.pro-dashboard .chart-wrap > canvas:not(.ux-staged),
-body.pro-dashboard .ux-chart-wrap > canvas:not(.ux-staged) {
-  display: block !important;
-  flex: 1 1 auto !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 260px !important;
-  max-height: none !important;
-  pointer-events: auto !important;
 }
 
-/* ── Studio modal (expanded view) ───────────────────────────────────────────── */
+/* ── Data panel ──────────────────────────────────────────────────────────────── */
+body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
+
+/* ── Studio modal (expanded chart view) ─────────────────────────────────────── */
 body.pro-dashboard #catChart { cursor: pointer; }
 body[data-ux-studio-open="true"] { overflow: hidden !important; }
 #uxChartStudio.ux-modal.open { align-items: center !important; }
 #uxChartStudio .ux-modal-card { transform: none !important; }
-
 body.pro-dashboard .ux-studio-chart,
 #uxChartStudio .ux-studio-chart {
   display: block !important;
@@ -1571,12 +1547,8 @@ body.pro-dashboard .ux-studio-chart,
   overflow: hidden !important;
 }
 #uxChartStudio .ux-studio-chart canvas {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 0 !important;
+  display: block !important; width: 100% !important; height: 100% !important; min-height: 0 !important;
 }
-/* Hide stage wrapper and extra expand buttons inside studio */
 #uxChartStudio .ux-studio-chart .ux-canvas-stage,
 #uxChartStudio .ux-chart-toolbar,
 #uxChartStudio .ux-expand-guarantee,
@@ -1584,15 +1556,10 @@ body.pro-dashboard .ux-studio-chart,
   display: none !important;
 }
 
-/* ── Legacy chart modal (csat.html chartModal) ──────────────────────────────── */
+/* ── Legacy csat.html chart modal ────────────────────────────────────────────── */
 #chartModal .ux-chart-toolbar,
-#chartModal [data-ux-action="expand"] {
-  display: none !important;
-}
+#chartModal [data-ux-action="expand"] { display: none !important; }
 #chartModal canvas {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 0 !important;
-  pointer-events: auto !important;
+  display: block !important; width: 100% !important; height: 100% !important;
+  min-height: 0 !important; pointer-events: auto !important;
 }
