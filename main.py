@@ -246,6 +246,9 @@ async def require_admin_token(
 
 # ── Starter Guide Service ───────────────────────────────────────────────────────
 SG_BASE       = os.environ.get("STARTER_GUIDE_BASE_URL", "https://starter-guide-service.audibene.net")
+# JWT bearer token for authenticated /api/v1/* endpoints (set STARTER_GUIDE_API_TOKEN env var).
+# Public /public/v1/* endpoints work without this token.
+SG_API_TOKEN  = os.environ.get("STARTER_GUIDE_API_TOKEN", "")
 
 # ── CSAT Survey Data ────────────────────────────────────────────────────────────
 # Domo-first CSAT source. Startup may load bundled call_quality.csv as a fallback.
@@ -2716,15 +2719,22 @@ class _SgResponse:
         return isinstance(b, list) and len(b) == 0
 
 
-async def _sg_get(path: str, params: dict = None) -> "_SgResponse":
+async def _sg_get(path: str, params: dict = None, *, auth: bool = True) -> "_SgResponse":
     """Forward one GET request to the Starter Guide Service.
     Always returns an _SgResponse — never raises, never returns None.
     Callers inspect .ok / .not_found / .body instead of None-checking.
+
+    auth=True (default): adds Authorization: Bearer <SG_API_TOKEN> when the
+    token is configured — required for /api/v1/* endpoints.
+    auth=False: skips auth header — used for /public/v1/* endpoints.
     """
     url = f"{SG_BASE}{path}"
+    headers: dict = {}
+    if auth and SG_API_TOKEN:
+        headers["Authorization"] = f"Bearer {SG_API_TOKEN}"
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(url, params=params or {})
+            r = await client.get(url, params=params or {}, headers=headers)
             print(f"[sg] GET {path} → {r.status_code}", flush=True)
             try:
                 body = r.json()
@@ -2787,8 +2797,60 @@ async def sg_journey_guides(journey_id: str, limit: int = 50, skip: int = 0):
 
 @app.get("/api/sg/starter-guides/{guide_id}")
 async def sg_guide_detail(guide_id: str):
-    """Proxy: GET /api/v1/starter-guides/:id"""
-    resp = await _sg_get(f"/api/v1/starter-guides/{guide_id}")
+    """Proxy: GET /api/v1/starter-guides/:id (authenticated, full detail with answers).
+    Falls back to the public endpoint /public/v1/starter-guides/:id if no token is set.
+    The public endpoint returns lockedSlides + progress + journeyId but omits answers.
+    """
+    if SG_API_TOKEN:
+        resp = await _sg_get(f"/api/v1/starter-guides/{guide_id}", auth=True)
+        if resp.ok:
+            return resp.body
+        # If auth fails (401/403), fall through to the public endpoint so the
+        # dashboard still shows slide/progress data.
+        if resp.status not in (401, 403):
+            raise HTTPException(status_code=resp.status,
+                                detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
+
+    # No token or auth failed — use unauthenticated public endpoint
+    resp = await _sg_get(f"/public/v1/starter-guides/{guide_id}", auth=False)
+    if resp.ok:
+        return resp.body
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
+
+
+@app.get("/api/sg/public/starter-guides/{guide_id}")
+async def sg_guide_detail_public(guide_id: str):
+    """Proxy: GET /public/v1/starter-guides/:id — no auth required.
+    Returns id, customerGid, journeyId, templateId, lockedSlides, progress,
+    createdAt, expiresAt. Use when no SG_API_TOKEN is available.
+    """
+    resp = await _sg_get(f"/public/v1/starter-guides/{guide_id}", auth=False)
+    if resp.ok:
+        return resp.body
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
+
+
+@app.get("/api/sg/public/journeys/{journey_id}")
+async def sg_journey_public(journey_id: str):
+    """Proxy: GET /public/v1/journeys/:journeyId — no auth required.
+    Returns journey overview for the Start Screen: title, subtitle, customerName,
+    locale, footerText, helpUrl, expectedGuides, completedIds, expiredIds, progress.
+    """
+    resp = await _sg_get(f"/public/v1/journeys/{journey_id}", auth=False)
+    if resp.ok:
+        return resp.body
+    raise HTTPException(status_code=resp.status,
+                        detail=f"Starter Guide Service error {resp.status}: {str(resp.body)[:200]}")
+
+
+@app.get("/api/sg/public/journeys/{journey_id}/starter-guides")
+async def sg_journey_guides_public(journey_id: str):
+    """Proxy: GET /public/v1/journeys/:journeyId/starter-guides — no auth required.
+    Returns each expected guide with instanceId and status (PENDING/ACTIVE/COMPLETED/EXPIRED).
+    """
+    resp = await _sg_get(f"/public/v1/journeys/{journey_id}/starter-guides", auth=False)
     if resp.ok:
         return resp.body
     raise HTTPException(status_code=resp.status,
@@ -2822,7 +2884,19 @@ async def debug_sg(admin_ok: bool = Depends(require_admin_token)):
     """One-shot health check for all Starter Guide layers.
     Hit this URL to diagnose why the dashboard shows no data.
     """
-    result: dict = {"sg_base_url": SG_BASE, "sg_cms_project": SG_PROJECT}
+    result: dict = {
+        "sg_base_url": SG_BASE,
+        "sg_cms_project": SG_PROJECT,
+        "auth": {
+            "token_configured": bool(SG_API_TOKEN),
+            "hint": (
+                "Bearer token is set — authenticated /api/v1/* endpoints will be called."
+                if SG_API_TOKEN
+                else "No STARTER_GUIDE_API_TOKEN set. Only public /public/v1/* endpoints are usable. "
+                     "Set STARTER_GUIDE_API_TOKEN in your Render env vars to enable full journey/answer data."
+            ),
+        },
+    }
 
     # 1. Upstream reachability — use a known-safe path; 404 is fine, timeout is not
     probe = await _sg_get("/api/v1/journeys/debug-probe", {"limit": 1})
@@ -2833,6 +2907,8 @@ async def debug_sg(admin_ok: bool = Depends(require_admin_token)):
         "hint": (
             "Service is up (404 = customer not found, which is expected for a probe)"
             if probe.status in (200, 404)
+            else "401/403 means the service is reachable but the Bearer token is missing or wrong."
+            if probe.status in (401, 403)
             else "Service may be down or unreachable — check SG_BASE_URL and network egress"
         ),
     }

@@ -967,17 +967,30 @@ async function openGuideDetail(guideId) {
   cont.innerHTML = `<div class="card"><div class="skeleton skeleton-card"></div></div>`;
 
   try {
+    // Primary: authenticated endpoint returns full data incl. answers.
+    // Backend automatically falls back to public endpoint if no token is set.
     const g = await apiFetch(`/api/sg/starter-guides/${encodeURIComponent(guideId)}`);
     state.currentGuide = g;
+
+    // Detect whether we're operating in public-only mode (no answers returned)
+    const isPublicOnly = !g.hasOwnProperty('answerStatus') && !g.hasOwnProperty('answers');
+    const publicOnlyBanner = isPublicOnly
+      ? `<div style="background:var(--amber-dim);border:1px solid var(--amber);border-radius:var(--r-sm);padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--amber)">
+           ⚠️ <strong>Partial data:</strong> No <code>STARTER_GUIDE_API_TOKEN</code> configured — showing public slide &amp; progress data only.
+           Answers and full status require the Bearer token to be set in Render env vars.
+         </div>`
+      : '';
 
     // Info card
     const infoHtml = `
       <div class="card" style="margin-bottom:16px">
+        ${publicOnlyBanner}
         <div class="info-grid">
           <div class="info-item"><div class="info-label">Guide ID</div><div class="info-value mono">${esc(g.id)}</div></div>
           <div class="info-item"><div class="info-label">Template ID</div><div class="info-value mono">${esc(g.templateId || '—')}</div></div>
           <div class="info-item"><div class="info-label">Customer GID</div><div class="info-value mono">${esc(g.customerGid || '—')}</div></div>
-          <div class="info-item"><div class="info-label">Answer Status</div><div class="info-value">${statusBadge(g.answerStatus)}</div></div>
+          ${g.journeyId ? `<div class="info-item"><div class="info-label">Journey ID</div><div class="info-value mono">${esc(g.journeyId)}</div></div>` : ''}
+          ${!isPublicOnly ? `<div class="info-item"><div class="info-label">Answer Status</div><div class="info-value">${statusBadge(g.answerStatus)}</div></div>` : ''}
           <div class="info-item"><div class="info-label">Created</div><div class="info-value">${fmtDate(g.createdAt)}</div></div>
           <div class="info-item"><div class="info-label">Expires</div><div class="info-value">${fmtDate(g.expiresAt)}</div></div>
           ${g.expiredAt ? `<div class="info-item"><div class="info-label">Expired</div><div class="info-value">${fmtDate(g.expiredAt)}</div></div>` : ''}
@@ -1019,7 +1032,16 @@ async function openGuideDetail(guideId) {
     // Answers table
     const answers = g.answers || {};
     const answerKeys = Object.keys(answers);
-    const answersHtml = `
+    const answersHtml = isPublicOnly
+      ? `<div class="section">
+           <div class="section-header"><div class="section-title" style="font-size:14px">Answers</div></div>
+           <div class="card"><div class="empty-state">
+             <div class="em-icon">🔒</div>
+             <div class="em-msg">Answers require authentication</div>
+             <div class="em-sub">Set <code>STARTER_GUIDE_API_TOKEN</code> in Render env vars to unlock answer data</div>
+           </div></div>
+         </div>`
+      : `
       <div class="section">
         <div class="section-header">
           <div class="section-title" style="font-size:14px">Answers</div>
