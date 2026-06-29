@@ -663,14 +663,12 @@
     // canvases appear completely blank until the 1800ms polling interval fires.
     const _resizeAllDashboard = () => {
       if (!window.Chart) return;
-      document.querySelectorAll('canvas[data-ux-enhanced="1"]').forEach(c => {
+      // Resize ALL chart canvases (not just data-ux-enhanced ones)
+      document.querySelectorAll('canvas').forEach(c => {
+        if (!c.id || c.id === 'uxStudioCanvas' || c.id === 'chartModalCanvas') return;
         const ch = Chart.getChart(c);
         if (!ch) return;
-        try {
-          if (typeof ch.resetSize === 'function') ch.resetSize();
-          else ch.resize();
-          ch.update('none');
-        } catch (_) {}
+        try { ch.resize(); ch.update('none'); } catch (_) {}
       });
     };
     requestAnimationFrame(_resizeAllDashboard);

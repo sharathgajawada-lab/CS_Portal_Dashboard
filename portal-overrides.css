@@ -211,7 +211,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 }
 .card {
   position: relative;
-  overflow: clip;
+  overflow: visible;
 }
 .card::after {
   content: '';
@@ -264,7 +264,7 @@ tr:hover td { background: var(--blue-dim) !important; }
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface-elevated) 78%, transparent), color-mix(in srgb, var(--surface2) 54%, transparent));
   padding: 8px;
-  overflow: hidden;
+  overflow: visible;
 }
 .chart-wrap canvas, .ux-chart-wrap canvas { width: 100% !important; max-width: 100% !important; }
 .ux-chart-toolbar {
@@ -1496,6 +1496,23 @@ body.pro-dashboard .card:has(.ux-chart-wrap) {
 }
 
 body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
+
+
+/* ── Per-chart explicit heights (ensures canvas always has a definite parent height) ── */
+/* These override any height:auto fallback and guarantee Chart.js can measure the container */
+#csatDistWrap   { min-height: 340px !important; height: clamp(340px, 38vh, 480px) !important; }
+#csatTrendWrap  { min-height: 360px !important; height: clamp(360px, 42vh, 520px) !important; }
+#callReasonChartWrap { min-height: 440px !important; height: clamp(440px, 50vh, 600px) !important; }
+#opsTrendWrap   { min-height: 340px !important; height: clamp(340px, 38vh, 480px) !important; }
+#opsConsultantWrap { min-height: 440px !important; height: clamp(440px, 50vh, 600px) !important; }
+#fcrChartWrap   { min-height: 320px !important; height: clamp(320px, 36vh, 460px) !important; }
+#trueFcrChartWrap { min-height: 320px !important; height: clamp(320px, 36vh, 460px) !important; }
+#csTeamTrendWrap  { min-height: 300px !important; height: clamp(300px, 34vh, 420px) !important; }
+#csTeamSolvedWrap { min-height: 300px !important; height: clamp(300px, 34vh, 420px) !important; }
+#voiceAiTrendWrap { min-height: 340px !important; height: clamp(340px, 38vh, 480px) !important; }
+/* Portal / starter-guides pages */
+#timeseriesWrap { min-height: 360px !important; height: clamp(360px, 42vh, 520px) !important; }
+#metricsTimeseriesWrap { min-height: 360px !important; height: clamp(360px, 42vh, 520px) !important; }
 
 /* ── Canvas stage ───────────────────────────────────────────────────────────── */
 /* flex:1 fills all height after toolbar. overflow:visible is critical —        */
