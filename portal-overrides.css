@@ -1397,7 +1397,9 @@ body.pro-dashboard .ux-chart-wrap {
 /* All earlier conflicting chart blocks above are superseded by this section.  */
 /* ========================================================================== */
 
-/* ── 1. Chart wrapper: flex column so toolbar + canvas stack cleanly ── */
+/* ── 1. Chart wrapper: JS sets explicit pixel height (applyWrapHeight) ── */
+/* We use display:flex + flex-direction:column so toolbar stacks above stage.
+   JS sets the total pixel height so Chart.js reads it correctly. */
 body.pro-dashboard .chart-wrap,
 body.pro-dashboard .ux-chart-wrap,
 body.pro-dashboard .ux-axis-safe-chart {
@@ -1406,14 +1408,14 @@ body.pro-dashboard .ux-axis-safe-chart {
   flex-direction: column !important;
   gap: 0 !important;
   box-sizing: border-box !important;
-  /* Comfortable height range — gives Chart.js room to fill */
-  min-height: 360px !important;
-  height: clamp(360px, 42vh, 520px) !important;
-  overflow: visible !important;          /* axis labels must not be clipped */
+  /* Heights are set in pixels by portal-system.js applyWrapHeight() */
+  /* These are fallback minimums only */
+  min-height: 320px !important;
+  overflow: visible !important;
   padding: 14px 14px 20px !important;
 }
 
-/* Taller wraps for horizontal-bar charts (many labels on y-axis) */
+/* Taller/mini classes used by JS to know target heights - no height CSS needed here */
 body.pro-dashboard #callReasonChartWrap,
 body.pro-dashboard #opsConsultantWrap,
 body.pro-dashboard #csTeamTrendWrap,
@@ -1421,17 +1423,14 @@ body.pro-dashboard #csTeamSolvedWrap,
 body.pro-dashboard .chart-wrap:has(canvas[id*="reason" i]),
 body.pro-dashboard .chart-wrap:has(canvas[id*="consultant" i]),
 body.pro-dashboard .chart-wrap:has(canvas[id*="question" i]) {
-  min-height: 440px !important;
-  height: clamp(440px, 54vh, 640px) !important;
+  /* heights managed by JS CHART_HEIGHT_DENSE constant */
 }
 
-/* Mini charts (e.g. hour insight) */
+/* Mini charts */
 body.pro-dashboard .chart-wrap.ux-mini-chart,
 body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
 body.pro-dashboard #hourChartWrap {
-  min-height: 260px !important;
-  height: 260px !important;
-  max-height: 280px !important;
+  /* heights managed by JS CHART_HEIGHT_MINI constant */
 }
 
 /* Cards that contain charts should not clip them */
@@ -1455,23 +1454,22 @@ body.pro-dashboard .ux-chart-toolbar {
   box-shadow: 0 10px 22px rgba(15,23,42,.045), inset 0 1px 0 rgba(255,255,255,.95) !important;
 }
 
-/* ── 3. Canvas stage: fills all remaining space in the flex column ── */
+/* ── 3. Canvas stage: sized explicitly via JS (applyWrapHeight) ── */
 body.pro-dashboard .ux-canvas-stage {
   position: relative !important;
   display: block !important;
-  flex: 1 1 0 !important;          /* fill remaining height after toolbar */
-  min-height: 0 !important;        /* allow shrinking below content size */
+  /* height is set in pixels by portal-system.js applyWrapHeight() */
   width: 100% !important;
   overflow: hidden !important;
   border-radius: 12px !important;
 }
 
-/* ── 4. Canvas inside stage: fill 100% of stage ── */
+/* ── 4. Canvas: fill stage width and height ── */
+/* MUST NOT be position:absolute — Chart.js v4 ResizeObserver observes the canvas
+   element and uses getBoundingClientRect() for hit detection. Absolute positioning
+   causes ResizeObserver to fire with incorrect dimensions and hover to break. */
 body.pro-dashboard .ux-canvas-stage > canvas {
   display: block !important;
-  position: absolute !important;   /* let Chart.js size it properly */
-  top: 0 !important;
-  left: 0 !important;
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
@@ -1482,9 +1480,8 @@ body.pro-dashboard .ux-canvas-stage > canvas {
 body.pro-dashboard .chart-wrap > canvas:not(.ux-staged),
 body.pro-dashboard .ux-chart-wrap > canvas:not(.ux-staged) {
   display: block !important;
-  flex: 1 1 auto !important;
   width: 100% !important;
-  min-height: 0 !important;
+  min-height: 240px !important;
   max-height: none !important;
 }
 

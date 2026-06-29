@@ -147,6 +147,44 @@
     return canvases.map(c => Chart.getChart(c)).filter(Boolean);
   }
 
+  // Minimum and target heights for chart containers
+  const CHART_HEIGHT_DEFAULT = 360;
+  const CHART_HEIGHT_DENSE   = 440; // horizontal-bar charts with many y-labels
+  const CHART_HEIGHT_MINI    = 260;
+
+  function getTargetWrapHeight(wrap, canvas) {
+    if (!wrap) return CHART_HEIGHT_DEFAULT;
+    const id = String(canvas?.id || '').toLowerCase();
+    const isMini = wrap.classList.contains('ux-mini-chart') ||
+                   id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
+    if (isMini) return CHART_HEIGHT_MINI;
+    const isDense = id.includes('reason') || id.includes('consultant') || id.includes('question');
+    if (isDense) return CHART_HEIGHT_DENSE;
+    return CHART_HEIGHT_DEFAULT;
+  }
+
+  // Apply the correct pixel height to a chart-wrap and its stage.
+  // We MUST set a real pixel height (not just CSS flex/clamp) because:
+  // - chart-wrap divs have inline style="height:Xpx" which blocks CSS !important
+  // - Chart.js v4 reads parentNode.clientHeight to size its canvas
+  // - Without a real pixel height on the stage, canvas renders at 0px and hover breaks
+  function applyWrapHeight(wrap, canvas) {
+    if (!wrap) return;
+    const target = getTargetWrapHeight(wrap, canvas);
+    // Always override any inline or legacy height
+    wrap.style.height = target + 'px';
+    wrap.style.minHeight = target + 'px';
+    // Find the toolbar to compute available canvas space
+    const toolbar = wrap.querySelector('.ux-chart-toolbar');
+    const toolbarH = toolbar ? (toolbar.offsetHeight || 50) + 10 : 0; // 10px gap
+    const stageH = Math.max(200, target - toolbarH - 28); // 28px for wrap padding
+    const stage = wrap.querySelector('.ux-canvas-stage');
+    if (stage) {
+      stage.style.height = stageH + 'px';
+      stage.style.minHeight = stageH + 'px';
+    }
+  }
+
   function ensureCanvasStage(canvas, wrap) {
     if (!canvas || isUxInternalCanvas(canvas)) return canvas?.parentElement || null;
     if (canvas.closest('#uxChartStudio, #chartModal')) return canvas.parentElement || null;
@@ -167,15 +205,19 @@
 
   function scheduleChartResize(chart) {
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
-    const resize = () => {
+    const canvas = chart.canvas;
+    const wrap = canvas.closest('.chart-wrap') || canvas.closest('.ux-canvas-stage')?.parentElement;
+    const doResize = () => {
       try {
+        if (wrap) applyWrapHeight(wrap, canvas);
         chart.resize();
         chart.update('none');
       } catch (_) {}
     };
-    requestAnimationFrame(resize);
-    setTimeout(resize, 80);
-    setTimeout(resize, 350);
+    requestAnimationFrame(doResize);
+    setTimeout(doResize, 80);
+    setTimeout(doResize, 350);
+    setTimeout(doResize, 800); // extra pass for late-loading pages
   }
 
   function polishChartLayout(chart) {
@@ -185,21 +227,18 @@
     const wrap = canvas && (canvas.closest('.chart-wrap') || canvas.closest('.ux-canvas-stage')?.parentElement || canvas.parentElement);
     if (wrap) {
       wrap.classList.add('ux-axis-safe-chart');
-      ensureCanvasStage(canvas, wrap);
       const id = String(canvas.id || '').toLowerCase();
       const mini = id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
-      const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant');
       wrap.classList.toggle('ux-mini-chart', !!mini);
-      // Remove any inline height/minHeight set by older code — CSS rules are authoritative.
-      // Inline styles override CSS !important equivalents set via specificity, causing
-      // Chart.js to calculate the wrong pixel buffer (hover hit areas go stale).
-      wrap.style.height = '';
-      wrap.style.minHeight = '';
+      ensureCanvasStage(canvas, wrap);
+      // CRITICAL: set real pixel heights so Chart.js reads the correct container size.
+      // chart-wrap divs have inline style="height:180-230px" in the HTML which blocks
+      // all CSS !important rules. We must override with JS after the stage is inserted.
+      applyWrapHeight(wrap, canvas);
     }
     chart.options.responsive = true;
     chart.options.maintainAspectRatio = false;
-    // Use 'index' mode so tooltip fires anywhere on the vertical slice, not just on a point.
-    // This is the correct UX for time-series and bar charts — matches expanded view behaviour.
+    // 'index' mode fires tooltips on the whole vertical slice, matching expanded view.
     chart.options.interaction = { mode: 'index', intersect: false };
     chart.options.hover = { mode: 'index', intersect: false };
     chart.options.plugins = chart.options.plugins || {};
@@ -671,17 +710,23 @@
     unlockBodyForStudio();
     if (studioChart) { studioChart.destroy(); studioChart = null; }
     if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
-    // Force all dashboard charts to resize + redraw after modal closes.
-    // Without this the canvas pixel dimensions stay stale and charts appear blank.
-    requestAnimationFrame(() => {
-      chartInstances().forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
-    });
-    setTimeout(() => {
-      chartInstances().forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
-    }, 120);
-    setTimeout(() => {
-      chartInstances().forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
-    }, 380);
+    // Reapply pixel heights and force resize on all dashboard charts.
+    // The modal had overflow:hidden on body which causes Chart.js to cache
+    // stale (zero) pixel dimensions — charts appear blank until resized.
+    const fullRefresh = () => {
+      chartInstances().forEach(c => {
+        try {
+          const cv = c.canvas;
+          const wrap = cv && (cv.closest('.chart-wrap') || cv.closest('.ux-canvas-stage')?.parentElement);
+          if (wrap) applyWrapHeight(wrap, cv);
+          c.resize();
+          c.update('none');
+        } catch(_) {}
+      });
+    };
+    requestAnimationFrame(fullRefresh);
+    setTimeout(fullRefresh, 120);
+    setTimeout(fullRefresh, 400);
   }
 
   function ensureCommandPalette() {
@@ -920,6 +965,7 @@
     setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
     setInterval(() => { ensureVoiceAiInTeamDropdowns(); enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); }, 2500);
     UX.refreshCharts = () => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); };
+    UX._applyWrapHeight = applyWrapHeight; // expose for page-level close handlers
     // Resize all charts when the window resizes so pixel buffers stay in sync with CSS layout.
     let _resizeTimer;
     window.addEventListener('resize', () => {
