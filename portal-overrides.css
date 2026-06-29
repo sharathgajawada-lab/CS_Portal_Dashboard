@@ -1454,11 +1454,17 @@ body.pro-dashboard .ux-chart-toolbar {
   box-shadow: 0 10px 22px rgba(15,23,42,.045), inset 0 1px 0 rgba(255,255,255,.95) !important;
 }
 
-/* ── 3. Canvas stage: sized explicitly via JS (applyWrapHeight) ── */
+/* ── 3. Canvas stage: flexes to fill the wrap below the toolbar ──
+   The wrap is a flex column (toolbar + stage). The stage grows to take all the
+   remaining height, giving Chart.js a real, responsive container to size into.
+   This replaces the old JS pixel-sizing, which was timing-dependent and left
+   charts collapsed/blank. min-height:0 lets the flex item shrink correctly. */
 body.pro-dashboard .ux-canvas-stage {
   position: relative !important;
   display: block !important;
-  /* height is set in pixels by portal-system.js applyWrapHeight() */
+  flex: 1 1 auto !important;
+  align-self: stretch !important;
+  min-height: 0 !important;
   width: 100% !important;
   overflow: hidden !important;
   border-radius: 12px !important;

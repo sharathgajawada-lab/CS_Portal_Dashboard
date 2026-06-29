@@ -169,9 +169,9 @@
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
     const resize = () => {
       try {
-        chart.resize();
+        syncChartCanvasMetrics(chart);  // size the stage first…
+        chart.resize();                 // …then let Chart.js fit the canvas to it
         chart.update('none');
-        syncChartCanvasMetrics(chart);
       } catch (_) {}
     };
     requestAnimationFrame(resize);
@@ -182,38 +182,46 @@
   function syncChartCanvasMetrics(chart) {
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
     const canvas = chart.canvas;
-    const width = Number(chart.width || canvas.clientWidth || 0);
-    const height = Number(chart.height || canvas.clientHeight || 0);
-    if (width > 0) canvas.style.setProperty('width', width + 'px', 'important');
-    if (height > 0) canvas.style.setProperty('height', height + 'px', 'important');
+    // Sizing is handled entirely by CSS now: the wrap is a flex column, the stage
+    // flexes to fill the space below the toolbar, and the canvas fills the stage.
+    // We must NOT force inline px sizes on the canvas — that overrides Chart.js's
+    // responsive sizing and leaves hover hit-areas stale (which is why hover only
+    // worked in the expanded studio, and why charts went blank after closing it).
+    // Just clear any stale inline sizes left behind by older builds.
+    canvas.style.removeProperty('width');
+    canvas.style.removeProperty('height');
   }
 
   function polishChartLayout(chart) {
     if (!chart || !chart.options) return;
     const canvas = chart.canvas;
     if (isUxInternalCanvas(canvas) || canvas?.closest('#uxChartStudio, #chartModal')) return;
+    // IMPORTANT: mutate the RAW config options, never the live `chart.options`.
+    // `chart.options` is a Chart.js resolver proxy; doing `x = x || {}` reads the
+    // proxy and assigns it back onto itself, creating a self-referential proxy.
+    // Every later update()/resize() then throws "Recursion detected" and the chart
+    // renders flat/blank (this is why hover/scale only worked in the expanded view,
+    // which is built from a fresh config). config.options is a plain object.
+    const o = (chart.config && chart.config.options) ? chart.config.options : chart.options;
     const wrap = canvas && (canvas.closest('.chart-wrap') || canvas.closest('.ux-canvas-stage')?.parentElement || canvas.parentElement);
     if (wrap) {
       wrap.classList.add('ux-axis-safe-chart');
       ensureCanvasStage(canvas, wrap);
       const id = String(canvas.id || '').toLowerCase();
       const mini = id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
-      const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant');
       wrap.classList.toggle('ux-mini-chart', !!mini);
       // Remove any inline height/minHeight set by older code — CSS rules are authoritative.
-      // Inline styles override CSS !important equivalents set via specificity, causing
-      // Chart.js to calculate the wrong pixel buffer (hover hit areas go stale).
       wrap.style.height = '';
       wrap.style.minHeight = '';
     }
-    chart.options.responsive = true;
-    chart.options.maintainAspectRatio = false;
+    o.responsive = true;
+    o.maintainAspectRatio = false;
     // Use 'index' mode so tooltip fires anywhere on the vertical slice, not just on a point.
     // This is the correct UX for time-series and bar charts — matches expanded view behaviour.
-    chart.options.interaction = { mode: 'index', intersect: false };
-    chart.options.hover = { mode: 'index', intersect: false };
-    chart.options.plugins = chart.options.plugins || {};
-    chart.options.plugins.tooltip = Object.assign({
+    o.interaction = { mode: 'index', intersect: false };
+    o.hover = { mode: 'index', intersect: false };
+    o.plugins = o.plugins || {};
+    o.plugins.tooltip = Object.assign({
       enabled: true,
       displayColors: true,
       backgroundColor: '#ffffff',
@@ -226,13 +234,13 @@
       caretSize: 6,
       titleFont: { weight: '800', size: 12 },
       bodyFont: { weight: '650', size: 12 }
-    }, chart.options.plugins.tooltip || {});
-    chart.options.layout = chart.options.layout || {};
-    const oldPadding = typeof chart.options.layout.padding === 'object' ? chart.options.layout.padding : {};
-    chart.options.layout.padding = Object.assign({ top: 10, right: 14, bottom: 38, left: 8 }, oldPadding, {
+    }, o.plugins.tooltip || {});
+    o.layout = o.layout || {};
+    const oldPadding = typeof o.layout.padding === 'object' ? o.layout.padding : {};
+    o.layout.padding = Object.assign({ top: 10, right: 14, bottom: 38, left: 8 }, oldPadding, {
       bottom: Math.max(Number(oldPadding.bottom || 0), 38)
     });
-    const scales = chart.options.scales || {};
+    const scales = o.scales || {};
     Object.entries(scales).forEach(([id, scale]) => {
       if (!scale || typeof scale !== 'object') return;
       scale.ticks = scale.ticks || {};
@@ -271,18 +279,21 @@
     chartInstances().forEach(chart => {
       try {
         polishChartLayout(chart);
-        if (chart.options?.scales) {
-          Object.values(chart.options.scales).forEach(scale => {
+        // Mutate raw config options (not the chart.options proxy) — see polishChartLayout.
+        const o = (chart.config && chart.config.options) ? chart.config.options : chart.options;
+        if (o?.scales) {
+          Object.values(o.scales).forEach(scale => {
             if (scale.grid) scale.grid.color = grid;
             if (scale.ticks) scale.ticks.color = text;
             if (scale.title) scale.title.color = title;
           });
         }
-        const plugins = chart.options.plugins || {};
+        const plugins = o.plugins || {};
         if (plugins.legend?.labels) plugins.legend.labels.color = text;
         if (plugins.title) plugins.title.color = title;
-        chart.update('none');
         syncChartCanvasMetrics(chart);
+        chart.resize();
+        chart.update('none');
       } catch (_) {}
     });
   }
@@ -533,9 +544,9 @@
     try {
       const canvas = chart.canvas;
       // Ensure the chart is properly sized before export
+      syncChartCanvasMetrics(chart);
       chart.resize();
       chart.update('none');
-      syncChartCanvasMetrics(chart);
       // Use a slight delay to allow the render cycle to complete
       setTimeout(() => {
         try {
@@ -686,13 +697,13 @@
     // Force all dashboard charts to resize + redraw after modal closes.
     // Without this the canvas pixel dimensions stay stale and charts appear blank.
     requestAnimationFrame(() => {
-      chartInstances().forEach(c => { try { c.resize(); c.update('none'); syncChartCanvasMetrics(c); } catch(_) {} });
+      chartInstances().forEach(c => { try { syncChartCanvasMetrics(c); c.resize(); c.update('none'); } catch(_) {} });
     });
     setTimeout(() => {
-      chartInstances().forEach(c => { try { c.resize(); c.update('none'); syncChartCanvasMetrics(c); } catch(_) {} });
+      chartInstances().forEach(c => { try { syncChartCanvasMetrics(c); c.resize(); c.update('none'); } catch(_) {} });
     }, 120);
     setTimeout(() => {
-      chartInstances().forEach(c => { try { c.resize(); c.update('none'); syncChartCanvasMetrics(c); } catch(_) {} });
+      chartInstances().forEach(c => { try { syncChartCanvasMetrics(c); c.resize(); c.update('none'); } catch(_) {} });
     }, 380);
   }
 

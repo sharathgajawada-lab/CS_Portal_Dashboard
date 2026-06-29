@@ -3205,7 +3205,7 @@ async def starter_guides_page():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    with open("index.html") as f: html = f.read()
+    with open("index.html", encoding="utf-8") as f: html = f.read()
     return HTMLResponse(content=html,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache"})
@@ -3213,7 +3213,7 @@ async def dashboard():
 @app.get("/csat", response_class=HTMLResponse)
 async def csat_page():
     """Call Quality & CSAT page — served from csat.html."""
-    with open("csat.html") as f: html = f.read()
+    with open("csat.html", encoding="utf-8") as f: html = f.read()
     return HTMLResponse(content=html,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "Pragma": "no-cache"})
