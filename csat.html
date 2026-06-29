@@ -3916,25 +3916,13 @@ function closeChartModal() {
   document.getElementById('chartModal').style.display = 'none';
   document.body.style.overflow = '';
   if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
-  // Reapply heights and force resize — modal overflow:hidden causes Chart.js
-  // to cache stale zero-pixel dimensions, making charts appear blank after close.
+  // Force all dashboard charts to resize and redraw.
+  // Chart.js pixel dimensions go stale while the modal has overflow:hidden on body.
   const allCharts = Object.values(charts || {}).filter(c => c && typeof c.resize === 'function');
-  const fullRefresh = () => {
-    allCharts.forEach(c => {
-      try {
-        const cv = c.canvas;
-        const wrap = cv && (cv.closest('.chart-wrap') || cv.closest('.ux-canvas-stage')?.parentElement);
-        if (wrap && window.DashboardUX?._applyWrapHeight) {
-          window.DashboardUX._applyWrapHeight(wrap, cv);
-        }
-        c.resize();
-        c.update('none');
-      } catch(_) {}
-    });
-  };
-  requestAnimationFrame(fullRefresh);
-  setTimeout(fullRefresh, 120);
-  setTimeout(fullRefresh, 400);
+  const resize = () => allCharts.forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
+  requestAnimationFrame(resize);
+  setTimeout(resize, 120);
+  setTimeout(resize, 380);
 }
 
 // Chart modal listeners — attached in init()
@@ -3971,6 +3959,6 @@ waitForChart(init);
 
 
 
-<script defer src="portal-system.js?v=2026-06-25-v10-frank-ai-axis"></script>
+<script defer src="portal-system.js?v=2026-06-29-v11-chart-lifecycle-fix"></script>
 </body>
 </html>
