@@ -469,14 +469,14 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
     <div class="section-header">
       <div>
         <div class="section-title">Journey Overview</div>
-        <div class="section-sub">Search journeys by customer Global ID</div>
+        <div class="section-sub">All active guides — or filter by customer Global ID</div>
       </div>
     </div>
 
     <!-- Search bar -->
     <div class="search-wrap">
       <input class="search-input" type="text" id="customerGidInput"
-        placeholder="Enter Customer GID (e.g. gid://…)" autocomplete="off"
+        placeholder="Filter by Customer GID (leave blank for all active guides)" autocomplete="off"
         onkeydown="if(event.key==='Enter')searchJourneys()">
       <input type="date" id="journeyFrom" style="height:34px;padding:0 8px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface2);font-size:12px;color-scheme:light">
       <span style="font-size:12px;color:var(--text3)">→</span>
@@ -557,8 +557,8 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
         </div>
       </div>
       <div class="card">
-        <div class="card-title">Completions Over Time</div>
-        <div class="card-sub">Completed guides grouped by week</div>
+        <div class="card-title">Journeys Started Over Time</div>
+        <div class="card-sub">New active journeys grouped by week (API)</div>
         <div class="chart-wrap" style="height:220px">
           <canvas id="completionsChart"></canvas>
         </div>
@@ -568,8 +568,8 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
     <!-- Charts row 2 -->
     <div class="two-col" style="margin-bottom:16px">
       <div class="card">
-        <div class="card-title">Top Question Keys</div>
-        <div class="card-sub">Most-answered questions across all journeys</div>
+        <div class="card-title">Top Guides by Coverage</div>
+        <div class="card-sub">Active journeys including each guide (API)</div>
         <div class="chart-wrap" style="height:280px">
           <canvas id="topQuestionsChart"></canvas>
         </div>
@@ -608,6 +608,7 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
 // ── State ──────────────────────────────────────────────────────────────────────
 const state = {
   currentGid: '',
+  journeyMode: 'active',   // 'active' = all active customers, 'gid' = single-customer search
   journeySkip: 0,
   journeyLimit: 12,
   journeyTotal: 0,
@@ -625,6 +626,8 @@ window.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       document.getElementById('loading').style.display = 'none';
       document.getElementById('appRoot').style.display = '';
+      // Auto-load every active guide from the service — no GID required.
+      loadActiveJourneys();
     }, 300);
   }, 400);
 });
@@ -701,13 +704,46 @@ async function apiFetch(path) {
 }
 
 // ── Section 1 — Journey Overview ───────────────────────────────────────────────
+
+// Pull every customer with an active journey from the service, flatten their
+// journeys into a single grid, and render them. This is the default view —
+// it surfaces all active guides without the user typing a GID.
+async function loadActiveJourneys(skip = 0) {
+  state.journeyMode  = 'active';
+  state.currentGid   = '';
+  state.journeySkip  = skip;
+
+  const res = document.getElementById('journeyResults');
+  res.innerHTML = `<div class="journey-grid">${[...Array(4)].map(() =>
+    '<div class="skeleton skeleton-card"></div>').join('')}</div>`;
+
+  try {
+    const data = await apiFetch(
+      `/api/sg/journeys/active-customers?limit=${state.journeyLimit}&skip=${skip}`);
+
+    // data.data = [{ customerGid, journeys: [...] }]. Flatten to one journey
+    // list, making sure each journey carries its customerGid for the detail view.
+    const customers = data.data || [];
+    const journeys = customers.flatMap(c =>
+      (c.journeys || []).map(j => ({ ...j, customerGid: j.customerGid || c.customerGid })));
+
+    state.journeys = journeys;
+    // meta.total counts customers; pagination below is per customer page.
+    state.journeyTotal = (data.meta || {}).total || customers.length;
+
+    renderJourneyGrid(journeys);
+  } catch(e) {
+    renderJourneyError(e);
+  }
+}
+
 async function searchJourneys(skip = 0) {
   const gid = document.getElementById('customerGidInput').value.trim();
   if (!gid) {
-    document.getElementById('journeyResults').innerHTML =
-      '<div class="card"><div class="empty-state"><div class="em-icon">🔍</div><div class="em-msg">Enter a Customer GID to search</div></div></div>';
-    return;
+    // No GID → fall back to the full active-guides view.
+    return loadActiveJourneys(0);
   }
+  state.journeyMode  = 'gid';
   state.currentGid   = gid;
   state.journeySkip  = skip;
   const btn = document.getElementById('journeySearchBtn');
@@ -732,19 +768,23 @@ async function searchJourneys(skip = 0) {
 
     renderJourneyGrid(journeys);
   } catch(e) {
-    const is502 = e.message.includes('502') || e.message.includes('503');
-    res.innerHTML = `<div class="card"><div class="error-state">
-      <div class="err-icon">${is502 ? '🔌' : '⚠️'}</div>
-      <div class="err-msg">${is502 ? 'Cannot reach Starter Guide Service' : 'Failed to load journeys'}</div>
-      <div class="err-sub">${esc(e.message)}</div>
-      ${is502 ? `<div class="err-sub" style="margin-top:8px">
-        Check <a href="/debug/sg" target="_blank" style="color:var(--blue)">→ /debug/sg</a>
-        to diagnose connectivity
-      </div>` : ''}
-    </div></div>`;
+    renderJourneyError(e);
   } finally {
     btn.disabled = false; btn.textContent = 'Search';
   }
+}
+
+function renderJourneyError(e) {
+  const is502 = e.message.includes('502') || e.message.includes('503');
+  document.getElementById('journeyResults').innerHTML = `<div class="card"><div class="error-state">
+    <div class="err-icon">${is502 ? '🔌' : '⚠️'}</div>
+    <div class="err-msg">${is502 ? 'Cannot reach Starter Guide Service' : 'Failed to load journeys'}</div>
+    <div class="err-sub">${esc(e.message)}</div>
+    ${is502 ? `<div class="err-sub" style="margin-top:8px">
+      Check <a href="/debug/sg" target="_blank" style="color:var(--blue)">→ /debug/sg</a>
+      to diagnose connectivity
+    </div>` : ''}
+  </div></div>`;
 }
 
 function renderJourneyGrid(journeys) {
@@ -752,10 +792,11 @@ function renderJourneyGrid(journeys) {
   const pag = document.getElementById('journeyPagination');
 
   if (!journeys.length) {
+    const activeMode = state.journeyMode === 'active';
     res.innerHTML = `<div class="card"><div class="empty-state">
       <div class="em-icon">📭</div>
-      <div class="em-msg">No journeys found for this customer</div>
-      <div class="em-sub">Try adjusting the date range or verifying the GID</div>
+      <div class="em-msg">${activeMode ? 'No active journeys right now' : 'No journeys found for this customer'}</div>
+      <div class="em-sub">${activeMode ? 'No customer currently has an in-progress journey' : 'Try adjusting the date range or verifying the GID'}</div>
     </div></div>`;
     pag.style.display = 'none';
     return;
@@ -786,7 +827,8 @@ function renderJourneyGrid(journeys) {
   const curPage    = Math.floor(state.journeySkip / state.journeyLimit) + 1;
   if (totalPages > 1) {
     pag.style.display = 'flex';
-    document.getElementById('journeyPageInfo').textContent = `Page ${curPage} of ${totalPages} (${state.journeyTotal} total)`;
+    const unit = state.journeyMode === 'active' ? 'customers' : 'total';
+    document.getElementById('journeyPageInfo').textContent = `Page ${curPage} of ${totalPages} (${state.journeyTotal} ${unit})`;
     document.getElementById('journeyPrevBtn').disabled = (curPage <= 1);
     document.getElementById('journeyNextBtn').disabled = (curPage >= totalPages);
   } else {
@@ -797,7 +839,9 @@ function renderJourneyGrid(journeys) {
 function journeyPage(dir) {
   const newSkip = state.journeySkip + dir * state.journeyLimit;
   if (newSkip < 0) return;
-  searchJourneys(newSkip);
+  // Page within whichever mode is active.
+  if (state.journeyMode === 'active') loadActiveJourneys(newSkip);
+  else                                searchJourneys(newSkip);
 }
 
 // ── Section 2 — Journey Detail ─────────────────────────────────────────────────
@@ -1179,13 +1223,17 @@ async function loadMetrics() {
   Object.values(state.charts).forEach(c => { try { c.destroy() } catch {} });
   state.charts = {};
 
-  // Fetch CMS time-series in parallel
-  const [opensData, slidesData, answersData] = await Promise.allSettled([
+  // Fetch API-derived summary + CMS event time-series in parallel.
+  // The summary comes straight from the journeys service (live counts,
+  // completion, funnel); the CMS series cover opens/answers event tracking.
+  const [summaryData, opensData, slidesData, answersData] = await Promise.allSettled([
+    apiFetch('/api/sg/metrics/summary'),
     apiFetch('/api/sg/metrics/timeseries?event=starter_guide.opened'),
     apiFetch('/api/sg/metrics/topn?event=starter_guide.slide_viewed&group_by=itemId&n=20'),
     apiFetch('/api/sg/metrics/timeseries?event=starter_guide.answer_submitted'),
   ]);
 
+  const summary       = summaryData.status === 'fulfilled' ? summaryData.value : null;
   const opensSeries   = opensData.status   === 'fulfilled' ? (opensData.value.series   || []) : [];
   const slideTop      = slidesData.status  === 'fulfilled' ? (slidesData.value.top      || []) : [];
   const answerSeries  = answersData.status === 'fulfilled' ? (answersData.value.series  || []) : [];
@@ -1194,14 +1242,13 @@ async function loadMetrics() {
   const totalOpens   = opensSeries.reduce((s, p) => s + (p.count || 0), 0);
   const totalAnswers = answerSeries.reduce((s, p) => s + (p.count || 0), 0);
 
-  // KPI row — populate what we know from CMS; REST-side aggregates shown as N/A
-  // (detailed guide counts require iterating over journeys which is not cached)
+  // KPI row — lead with live API aggregates, then CMS event counts.
   kpiRow.innerHTML = [
-    { label: 'Guide Opens (CMS)', value: totalOpens.toLocaleString(), sub: 'starter_guide.opened events', color: '#2563eb' },
-    { label: 'Answer Submissions', value: totalAnswers.toLocaleString(), sub: 'answer_submitted events', color: '#059669' },
-    { label: 'Slide Variants Tracked', value: slideTop.length.toString(), sub: 'unique slide IDs in CMS', color: '#7c3aed' },
-    { label: 'Completion Rate', value: 'See funnel →', sub: 'load journeys for detail', color: '#d97706', small: true },
-    { label: 'Top Slide Views', value: slideTop[0] ? String(slideTop[0].count || '—') : '—', sub: slideTop[0] ? esc(slideTop[0].label || slideTop[0].id || '') : 'no data', color: '#0d9488' },
+    { label: 'Active Journeys', value: summary ? summary.activeJourneys.toLocaleString() : '—', sub: summary ? `${summary.activeCustomers.toLocaleString()} active customers` : 'API unavailable', color: '#2563eb' },
+    { label: 'Completion Rate', value: summary ? `${summary.completionRate}%` : '—', sub: summary ? `${summary.completedGuides.toLocaleString()} / ${summary.totalGuides.toLocaleString()} guides` : 'load API', color: '#059669' },
+    { label: 'Guide Opens (CMS)', value: totalOpens.toLocaleString(), sub: 'starter_guide.opened events', color: '#7c3aed' },
+    { label: 'Answer Submissions (CMS)', value: totalAnswers.toLocaleString(), sub: 'answer_submitted events', color: '#d97706' },
+    { label: 'Slide Variants Tracked', value: slideTop.length.toString(), sub: 'unique slide IDs in CMS', color: '#0d9488' },
   ].map(k => `
     <div class="kpi" style="--kpi-accent:${k.color}">
       <div class="kpi-label">${k.label}</div>
@@ -1252,23 +1299,25 @@ async function loadMetrics() {
     showChartEmpty('dropoffChart', `No slide view data in CMS project "${cmsProject}"`, true);
   }
 
-  // ── Completions over time (line) — placeholder from opensSeries bucketed by week ──
+  // ── Journeys started over time (line) — from the API startsByDay, by week ──
+  const startsSeries = (summary && summary.startsByDay) || [];
   const weekBuckets = {};
-  opensSeries.forEach(p => {
+  startsSeries.forEach(p => {
     const d = new Date(p.date);
     const weekStart = new Date(d); weekStart.setDate(d.getDate() - d.getDay());
     const key = weekStart.toISOString().slice(0,10);
-    weekBuckets[key] = (weekBuckets[key] || 0) + p.count;
+    weekBuckets[key] = (weekBuckets[key] || 0) + (p.count || 0);
   });
   const weekKeys   = Object.keys(weekBuckets).sort();
   const weekCounts = weekKeys.map(k => weekBuckets[k]);
+  const completionsSub = document.querySelector('#s4 .two-col .card .card-sub');
   if (weekKeys.length) {
     const ctx = document.getElementById('completionsChart').getContext('2d');
     state.charts.completions = new Chart(ctx, {
       type: 'line',
       data: {
         labels: weekKeys,
-        datasets: [{ label: 'Opens/wk (CMS)', data: weekCounts, borderColor: '#0d9488', backgroundColor: '#0d948822', fill: true, tension: 0.3, pointRadius: 2 }],
+        datasets: [{ label: 'Journeys started/wk', data: weekCounts, borderColor: '#0d9488', backgroundColor: '#0d948822', fill: true, tension: 0.3, pointRadius: 2 }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -1280,36 +1329,58 @@ async function loadMetrics() {
       },
     });
   } else {
-    showChartEmpty('completionsChart', `No time-series data in CMS project "${cmsProject}"`, true);
+    showChartEmpty('completionsChart', 'Journeys API unavailable — no start dates');
   }
 
-  // ── Funnel chart — static placeholder (requires iterating journeys) ─────────
-  const funnelCtx = document.getElementById('funnelChart').getContext('2d');
-  state.charts.funnel = new Chart(funnelCtx, {
-    type: 'bar',
-    data: {
-      labels: ['0', '1', '2', '3', '4+'],
-      datasets: [
-        { label: 'PARTIAL', data: [0,0,0,0,0], backgroundColor: '#fef3c7', borderColor: '#d97706', borderWidth: 1 },
-        { label: 'COMPLETE', data: [0,0,0,0,0], backgroundColor: '#d1fae5', borderColor: '#059669', borderWidth: 1 },
-        { label: 'LOCKED',   data: [0,0,0,0,0], backgroundColor: '#f3f4f6', borderColor: '#9ca3af', borderWidth: 1 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'top', labels: { font: { size: 10 } } },
-        title: { display: true, text: 'Load a journey search to populate', color: '#9ca3af', font: { size: 10 } },
+  // ── Completion funnel — live, from the journeys API ─────────────────────────
+  if (summary && summary.funnel) {
+    const fLabels = ['0', '1', '2', '3', '4+'];
+    const fCounts = fLabels.map(l => summary.funnel[l] || 0);
+    const funnelCtx = document.getElementById('funnelChart').getContext('2d');
+    state.charts.funnel = new Chart(funnelCtx, {
+      type: 'bar',
+      data: {
+        labels: fLabels,
+        datasets: [{ label: 'Active journeys', data: fCounts, backgroundColor: '#2563eb88', borderColor: '#2563eb', borderWidth: 1 }],
       },
-      scales: {
-        x: { stacked: true, ticks: { font: { size: 10 } }, title: { display: true, text: '# Guides completed', font: { size: 10 } } },
-        y: { stacked: true, ticks: { font: { size: 10 } } },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          title: { display: true, text: `${summary.activeJourneys.toLocaleString()} active journeys · ${summary.completionRate}% guide completion`, color: '#64748b', font: { size: 10 } },
+        },
+        scales: {
+          x: { ticks: { font: { size: 10 } }, title: { display: true, text: '# Guides completed', font: { size: 10 } } },
+          y: { ticks: { font: { size: 10 } }, beginAtZero: true, title: { display: true, text: 'Journeys', font: { size: 10 } } },
+        },
       },
-    },
-  });
+    });
+  } else {
+    showChartEmpty('funnelChart', 'Journeys API unavailable — cannot compute funnel');
+  }
 
-  // ── Top Questions chart — needs journey data, show empty ─────────────────
-  showChartEmpty('topQuestionsChart', 'Search journeys first, then revisit Metrics for question aggregates');
+  // ── Top guides by coverage — how many active journeys include each guide ────
+  const perGuide = (summary && summary.perGuide) || [];
+  if (perGuide.length) {
+    const labels = perGuide.slice(0,15).map(r => String(r.title || r.templateId).slice(0,32));
+    const counts = perGuide.slice(0,15).map(r => r.expected || 0);
+    const ctx = document.getElementById('topQuestionsChart').getContext('2d');
+    state.charts.topQuestions = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Active journeys', data: counts, backgroundColor: '#7c3aed88', borderColor: '#7c3aed', borderWidth: 1 }] },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, title: { display: true, text: 'Active journeys including each guide', color: '#64748b', font: { size: 10 } } },
+        scales: {
+          x: { grid: { color: '#dde1ec' }, ticks: { font: { size: 10 } }, beginAtZero: true },
+          y: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  } else {
+    showChartEmpty('topQuestionsChart', 'Journeys API unavailable — no guide breakdown');
+  }
   _metricsLoaded = true;
 }
 
