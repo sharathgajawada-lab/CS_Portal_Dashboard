@@ -169,6 +169,11 @@
   }
 
   function scheduleChartResize(chart) {
+    // v7.12: CSS (portal-overrides.css v7.12 block) owns canvas positioning.
+    // This function must NOT set inline position/size styles on the canvas —
+    // that created an arms-race with !important CSS rules and caused clipping.
+    // We only: (a) add the right classes to the wrap so CSS kicks in,
+    //          (b) call chart.resize() so Chart.js re-measures the now-correct box.
     if (!chart || !chart.canvas || isUxInternalCanvas(chart.canvas)) return;
     const run = () => {
       try {
@@ -176,44 +181,42 @@
         if (!canvas || canvas.closest('#uxChartStudio, #chartModal')) return;
         const wrap = canvas.closest('.chart-wrap') || canvas.closest('.ux-chart-wrap') || canvas.parentElement;
         if (!wrap) return;
+
+        // Add classes so the CSS v7.12 block applies the correct layout.
         wrap.classList.add('ux-chart-wrap', 'ux-direct-canvas', 'ux-render-locked', 'ux-axis-safe-chart');
         const id = String(canvas.id || '').toLowerCase();
         const isMini = id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
-        const isDense = chart.options?.indexAxis === 'y' || id.includes('reason') || id.includes('consultant') || id.includes('question') || id.includes('category');
-        const targetHeight = isMini ? 260 : (isDense ? 500 : 420);
-        if (!wrap.style.height || wrap.getBoundingClientRect().height < targetHeight - 30) {
-          wrap.style.height = targetHeight + 'px';
-          wrap.style.minHeight = targetHeight + 'px';
-        }
-        const toolbar = wrap.querySelector('.ux-chart-toolbar');
-        const topReserve = toolbar ? Math.max(58, Math.ceil(toolbar.getBoundingClientRect().height + 22)) : 18;
-        canvas.style.display = 'block';
+        wrap.classList.toggle('ux-mini-chart', isMini);
+
+        // Strip any conflicting inline canvas geometry from older code paths.
+        // CSS !important rules handle positioning; inline styles can override them
+        // only if they appear after the stylesheet, so we must clear them.
+        canvas.style.removeProperty('position');
+        canvas.style.removeProperty('top');
+        canvas.style.removeProperty('left');
+        canvas.style.removeProperty('right');
+        canvas.style.removeProperty('bottom');
+        canvas.style.removeProperty('width');
+        canvas.style.removeProperty('height');
+        canvas.style.removeProperty('max-width');
+        canvas.style.removeProperty('max-height');
+        canvas.style.removeProperty('margin');
+        // Ensure visibility is set (non-layout properties are safe).
+        canvas.style.display    = 'block';
         canvas.style.visibility = 'visible';
-        canvas.style.opacity = '1';
-        canvas.style.position = 'absolute';
-        canvas.style.left = '18px';
-        canvas.style.right = '18px';
-        canvas.style.top = topReserve + 'px';
-        canvas.style.bottom = '18px';
-        canvas.style.width = 'calc(100% - 36px)';
-        canvas.style.height = 'calc(100% - ' + (topReserve + 18) + 'px)';
-        canvas.style.maxWidth = 'calc(100% - 36px)';
-        canvas.style.maxHeight = 'none';
-        canvas.style.margin = '0';
-        canvas.style.zIndex = '1';
-        const box = canvas.getBoundingClientRect();
-        const w = Math.max(240, Math.floor(box.width || wrap.clientWidth - 36));
-        const h = Math.max(isMini ? 140 : 240, Math.floor(box.height || targetHeight - topReserve - 18));
-        if (typeof chart.resize === 'function') chart.resize(w, h);
+        canvas.style.opacity    = '1';
+        canvas.style.zIndex     = '1';
+
+        // Let Chart.js re-measure the canvas bounding box.
+        if (typeof chart.resize === 'function') chart.resize();
         if (typeof chart.update === 'function') chart.update('none');
       } catch (_) {}
     };
     requestAnimationFrame(run);
-    setTimeout(run, 60);
-    setTimeout(run, 180);
-    setTimeout(run, 420);
-    setTimeout(run, 900);
-    setTimeout(run, 1800);
+    setTimeout(run, 80);
+    setTimeout(run, 260);
+    setTimeout(run, 600);
+    setTimeout(run, 1400);
   }
 
   function polishChartLayout(chart) {

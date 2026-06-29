@@ -504,7 +504,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
 
 
 </style>
-<link rel="stylesheet" href="portal-overrides.css?v=2026-06-29-v711-verified-visible-charts">
+<link rel="stylesheet" href="portal-overrides.css?v=2026-06-29-v712-chart-fix">
 </head>
 <body data-dashboard-page="/">
 
@@ -657,7 +657,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
       </div>
     </div>
     <div class="card">
-      <div class="chart-wrap" style="height:220px">
+      <div class="chart-wrap" >
         <button class="chart-expand-btn" onclick="expandChart(charts.trend,'Engagement trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="trendChart"></canvas>
       </div>
@@ -680,7 +680,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         </div>
         <button class="chart-expand-btn" onclick="expandChart(charts.conversionChart,'Conversion rate')" title="Expand chart" aria-label="Expand chart">⤢</button>
       </div>
-      <div class="chart-wrap" style="height:200px">
+      <div class="chart-wrap" >
         <canvas id="conversionChart"></canvas>
       </div>
     </div>
@@ -711,7 +711,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
             </select>
           </div>
         </div>
-        <div class="chart-wrap" style="height:180px">
+        <div class="chart-wrap" >
           <button class="chart-expand-btn" onclick="expandChart(charts.cat,'Content categories')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="catChart"></canvas>
         </div>
@@ -747,7 +747,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <div class="card">
           <div class="card-title">&#x23F0; Peak usage hours (UTC)</div>
           <div class="card-sub">When users are most active</div>
-          <div class="chart-wrap" style="height:150px;margin-top:8px">
+          <div class="chart-wrap" style="margin-top:8px">
             <canvas id="hourInsightChart"></canvas>
           </div>
         </div>
@@ -770,7 +770,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           </div>
           <div id="artVidChart_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" style="height:200px;margin-top:6px">
+        <div class="chart-wrap" style="margin-top:6px">
           <button class="chart-expand-btn" onclick="expandChart(charts.artVidChart,'Videos watched per login')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="artVidChart"></canvas>
         </div>
@@ -791,7 +791,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
           </div>
           <div id="consumptionChart_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" style="height:200px;margin-top:6px">
+        <div class="chart-wrap" style="margin-top:6px">
           <button class="chart-expand-btn" onclick="expandChart(charts.consumptionChart,'Daily consumption rate')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="consumptionChart"></canvas>
         </div>
@@ -889,7 +889,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
             <div class="card-sub">Average session length · grouped by section controls above</div>
           </div>
         </div>
-        <div class="chart-wrap" style="height:170px" id="sessionTrendWrap">
+        <div class="chart-wrap"  id="sessionTrendWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.sessionTrend,'Session duration trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="sessionTrendChart"></canvas>
         </div>
@@ -897,7 +897,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
       <div class="card">
         <div class="card-title">Time by activity</div>
         <div class="card-sub">Where users spend time per session</div>
-        <div class="chart-wrap" style="height:170px" id="sessionActivityWrap">
+        <div class="chart-wrap"  id="sessionActivityWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.sessionAct,'Session activity breakdown')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="sessionActivityChart"></canvas>
         </div>
@@ -929,7 +929,7 @@ thead th:hover .sort-arrow { color:var(--text2) }
         <span class="ctrl-label" style="font-size:12px;font-weight:600;color:var(--text2)">Hour of day</span>
         <div id="hourChart_controls_placeholder"></div>
       </div>
-      <div class="chart-wrap" id="hourChartWrap" style="height:160px;margin-top:8px">
+      <div class="chart-wrap" id="hourChartWrap" style="margin-top:8px">
         <button class="chart-expand-btn" onclick="expandChart(charts.hourChart,'Hour of day activity')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="hourChart"></canvas>
       </div>
@@ -3482,6 +3482,6 @@ waitForChart(init);
 
 
 
-<script defer src="portal-system.js?v=2026-06-29-v711-verified-visible-charts"></script>
+<script defer src="portal-system.js?v=2026-06-29-v712-chart-fix"></script>
 </body>
 </html>
