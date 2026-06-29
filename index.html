@@ -3461,26 +3461,25 @@ waitForChart(init);
 
 <script defer src="portal-system.js?v=2026-06-25-v10-frank-ai-axis"></script>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     CHART FIX PATCH — injected inline so it works regardless of which version
-     of portal-system.js / portal-overrides.css is deployed.
-     Fixes: (1) hero on all pages  (2) chart scale  (3) blank after close
-            (4) hover/tooltip not working
-═══════════════════════════════════════════════════════════════════════════ -->
+<!-- ═══ CHART FIX PATCH v2 ═══════════════════════════════════════════════════
+     Self-contained inline fix. Works regardless of portal-system.js version.
+     Fixes: chart scale, blank after close/filter, hover/tooltip, hero on wrong pages
+════════════════════════════════════════════════════════════════════════════ -->
 <style>
-/* ── 1. Remove overflow:clip/hidden that clips charts and tooltips ─────────── */
+/* Remove overflow:clip/hidden that clips charts + tooltips */
 .card { overflow: visible !important; }
 .chart-wrap, .ux-chart-wrap { overflow: visible !important; }
 .ux-canvas-stage { overflow: visible !important; }
+.card:has(.chart-wrap) { overflow: visible !important; }
 
-/* ── 2. Give every chart-wrap a real height so Chart.js can measure it ─────── */
+/* Every chart-wrap gets a real height — Chart.js needs a measurable container */
 .chart-wrap, .ux-chart-wrap, .ux-axis-safe-chart {
-  display: flex !important;
-  flex-direction: column !important;
-  min-height: 340px !important;
-  height: clamp(340px, 42vh, 520px) !important;
+  display: flex !important; flex-direction: column !important;
   box-sizing: border-box !important;
+  min-height: 320px !important;
+  height: clamp(320px, 40vh, 500px) !important;
 }
+/* Per-chart explicit heights */
 #csatDistWrap        { height: 340px !important; min-height: 340px !important; }
 #csatTrendWrap       { height: 360px !important; min-height: 360px !important; }
 #callReasonChartWrap { height: 440px !important; min-height: 440px !important; }
@@ -3492,27 +3491,14 @@ waitForChart(init);
 #csTeamSolvedWrap    { height: 300px !important; min-height: 300px !important; }
 #voiceAiTrendWrap    { height: 340px !important; min-height: 340px !important; }
 
-/* ── 3. Canvas fills its parent completely ──────────────────────────────────── */
-.ux-canvas-stage {
-  flex: 1 1 auto !important;
-  display: block !important;
-  width: 100% !important;
-  min-height: 200px !important;
-}
-.ux-canvas-stage > canvas,
-.chart-wrap > canvas,
-.ux-chart-wrap > canvas {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 0 !important;
-  pointer-events: auto !important;
+/* Canvas fills its parent */
+.ux-canvas-stage { flex: 1 1 auto !important; display: block !important; width: 100% !important; min-height: 180px !important; }
+.ux-canvas-stage > canvas, .chart-wrap > canvas, .ux-chart-wrap > canvas {
+  display: block !important; width: 100% !important; height: 100% !important;
+  min-height: 0 !important; pointer-events: auto !important;
 }
 
-/* ── 4. Cards containing charts must not clip ───────────────────────────────── */
-.card:has(.chart-wrap) { overflow: visible !important; }
-
-/* ── 5. Hero banner: hide on portal and starter-guides pages ────────────────── */
+/* Hero: only show on /csat page */
 body:not([data-dashboard-page="/csat"]) #uxHero { display: none !important; }
 </style>
 
@@ -3520,106 +3506,102 @@ body:not([data-dashboard-page="/csat"]) #uxHero { display: none !important; }
 (function() {
   'use strict';
 
-  function resizeAllCharts() {
+  /* Resize every chart on the page */
+  function _resizeAll() {
     if (!window.Chart) return;
     document.querySelectorAll('canvas').forEach(function(c) {
-      if (!c.id || c.id === 'chartModalCanvas' || c.id === 'uxStudioCanvas') return;
-      var ch = Chart.getChart(c);
-      if (!ch) return;
+      if (c.id === 'chartModalCanvas' || c.id === 'uxStudioCanvas') return;
+      var ch = Chart.getChart(c); if (!ch) return;
       try { ch.resize(); ch.update('none'); } catch(e) {}
     });
   }
 
-  function patchWhenReady() {
-    if (!window.Chart) { setTimeout(patchWhenReady, 100); return; }
+  /* Strip inline height styles that portal-system.js writes */
+  function _stripHeights() {
+    document.querySelectorAll('.chart-wrap, .ux-chart-wrap').forEach(function(el) {
+      el.style.removeProperty('height');
+      el.style.removeProperty('min-height');
+    });
+  }
 
-    /* Fix Chart.js defaults: index mode fires anywhere on chart, nearest only near points */
+  /* Wrap a close function to also resize all charts */
+  function _wrapClose(fn) {
+    return function() {
+      fn.apply(this, arguments);
+      setTimeout(_resizeAll, 50);
+      setTimeout(_resizeAll, 200);
+      setTimeout(_resizeAll, 500);
+    };
+  }
+
+  function _applyPatches() {
+    if (!window.Chart) { setTimeout(_applyPatches, 80); return; }
+
+    /* Fix Chart.js defaults to use index mode (fires anywhere, not just near points) */
     if (Chart.defaults) {
       Chart.defaults.interaction = { mode: 'index', axis: 'x', intersect: false };
       Chart.defaults.hover      = { mode: 'index', axis: 'x', intersect: false };
     }
 
-    /* Intercept new Chart() to always set correct options */
-    var _OrigChart = Chart;
-    function PatchedChart(canvas, config) {
-      if (config && config.options) {
-        config.options.responsive = true;
-        config.options.maintainAspectRatio = false;
-        config.options.interaction = Object.assign(
-          { mode: 'index', axis: 'x', intersect: false },
-          config.options.interaction || {}
-        );
-        config.options.hover = Object.assign(
-          { mode: 'index', axis: 'x', intersect: false },
-          config.options.hover || {}
-        );
+    /* Intercept every new Chart() to fix options and force resize after creation */
+    var _Orig = window.Chart;
+    function _Fixed(canvas, cfg) {
+      if (cfg && cfg.options) {
+        cfg.options.responsive = true;
+        cfg.options.maintainAspectRatio = false;
+        cfg.options.interaction = Object.assign({ mode: 'index', axis: 'x', intersect: false }, cfg.options.interaction || {});
+        cfg.options.hover       = Object.assign({ mode: 'index', axis: 'x', intersect: false }, cfg.options.hover || {});
       }
-      var inst = new _OrigChart(canvas, config);
-      requestAnimationFrame(function() {
-        try { inst.resize(); inst.update('none'); } catch(e) {}
-      });
-      setTimeout(function() {
-        try { inst.resize(); inst.update('none'); } catch(e) {}
-      }, 200);
+      var inst = new _Orig(canvas, cfg);
+      /* Force resize so chart reads real CSS dimensions, not 0 */
+      requestAnimationFrame(function() { try { inst.resize(); inst.update('none'); } catch(e) {} });
+      setTimeout(function() { try { inst.resize(); inst.update('none'); } catch(e) {} }, 150);
+      setTimeout(function() { try { inst.resize(); inst.update('none'); } catch(e) {} }, 500);
       return inst;
     }
-    PatchedChart.prototype = _OrigChart.prototype;
-    Object.getOwnPropertyNames(_OrigChart).forEach(function(k) {
-      try {
-        var d = Object.getOwnPropertyDescriptor(_OrigChart, k);
-        if (d) Object.defineProperty(PatchedChart, k, d);
-      } catch(e) {}
+    /* Copy all static properties (getChart, register, etc.) */
+    Object.getOwnPropertyNames(_Orig).forEach(function(k) {
+      try { var d = Object.getOwnPropertyDescriptor(_Orig, k); if (d) Object.defineProperty(_Fixed, k, d); } catch(e) {}
     });
-    window.Chart = PatchedChart;
+    _Fixed.prototype = _Orig.prototype;
+    window.Chart = _Fixed;
 
-    /* Patch closeChartModal to resize all charts after modal closes */
-    function wrapClose(fn) {
-      return function() {
-        fn.apply(this, arguments);
-        requestAnimationFrame(resizeAllCharts);
-        setTimeout(resizeAllCharts, 150);
-        setTimeout(resizeAllCharts, 500);
-      };
+    /* Patch closeChartModal */
+    if (typeof window.closeChartModal === 'function' && !window.closeChartModal._patched) {
+      window.closeChartModal = _wrapClose(window.closeChartModal);
+      window.closeChartModal._patched = true;
     }
-    if (typeof window.closeChartModal === 'function') {
-      window.closeChartModal = wrapClose(window.closeChartModal);
-    }
-    var _ccm = null;
+    /* Watch for closeChartModal being defined later */
+    var _ccm = window.closeChartModal;
     try {
       Object.defineProperty(window, 'closeChartModal', {
-        configurable: true,
+        configurable: true, enumerable: true,
         get: function() { return _ccm; },
-        set: function(fn) { _ccm = wrapClose(fn); }
+        set: function(fn) { _ccm = (fn && !fn._patched) ? _wrapClose(fn) : fn; if (_ccm) _ccm._patched = true; }
       });
     } catch(e) {}
 
     /* Patch UX.closeStudio when portal-system.js defines it */
     setInterval(function() {
       if (window.UX && window.UX.closeStudio && !window.UX._fp) {
-        window.UX.closeStudio = wrapClose(window.UX.closeStudio.bind(window.UX));
+        window.UX.closeStudio = _wrapClose(window.UX.closeStudio.bind(window.UX));
         window.UX._fp = true;
       }
     }, 300);
 
-    /* Remove inline height styles portal-system.js writes onto chart-wraps */
-    function stripInlineHeights() {
-      document.querySelectorAll('.chart-wrap, .ux-chart-wrap').forEach(function(el) {
-        el.style.removeProperty('height');
-        el.style.removeProperty('min-height');
-      });
-    }
-    stripInlineHeights();
-    setTimeout(stripInlineHeights, 600);
-    setTimeout(stripInlineHeights, 1800);
+    /* Strip inline heights (portal-system.js writes these) */
+    _stripHeights();
+    setTimeout(_stripHeights, 500);
+    setTimeout(_stripHeights, 1500);
 
-    /* MutationObserver: resize chart whenever a canvas is added to the DOM */
+    /* MutationObserver: whenever a canvas is added, resize its chart */
     new MutationObserver(function(muts) {
       muts.forEach(function(m) {
         m.addedNodes.forEach(function(n) {
           if (n.tagName !== 'CANVAS') return;
-          [100, 300, 600].forEach(function(ms) {
+          [50, 150, 400].forEach(function(ms) {
             setTimeout(function() {
-              var ch = Chart.getChart ? Chart.getChart(n) : null;
+              var ch = window.Chart && Chart.getChart ? Chart.getChart(n) : null;
               if (ch) { try { ch.resize(); ch.update('none'); } catch(e) {} }
             }, ms);
           });
@@ -3627,35 +3609,31 @@ body:not([data-dashboard-page="/csat"]) #uxHero { display: none !important; }
       });
     }).observe(document.body, { childList: true, subtree: true });
 
-    /* Periodic resize for first 10 seconds after page load */
-    var n = 0;
-    var iv = setInterval(function() {
-      resizeAllCharts();
-      if (++n >= 12) clearInterval(iv);
+    /* Periodic resize for first 8 seconds (catches any late-rendered charts) */
+    var _n = 0, _iv = setInterval(function() {
+      _resizeAll(); _stripHeights();
+      if (++_n >= 10) clearInterval(_iv);
     }, 800);
 
     /* Hide hero on non-CSAT pages */
-    var page = (document.body.dataset || {}).dashboardPage || '';
-    if (page && page !== '/csat') {
-      function hideHero() {
-        var h = document.getElementById('uxHero');
-        if (h) h.style.display = 'none';
-      }
-      hideHero();
-      new MutationObserver(hideHero).observe(document.body, { childList: true });
+    var _page = (document.body.dataset || {}).dashboardPage || '';
+    if (_page && _page !== '/csat') {
+      function _hideHero() { var h = document.getElementById('uxHero'); if (h) h.style.display = 'none'; }
+      _hideHero();
+      new MutationObserver(_hideHero).observe(document.body, { childList: true, subtree: false });
     }
 
-    console.log('[ChartFix] v1 active, page=' + page);
+    console.log('[ChartFix v2] active, page=' + _page);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', patchWhenReady);
+    document.addEventListener('DOMContentLoaded', _applyPatches);
   } else {
-    patchWhenReady();
+    _applyPatches();
   }
 })();
 </script>
-<!-- ═══════════════════════════ END CHART FIX PATCH ══════════════════════ -->
+<!-- ═══ END CHART FIX PATCH v2 ══════════════════════════════════════════════ -->
 
 </body>
 </html>
