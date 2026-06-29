@@ -190,15 +190,18 @@
       const mini = id.includes('hourinsight') || id === 'hourchart' || id.includes('mini');
       const dense = chart.options.indexAxis === 'y' || id.includes('question') || id.includes('reason') || id.includes('consultant');
       wrap.classList.toggle('ux-mini-chart', !!mini);
-      if (!mini && !wrap.style.height) {
-        wrap.style.height = dense ? 'clamp(390px, 48vh, 590px)' : 'clamp(320px, 38vh, 500px)';
-      }
-      if (!mini) wrap.style.minHeight = dense ? '390px' : '320px';
+      // Remove any inline height/minHeight set by older code — CSS rules are authoritative.
+      // Inline styles override CSS !important equivalents set via specificity, causing
+      // Chart.js to calculate the wrong pixel buffer (hover hit areas go stale).
+      wrap.style.height = '';
+      wrap.style.minHeight = '';
     }
     chart.options.responsive = true;
     chart.options.maintainAspectRatio = false;
-    chart.options.interaction = Object.assign({ mode: 'nearest', intersect: false }, chart.options.interaction || {});
-    chart.options.hover = Object.assign({ mode: 'nearest', intersect: false }, chart.options.hover || {});
+    // Use 'index' mode so tooltip fires anywhere on the vertical slice, not just on a point.
+    // This is the correct UX for time-series and bar charts — matches expanded view behaviour.
+    chart.options.interaction = { mode: 'index', intersect: false };
+    chart.options.hover = { mode: 'index', intersect: false };
     chart.options.plugins = chart.options.plugins || {};
     chart.options.plugins.tooltip = Object.assign({
       enabled: true,
@@ -283,31 +286,13 @@
   }
 
   function injectHero() {
-    if (document.getElementById('uxHero')) return;
-    const header = document.querySelector('.header');
-    if (!header) return;
-    const hero = document.createElement('section');
-    hero.id = 'uxHero';
-    hero.className = 'ux-hero';
-    hero.setAttribute('aria-label', 'Dashboard overview and controls');
-    hero.innerHTML = `
-      <div class="ux-hero-main">
-        <div class="ux-eyebrow"><span aria-hidden="true">◆</span>${esc(pageMeta.eyebrow)}</div>
-        <h1>${esc(pageMeta.title)}</h1>
-        <p>${esc(pageMeta.subtitle)}</p>
-        <div class="ux-view-tools" role="toolbar" aria-label="Dashboard view controls">
-          <button type="button" class="ux-btn primary" data-ux-command="palette">⌘ Command center</button>
-          <button type="button" class="ux-btn" data-ux-command="density">Density</button>
-          <button type="button" class="ux-btn" data-ux-command="presentation">Presentation</button>
-          <button type="button" class="ux-btn" data-ux-command="export-all">Export all chart data</button>
-        </div>
-      </div>`;
-    header.insertAdjacentElement('afterend', hero);
+    // Banner removed per product requirement — all pages run without the hero section.
   }
 
   function buildPageMap() {
     if (document.getElementById('uxPageMap')) return;
-    const header = document.querySelector('.ux-hero') || document.querySelector('.header');
+    // Anchor to header directly since the hero section is removed.
+    const header = document.querySelector('.header');
     if (!header) return;
     const seenTitles = new Set();
     const titles = Array.from(document.querySelectorAll('.section-title, .card-title'))
@@ -535,13 +520,50 @@
 
   function downloadPng(chart) {
     try {
-      const a = document.createElement('a');
-      a.download = slug(titleForCanvas(chart.canvas)) + '.png';
-      a.href = chart.toBase64Image('image/png', 1);
-      a.click();
-      toast('PNG exported');
+      const canvas = chart.canvas;
+      // Ensure the chart is properly sized before export
+      chart.resize();
+      chart.update('none');
+      // Use a slight delay to allow the render cycle to complete
+      setTimeout(() => {
+        try {
+          const dataUrl = chart.toBase64Image('image/png', 1);
+          if (!dataUrl || dataUrl === 'data:,' || dataUrl.length < 100) {
+            throw new Error('empty');
+          }
+          const a = document.createElement('a');
+          a.download = slug(titleForCanvas(canvas)) + '.png';
+          a.href = dataUrl;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          toast('PNG exported');
+        } catch (inner) {
+          // Fallback: draw onto a fresh off-screen canvas
+          try {
+            const src = chart.canvas;
+            const offscreen = document.createElement('canvas');
+            offscreen.width = src.width || src.offsetWidth || 800;
+            offscreen.height = src.height || src.offsetHeight || 400;
+            const ctx2 = offscreen.getContext('2d');
+            ctx2.fillStyle = '#ffffff';
+            ctx2.fillRect(0, 0, offscreen.width, offscreen.height);
+            ctx2.drawImage(src, 0, 0);
+            const fallbackUrl = offscreen.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.download = slug(titleForCanvas(canvas)) + '.png';
+            a.href = fallbackUrl;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            toast('PNG exported');
+          } catch (_) {
+            toast('PNG export failed – try expanding the chart first');
+          }
+        }
+      }, 60);
     } catch (_) {
-      toast('This chart cannot be exported as PNG yet');
+      toast('PNG export failed – try expanding the chart first');
     }
   }
   function downloadCsv(chart) {
@@ -649,6 +671,17 @@
     unlockBodyForStudio();
     if (studioChart) { studioChart.destroy(); studioChart = null; }
     if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
+    // Force all dashboard charts to resize + redraw after modal closes.
+    // Without this the canvas pixel dimensions stay stale and charts appear blank.
+    requestAnimationFrame(() => {
+      chartInstances().forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
+    });
+    setTimeout(() => {
+      chartInstances().forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
+    }, 120);
+    setTimeout(() => {
+      chartInstances().forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
+    }, 380);
   }
 
   function ensureCommandPalette() {
@@ -887,6 +920,14 @@
     setTimeout(() => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); ensureVoiceAiInTeamDropdowns(); recolorAllCharts(); }, 2200);
     setInterval(() => { ensureVoiceAiInTeamDropdowns(); enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); }, 2500);
     UX.refreshCharts = () => { enhanceCharts(); polishAllChartLayouts(); forceEveryChartExpandable(); };
+    // Resize all charts when the window resizes so pixel buffers stay in sync with CSS layout.
+    let _resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(() => {
+        chartInstances().forEach(c => { try { c.resize(); c.update('none'); } catch(_) {} });
+      }, 80);
+    });
     console.info('[DashboardUX] World-class UX engine active', UX.version);
   }
 

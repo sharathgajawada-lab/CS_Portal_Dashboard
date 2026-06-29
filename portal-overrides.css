@@ -1391,56 +1391,62 @@ body.pro-dashboard .ux-chart-wrap {
 }
 
 
+
 /* ========================================================================== */
-/* v7.4 axis visibility and Voice AI team cleanup                              */
-/* Gives Chart.js enough room so x-axis labels are not clipped by toolbar/canvas */
+/* CHART ENGINE — authoritative, single-source rules (replaces v7.4/7.5/7.6)  */
+/* All earlier conflicting chart blocks above are superseded by this section.  */
 /* ========================================================================== */
+
+/* ── 1. Chart wrapper: flex column so toolbar + canvas stack cleanly ── */
 body.pro-dashboard .chart-wrap,
 body.pro-dashboard .ux-chart-wrap,
 body.pro-dashboard .ux-axis-safe-chart {
-  display: grid !important;
-  grid-template-rows: auto minmax(300px, 1fr) !important;
-  align-content: stretch !important;
-  min-height: 380px !important;
-  height: clamp(380px, 46vh, 560px) !important;
-  overflow: visible !important;
-  padding: 14px 14px 24px !important;
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  box-sizing: border-box !important;
+  /* Comfortable height range — gives Chart.js room to fill */
+  min-height: 360px !important;
+  height: clamp(360px, 42vh, 520px) !important;
+  overflow: visible !important;          /* axis labels must not be clipped */
+  padding: 14px 14px 20px !important;
 }
-body.pro-dashboard .chart-wrap canvas,
-body.pro-dashboard .ux-chart-wrap canvas,
-body.pro-dashboard .ux-axis-safe-chart canvas {
-  align-self: stretch !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 300px !important;
-  max-height: none !important;
-}
+
+/* Taller wraps for horizontal-bar charts (many labels on y-axis) */
 body.pro-dashboard #callReasonChartWrap,
 body.pro-dashboard #opsConsultantWrap,
 body.pro-dashboard #csTeamTrendWrap,
 body.pro-dashboard #csTeamSolvedWrap,
-body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="reason" i]),
-body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="consultant" i]),
-body.pro-dashboard .ux-axis-safe-chart:has(canvas[id*="question" i]) {
-  min-height: 430px !important;
-  height: clamp(430px, 52vh, 640px) !important;
-  grid-template-rows: auto minmax(350px, 1fr) !important;
+body.pro-dashboard .chart-wrap:has(canvas[id*="reason" i]),
+body.pro-dashboard .chart-wrap:has(canvas[id*="consultant" i]),
+body.pro-dashboard .chart-wrap:has(canvas[id*="question" i]) {
+  min-height: 440px !important;
+  height: clamp(440px, 54vh, 640px) !important;
 }
+
+/* Mini charts (e.g. hour insight) */
+body.pro-dashboard .chart-wrap.ux-mini-chart,
+body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
+body.pro-dashboard #hourChartWrap {
+  min-height: 260px !important;
+  height: 260px !important;
+  max-height: 280px !important;
+}
+
+/* Cards that contain charts should not clip them */
 body.pro-dashboard .card:has(.chart-wrap),
 body.pro-dashboard .card:has(.ux-chart-wrap) {
   min-height: auto !important;
   overflow: visible !important;
 }
-body.pro-dashboard .ux-chart-toolbar { flex: 0 0 auto !important; }
-body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
 
-
-/* ========================================================================== */
-/* v7.5 chart polish: stable studio, no overflow, cleaner toolbars             */
-/* ========================================================================== */
-body.pro-dashboard .ux-chart-toolbar,
-.ux-chart-toolbar {
-  margin: 0 0 12px !important;
+/* ── 2. Toolbar: fixed height, never compresses chart ── */
+body.pro-dashboard .ux-chart-toolbar {
+  flex: 0 0 auto !important;
+  position: relative !important;
+  z-index: 3 !important;
+  margin: 0 0 10px !important;
   padding: 9px 10px !important;
   min-height: 46px !important;
   border-radius: 16px !important;
@@ -1448,17 +1454,49 @@ body.pro-dashboard .ux-chart-toolbar,
   border: 1px solid rgba(148,163,184,.28) !important;
   box-shadow: 0 10px 22px rgba(15,23,42,.045), inset 0 1px 0 rgba(255,255,255,.95) !important;
 }
-body.pro-dashboard .ux-chart-actions,
-.ux-chart-actions {
+
+/* ── 3. Canvas stage: fills all remaining space in the flex column ── */
+body.pro-dashboard .ux-canvas-stage {
+  position: relative !important;
+  display: block !important;
+  flex: 1 1 0 !important;          /* fill remaining height after toolbar */
+  min-height: 0 !important;        /* allow shrinking below content size */
+  width: 100% !important;
+  overflow: hidden !important;
+  border-radius: 12px !important;
+}
+
+/* ── 4. Canvas inside stage: fill 100% of stage ── */
+body.pro-dashboard .ux-canvas-stage > canvas {
+  display: block !important;
+  position: absolute !important;   /* let Chart.js size it properly */
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+/* Fallback: canvas NOT yet inside a stage (before enhanceCharts runs) */
+body.pro-dashboard .chart-wrap > canvas:not(.ux-staged),
+body.pro-dashboard .ux-chart-wrap > canvas:not(.ux-staged) {
+  display: block !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+/* ── 5. Toolbar actions ── */
+body.pro-dashboard .ux-chart-actions {
   gap: 4px !important;
   padding: 2px !important;
   border-radius: 14px !important;
   background: rgba(248,250,252,.82) !important;
 }
 body.pro-dashboard .ux-chart-action,
-body.pro-dashboard .ux-chart-actions button,
-.ux-chart-action,
-.ux-chart-actions button {
+body.pro-dashboard .ux-chart-actions button {
   height: 30px !important;
   min-height: 30px !important;
   min-width: 30px !important;
@@ -1471,146 +1509,56 @@ body.pro-dashboard .ux-chart-actions button,
   border: 1px solid transparent !important;
   box-shadow: none !important;
 }
-body.pro-dashboard .ux-chart-action span,
-.ux-chart-action span { display: inline-flex !important; align-items: center !important; }
+body.pro-dashboard .ux-chart-action span {
+  display: inline-flex !important;
+  align-items: center !important;
+}
 body.pro-dashboard .ux-chart-action.primary,
-body.pro-dashboard .ux-chart-action[data-ux-action="expand"],
-.ux-chart-action.primary,
-.ux-chart-action[data-ux-action="expand"] {
+body.pro-dashboard .ux-chart-action[data-ux-action="expand"] {
   background: #0f172a !important;
   border-color: #0f172a !important;
   color: #fff !important;
   box-shadow: 0 9px 18px rgba(15,23,42,.18) !important;
 }
-body.pro-dashboard .chart-wrap,
-body.pro-dashboard .ux-chart-wrap,
-body.pro-dashboard .ux-axis-safe-chart {
-  display: grid !important;
-  grid-template-rows: auto minmax(0, 1fr) !important;
-  min-height: 320px !important;
-  height: auto !important;
-  overflow: hidden !important;
-  padding: 14px 14px 20px !important;
-}
-body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
-body.pro-dashboard .chart-wrap:has(#hourInsightChart) {
-  min-height: 240px !important;
-  height: 240px !important;
-  padding: 12px 12px 18px !important;
-  overflow: hidden !important;
-}
-body.pro-dashboard .chart-wrap canvas,
-body.pro-dashboard .ux-chart-wrap canvas,
-body.pro-dashboard .ux-axis-safe-chart canvas {
-  min-height: 0 !important;
-  max-height: 100% !important;
-}
-body.pro-dashboard .ux-studio-chart,
-#uxChartStudio .ux-studio-chart {
+body.pro-dashboard .ux-chart-data-panel { margin-top: 12px !important; }
+
+/* ── 6. Expanded Chart Studio modal ── */
+#uxChartStudio.ux-modal.open { align-items: center !important; }
+#uxChartStudio .ux-modal-card { transform: none !important; }
+body[data-ux-studio-open="true"] { overflow: hidden !important; }
+
+#uxChartStudio .ux-studio-chart,
+body.pro-dashboard #uxChartStudio .ux-studio-chart {
+  position: relative !important;
   display: block !important;
-  min-height: 520px !important;
   height: min(68vh, 720px) !important;
+  min-height: 520px !important;
   overflow: hidden !important;
   padding: 18px !important;
 }
 #uxChartStudio .ux-studio-chart canvas {
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 0 !important;
-}
-#uxChartStudio .ux-chart-toolbar,
-#uxChartStudio .ux-expand-guarantee,
-#uxChartStudio [data-ux-action="expand"][data-chart-id="uxStudioCanvas"] {
-  display: none !important;
-}
-#uxChartStudio.ux-modal.open { align-items: center !important; }
-#uxChartStudio .ux-modal-card { transform: none !important; }
-body[data-ux-studio-open="true"] { overflow: hidden !important; }
-body.pro-dashboard #catChart { cursor: pointer; }
-
-
-/* ========================================================================== */
-/* v7.6 chart visibility fix: stable canvas stage + no blank dashboard charts  */
-/* ========================================================================== */
-body.pro-dashboard .chart-wrap,
-body.pro-dashboard .ux-chart-wrap,
-body.pro-dashboard .ux-axis-safe-chart {
-  position: relative !important;
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 10px !important;
-  box-sizing: border-box !important;
-  min-height: 340px !important;
-  height: clamp(340px, 40vh, 520px) !important;
-  overflow: visible !important;
-  padding: 14px !important;
-}
-body.pro-dashboard .chart-wrap.ux-mini-chart,
-body.pro-dashboard .ux-axis-safe-chart.ux-mini-chart,
-body.pro-dashboard .chart-wrap:has(#hourInsightChart),
-body.pro-dashboard #hourChartWrap {
-  min-height: 280px !important;
-  height: 280px !important;
-  max-height: 300px !important;
-  padding: 12px !important;
-}
-body.pro-dashboard .chart-wrap:has(#catChart) {
-  min-height: 360px !important;
-  height: 360px !important;
-}
-body.pro-dashboard .ux-canvas-stage {
-  position: relative !important;
-  display: block !important;
-  flex: 1 1 auto !important;
-  min-height: 230px !important;
-  width: 100% !important;
-  overflow: hidden !important;
-  border-radius: 16px !important;
-}
-body.pro-dashboard .ux-mini-chart .ux-canvas-stage,
-body.pro-dashboard .chart-wrap:has(#hourInsightChart) .ux-canvas-stage,
-body.pro-dashboard #hourChartWrap .ux-canvas-stage {
-  min-height: 190px !important;
-}
-body.pro-dashboard .ux-canvas-stage > canvas {
   display: block !important;
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
-  max-height: none !important;
 }
-body.pro-dashboard .chart-wrap > canvas:not(.ux-staged),
-body.pro-dashboard .ux-chart-wrap > canvas:not(.ux-staged) {
-  display: block !important;
-  width: 100% !important;
-  height: 280px !important;
-  min-height: 240px !important;
-  max-height: none !important;
-}
-body.pro-dashboard .ux-chart-toolbar {
-  flex: 0 0 auto !important;
-  position: relative !important;
-  z-index: 3 !important;
-}
-#uxChartStudio .ux-studio-chart,
-body.pro-dashboard #uxChartStudio .ux-studio-chart {
-  display: block !important;
-  height: min(68vh, 720px) !important;
-  min-height: 520px !important;
-  padding: 18px !important;
-  overflow: hidden !important;
-}
+/* Hide the stage/toolbar injected inside the studio canvas area */
 #uxChartStudio .ux-studio-chart .ux-canvas-stage,
 #uxChartStudio .ux-studio-chart .ux-chart-toolbar,
 #uxChartStudio .ux-studio-chart [data-ux-action="expand"],
+#uxChartStudio .ux-chart-toolbar,
+#uxChartStudio .ux-expand-guarantee,
+#uxChartStudio [data-ux-action="expand"][data-chart-id="uxStudioCanvas"],
 #chartModal .ux-chart-toolbar,
 #chartModal [data-ux-action="expand"] {
   display: none !important;
 }
-#uxChartStudio .ux-studio-chart canvas,
 #chartModal canvas {
   display: block !important;
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
 }
+
+/* ── 7. Misc ── */
+body.pro-dashboard #catChart { cursor: pointer; }
