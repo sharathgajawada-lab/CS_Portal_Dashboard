@@ -1,4 +1,4 @@
-// cs-portal-v7-9-no-hero-direct-canvas'cs-portal-v7-9-no-hero-direct-canvas';
+// cs-portal-v7-11-verified-visible-charts'cs-portal-v7-11-verified-visible-charts';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {

@@ -1,0 +1,15 @@
+{
+  "verification": "synthetic-browser-canvas-pixel-and-expand-close",
+  "pages": [
+    {"page": "Portal Activity", "charts": 9},
+    {"page": "CSAT", "charts": 9},
+    {"page": "Starter Guides", "charts": 6}
+  ],
+  "totalCharts": 24,
+  "visibleBeforeExpand": 24,
+  "expandButtons": 24,
+  "expandCloseFailures": 0,
+  "visibleAfterClose": 24,
+  "pytest": "83 passed",
+  "nodeChecks": "passed"
+}

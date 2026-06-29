@@ -1694,3 +1694,148 @@ body.pro-dashboard .ux-canvas-stage > canvas {
 #chartModal .ux-hero {
   display: none !important;
 }
+
+
+/* ========================================================================== */
+/* v7.10 final visible-chart lock                                               */
+/* Keeps dashboard charts visible without moving Chart.js canvases.             */
+/* ========================================================================== */
+body.pro-dashboard.ux-no-hero #uxHero,
+body.pro-dashboard.ux-no-hero .ux-hero,
+#uxHero,
+.ux-hero {
+  display: none !important;
+}
+
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart {
+  position: relative !important;
+  display: block !important;
+  overflow: visible !important;
+  box-sizing: border-box !important;
+  height: 420px !important;
+  min-height: 420px !important;
+  padding: 0 18px 22px 18px !important;
+}
+
+body.pro-dashboard .chart-wrap.ux-mini-chart,
+body.pro-dashboard .ux-chart-wrap.ux-mini-chart,
+body.pro-dashboard #hourChartWrap,
+body.pro-dashboard .chart-wrap:has(#hourInsightChart) {
+  height: 260px !important;
+  min-height: 260px !important;
+}
+
+body.pro-dashboard .ux-chart-toolbar {
+  position: absolute !important;
+  top: 14px !important;
+  left: 18px !important;
+  right: 18px !important;
+  z-index: 9 !important;
+  margin: 0 !important;
+  pointer-events: auto !important;
+}
+
+body.pro-dashboard .chart-wrap > canvas,
+body.pro-dashboard .ux-chart-wrap > canvas,
+body.pro-dashboard .ux-axis-safe-chart > canvas,
+body.pro-dashboard canvas.ux-staged {
+  display: block !important;
+  position: relative !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  z-index: 1 !important;
+}
+
+#uxChartStudio .ux-studio-chart canvas,
+#chartModal canvas {
+  margin-top: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+#uxChartStudio .ux-chart-toolbar,
+#chartModal .ux-chart-toolbar {
+  display: none !important;
+}
+
+/* ========================================================================== */
+/* v7.11 verified chart visibility lock                                        */
+/* Keep toolbars outside the render math and give every live canvas a real box. */
+/* ========================================================================== */
+body.pro-dashboard #uxHero,
+body.pro-dashboard .ux-hero,
+#uxHero,
+.ux-hero {
+  display: none !important;
+}
+body.pro-dashboard .chart-wrap,
+body.pro-dashboard .ux-chart-wrap,
+body.pro-dashboard .ux-axis-safe-chart,
+.chart-wrap.ux-render-locked,
+.ux-chart-wrap.ux-render-locked {
+  position: relative !important;
+  display: block !important;
+  overflow: visible !important;
+  box-sizing: border-box !important;
+  height: 420px !important;
+  min-height: 420px !important;
+  padding: 0 !important;
+}
+body.pro-dashboard .chart-wrap.ux-mini-chart,
+body.pro-dashboard .ux-chart-wrap.ux-mini-chart,
+body.pro-dashboard #hourChartWrap,
+body.pro-dashboard .chart-wrap:has(#hourInsightChart) {
+  height: 260px !important;
+  min-height: 260px !important;
+}
+body.pro-dashboard .ux-chart-toolbar,
+.ux-chart-toolbar {
+  position: absolute !important;
+  top: 14px !important;
+  left: 18px !important;
+  right: 18px !important;
+  z-index: 30 !important;
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  pointer-events: auto !important;
+}
+body.pro-dashboard .chart-wrap > canvas,
+body.pro-dashboard .ux-chart-wrap > canvas,
+body.pro-dashboard .ux-axis-safe-chart > canvas,
+body.pro-dashboard canvas.ux-staged,
+.chart-wrap.ux-render-locked > canvas,
+.ux-chart-wrap.ux-render-locked > canvas {
+  display: block !important;
+  position: absolute !important;
+  left: 18px !important;
+  right: 18px !important;
+  top: 82px !important;
+  bottom: 18px !important;
+  width: calc(100% - 36px) !important;
+  height: calc(100% - 100px) !important;
+  min-height: 0 !important;
+  max-width: calc(100% - 36px) !important;
+  max-height: none !important;
+  margin: 0 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 1 !important;
+}
+#uxChartStudio canvas,
+#chartModal canvas {
+  position: static !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+#uxChartStudio .ux-chart-toolbar,
+#chartModal .ux-chart-toolbar {
+  display: none !important;
+}
