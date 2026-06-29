@@ -6,7 +6,7 @@
   'use strict';
   if (window.DashboardUX && window.DashboardUX.version) return;
 
-  const UX = window.DashboardUX = { version: '7.6.0-visible-chart-stage' };
+  const UX = window.DashboardUX = { version: '7.7.0-expand-close-restore' };
   document.documentElement.dataset.dashboardUx = 'root-ready';
   let studioChart = null;
   let observerQueued = false;
@@ -643,12 +643,46 @@
     document.getElementById('uxStudioCopy').onclick = () => copyText(insight).then(ok => toast(ok ? 'Insight copied' : 'Copy failed'));
     modal.querySelector('[data-ux-close="studio"]').focus();
   }
+  function restoreDashboardChartsAfterStudio() {
+    // Closing the expanded studio changes viewport/body sizing. Chart.js can keep
+    // stale canvas measurements from the overlay state, which makes dashboard
+    // charts appear blank until a full browser refresh. Force a staged restore.
+    const restore = () => {
+      try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+      if (!window.Chart) return;
+      document.querySelectorAll('canvas[id]').forEach(canvas => {
+        if (isUxInternalCanvas(canvas) || canvas.closest('#uxChartStudio, #chartModal')) return;
+        const chart = Chart.getChart(canvas);
+        if (!chart) return;
+        try {
+          const wrap = canvas.closest('.chart-wrap') || canvas.closest('.ux-canvas-stage')?.parentElement || canvas.parentElement;
+          ensureCanvasStage(canvas, wrap);
+          polishChartLayout(chart);
+          chart.resize();
+          chart.update('none');
+        } catch (_) {}
+      });
+    };
+    requestAnimationFrame(restore);
+    setTimeout(restore, 80);
+    setTimeout(restore, 260);
+    setTimeout(restore, 650);
+  }
+
   function closeStudio() {
     const modal = document.getElementById('uxChartStudio');
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
     if (modal) modal.classList.remove('open');
+    if (studioChart) { try { studioChart.destroy(); } catch (_) {} studioChart = null; }
     unlockBodyForStudio();
-    if (studioChart) { studioChart.destroy(); studioChart = null; }
-    if (lastActiveElement && typeof lastActiveElement.focus === 'function') lastActiveElement.focus();
+    restoreDashboardChartsAfterStudio();
+    requestAnimationFrame(() => {
+      try { window.scrollTo(scrollX, scrollY); } catch (_) {}
+      if (lastActiveElement && typeof lastActiveElement.focus === 'function' && document.contains(lastActiveElement)) {
+        try { lastActiveElement.focus({ preventScroll: true }); } catch (_) { try { lastActiveElement.focus(); } catch (_) {} }
+      }
+    });
   }
 
   function ensureCommandPalette() {

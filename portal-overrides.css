@@ -1614,3 +1614,14 @@ body.pro-dashboard #uxChartStudio .ux-studio-chart {
   height: 100% !important;
   min-height: 0 !important;
 }
+
+
+/* v7.7 expand-close restore guard: keep dashboard stages visible after modal close */
+body.pro-dashboard:not([data-ux-studio-open="true"]) .ux-canvas-stage {
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+body.pro-dashboard:not([data-ux-studio-open="true"]) .ux-canvas-stage > canvas {
+  visibility: visible !important;
+  opacity: 1 !important;
+}

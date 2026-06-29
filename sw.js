@@ -1,5 +1,5 @@
-// cs-portal-v7-6-visible-charts-stage — bumped to force cache clear on all clients
-const CACHE_NAME = 'cs-portal-v7-6-visible-charts-stage';
+// cs-portal-v7-7-expand-close-restore — bumped to force cache clear on all clients
+const CACHE_NAME = 'cs-portal-v7-7-expand-close-restore';
 const BATCH_URL  = '/api/metrics/batch';
 
 self.addEventListener('install', e => {
