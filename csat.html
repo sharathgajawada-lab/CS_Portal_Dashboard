@@ -652,7 +652,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           </div>
           <div id="csatDist_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" style="height:230px" id="csatDistWrap">
+        <div class="chart-wrap" id="csatDistWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.csatDist,'Rating distribution')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="csatDistChart"></canvas>
         </div>
@@ -729,7 +729,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 
           </div>
         </div>
-        <div class="chart-wrap" style="height:200px" id="csatTrendWrap">
+        <div class="chart-wrap" id="csatTrendWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.csatTrend,'CSAT trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="csatTrendChart"></canvas>
         </div>
@@ -766,7 +766,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           <div class="card" style="box-shadow:none;padding:12px">
             <div class="card-title" style="font-size:12px">Top reasons by volume</div>
             <div class="card-sub">Survey share by reason</div>
-            <div class="chart-wrap" style="height:220px" id="callReasonChartWrap">
+            <div class="chart-wrap" id="callReasonChartWrap">
               <canvas id="callReasonChart"></canvas>
             </div>
           </div>
@@ -803,7 +803,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
               </div>
               <div id="opsTrend_controls_placeholder"></div>
             </div>
-            <div class="chart-wrap" style="height:220px" id="opsTrendWrap">
+            <div class="chart-wrap" id="opsTrendWrap">
               <canvas id="opsTrendChart"></canvas>
             </div>
           </div>
@@ -815,7 +815,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
               </div>
               <div id="opsConsultant_controls_placeholder"></div>
             </div>
-            <div class="chart-wrap" style="height:220px" id="opsConsultantWrap">
+            <div class="chart-wrap" id="opsConsultantWrap">
               <canvas id="opsConsultantChart"></canvas>
             </div>
           </div>
@@ -850,7 +850,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           </div>
           <div id="fcrChart_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" style="height:190px" id="fcrChartWrap">
+        <div class="chart-wrap" id="fcrChartWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.fcrChart,'Solved rate trend')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="fcrChart"></canvas>
         </div>
@@ -867,7 +867,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           </div>
           <div id="trueFcrChart_controls_placeholder"></div>
         </div>
-        <div class="chart-wrap" style="height:190px" id="trueFcrChartWrap">
+        <div class="chart-wrap" id="trueFcrChartWrap">
           <button class="chart-expand-btn" onclick="expandChart(charts.trueFcrChart,'True first-call resolution')" title="Expand chart" aria-label="Expand chart">⤢</button>
           <canvas id="trueFcrChart"></canvas>
         </div>
@@ -897,13 +897,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
           <div style="display:flex;flex-direction:column;gap:16px">
             <div>
               <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Daily avg rating</div>
-              <div class="chart-wrap" style="height:180px" id="csTeamTrendWrap">
+              <div class="chart-wrap" id="csTeamTrendWrap">
                 <canvas id="csTeamTrendChart"></canvas>
               </div>
             </div>
             <div>
               <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Daily solved %</div>
-              <div class="chart-wrap" style="height:180px" id="csTeamSolvedWrap">
+              <div class="chart-wrap" id="csTeamSolvedWrap">
                 <canvas id="csTeamSolvedChart"></canvas>
               </div>
             </div>
@@ -3916,6 +3916,24 @@ function closeChartModal() {
   document.getElementById('chartModal').style.display = 'none';
   document.body.style.overflow = '';
   if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+  // CRITICAL: Force all dashboard charts to re-read their CSS dimensions.
+  // Chart.js caches stale px sizes while the body was overflow:hidden,
+  // causing blank/empty charts when this modal closes.
+  const _resizeDashCharts = () => {
+    if (!window.Chart) return;
+    document.querySelectorAll('canvas[data-ux-enhanced="1"]').forEach(c => {
+      const ch = Chart.getChart(c);
+      if (!ch) return;
+      try {
+        if (typeof ch.resetSize === 'function') ch.resetSize();
+        else ch.resize();
+        ch.update('none');
+      } catch (_) {}
+    });
+  };
+  requestAnimationFrame(_resizeDashCharts);
+  setTimeout(_resizeDashCharts, 100);
+  setTimeout(_resizeDashCharts, 420);
 }
 
 // Chart modal listeners — attached in init()
