@@ -2904,7 +2904,7 @@ async def sg_metrics_topn(event: str = "starter_guide.slide_viewed",
 
 
 @app.get("/api/sg/metrics/summary")
-async def sg_metrics_summary(max_pages: int = 20):
+async def sg_metrics_summary(max_pages: int = 200):
     """API-derived Starter Guide metrics — computed from the journeys service
     itself rather than from CMS event tracking.
 
@@ -2921,20 +2921,26 @@ async def sg_metrics_summary(max_pages: int = 20):
     """
     PAGE = 100
     customers: list = []
-    skip = 0
     reachable = True
-    for _ in range(max(1, max_pages)):
-        resp = await _sg_get("/api/v1/journeys/active-customers",
-                             {"limit": PAGE, "skip": skip})
-        if not resp.ok:
-            if skip == 0:
-                reachable = resp.not_found  # 404 = simply no active customers
-            break
-        batch = (resp.body or {}).get("data", []) or []
-        customers.extend(batch)
-        if len(batch) < PAGE:
-            break
-        skip += PAGE
+    # Fetch the first page to learn the total, then pull the rest concurrently so
+    # the whole active-customer set is aggregated quickly (not one slow page at a time).
+    first = await _sg_get("/api/v1/journeys/active-customers", {"limit": PAGE, "skip": 0})
+    if first.ok:
+        body = first.body or {}
+        customers.extend(body.get("data", []) or [])
+        total = int(((body.get("meta") or {}).get("total")) or len(customers))
+        pages_needed = min(max(1, max_pages), -(-total // PAGE))  # ceil(total/PAGE), capped
+        if pages_needed > 1:
+            import asyncio
+            results = await asyncio.gather(*[
+                _sg_get("/api/v1/journeys/active-customers", {"limit": PAGE, "skip": p * PAGE})
+                for p in range(1, pages_needed)
+            ])
+            for r in results:
+                if r.ok:
+                    customers.extend((r.body or {}).get("data", []) or [])
+    else:
+        reachable = first.not_found  # 404 = simply no active customers
 
     # Flatten every active journey across customers.
     journeys = [j for c in customers for j in (c.get("journeys") or [])]
@@ -2977,17 +2983,74 @@ async def sg_metrics_summary(max_pages: int = 20):
     starts_series = [{"date": d, "count": starts_by_day[d]}
                      for d in sorted(starts_by_day)]
 
+    # ── Sequential step funnel + drop-off ────────────────────────────────
+    # The 7 check-ins are delivered in order (Day 1, 4, 6, 14, 18, 24, 28) and a
+    # later guide is only created after the previous is completed, so a journey
+    # with progress.completed == N has cleared the first N check-ins. That lets us
+    # build a true sequential funnel and pinpoint where customers stop.
+    completed_counts = [int((j.get("progress") or {}).get("completed") or 0) for j in journeys]
+    total_counts     = [int((j.get("progress") or {}).get("total") or 0) for j in journeys]
+    max_steps = max(total_counts, default=0)
+    # Canonical ordered step titles from the journey with the most expected guides.
+    canonical, best_len = [], -1
+    for j in journeys:
+        egs = j.get("expectedGuides") or []
+        if len(egs) > best_len:
+            best_len = len(egs)
+            canonical = [eg.get("title") or f"Step {i + 1}" for i, eg in enumerate(egs)]
+
+    n_journeys = len(journeys)
+    step_funnel, drop_off = [], []
+    prev_completed = n_journeys
+    for i in range(1, max_steps + 1):
+        reached_i   = sum(1 for t in total_counts if t >= i)        # programme includes step i
+        completed_i = sum(1 for c in completed_counts if c >= i)    # finished step i
+        title = canonical[i - 1] if i - 1 < len(canonical) else f"Step {i}"
+        step_funnel.append({"step": i, "title": title,
+                            "reached": reached_i, "completed": completed_i})
+        lost = max(prev_completed - completed_i, 0)
+        drop_off.append({"step": i, "title": title, "lost": lost,
+                         "lostPct": round(lost / prev_completed * 100, 1) if prev_completed else 0.0})
+        prev_completed = completed_i
+    biggest_drop = max(drop_off, key=lambda d: d["lost"]) if drop_off else None
+
+    # ── Engagement breakdown (mutually exclusive across active journeys) ──
+    not_started = in_progress = completed_journey = at_risk = 0
+    for j in journeys:
+        prog = j.get("progress") or {}
+        total = int(prog.get("total") or 0)
+        done  = int(prog.get("completed") or 0)
+        if j.get("expiredIds"):
+            at_risk += 1
+        if done == 0:
+            not_started += 1
+        elif total and done >= total:
+            completed_journey += 1
+        else:
+            in_progress += 1
+
     return {
         "source": "starter-guide-service-api",
         "reachable": reachable,
         "activeCustomers": len(customers),
-        "activeJourneys":  len(journeys),
+        "activeJourneys":  n_journeys,
         "totalGuides":     total_guides,
         "completedGuides": completed_guides,
         "completionRate":  completion_rate,
         "funnel":          funnel,
         "perGuide":        per_guide_list,
         "startsByDay":     starts_series,
+        # New BA-oriented fields:
+        "stepFunnel":      step_funnel,     # sequential reach/complete per check-in
+        "dropOff":         drop_off,        # how many stop at each step
+        "biggestDrop":     biggest_drop,    # the single worst drop-off point
+        "engagement": {                     # mutually-exclusive status split
+            "notStarted":  not_started,     # journey live, 0 check-ins completed
+            "inProgress":  in_progress,     # 1..N-1 check-ins completed
+            "completed":   completed_journey,
+            "atRisk":      at_risk,          # has at least one expired guide
+        },
+        "stepTitles":      canonical,
     }
 
 
