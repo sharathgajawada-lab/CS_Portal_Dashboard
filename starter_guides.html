@@ -522,6 +522,35 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
       <div class="skeleton skeleton-kpi"></div>
     </div>
 
+    <!-- ── SMS Delivery (top of funnel) ── -->
+    <div class="section-header" style="margin-top:8px">
+      <div>
+        <div class="section-title" style="font-size:15px">SMS Delivery</div>
+        <div class="section-sub">Message delivery funnel — <span id="deliveryStatusNote">awaiting messaging-provider data source</span></div>
+      </div>
+      <span class="badge badge-gray" id="deliveryStatusBadge">No data source</span>
+    </div>
+
+    <!-- Delivery KPI row -->
+    <div class="kpi-row" id="deliveryKpiRow"></div>
+
+    <div class="two-col" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">Delivery funnel</div>
+        <div class="card-sub">Sent → received → opted-out / not received</div>
+        <div class="chart-wrap" style="height:260px">
+          <canvas id="deliveryFunnelChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Of those who received…</div>
+        <div class="card-sub">What recipients did with the journey</div>
+        <div class="chart-wrap" style="height:260px">
+          <canvas id="receivedBreakdownChart"></canvas>
+        </div>
+      </div>
+    </div>
+
     <!-- Hero: where customers stop -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">Where customers stop — 28-day check-in funnel</div>
@@ -1027,6 +1056,9 @@ async function loadMetrics() {
   Object.values(state.charts).forEach(c => { try { c.destroy(); } catch {} });
   state.charts = {};
 
+  // SMS delivery funnel (renders placeholders until the provider endpoint is wired).
+  loadDelivery();
+
   let s;
   try {
     s = await apiFetch('/api/sg/metrics/summary');
@@ -1120,6 +1152,71 @@ async function loadMetrics() {
   } else { showChartEmpty('startsChart', 'No start dates available'); }
 
   _metricsLoaded = true;
+}
+
+// SMS delivery funnel. Placeholder-aware: when the backend returns available:false
+// (no messaging endpoint wired yet) it shows clearly-labelled empty charts and "—"
+// KPIs. Once the provider endpoint is connected and the backend populates counts,
+// the same code lights up automatically — no further frontend change needed.
+async function loadDelivery() {
+  const kpi   = document.getElementById('deliveryKpiRow');
+  const badge = document.getElementById('deliveryStatusBadge');
+  const note  = document.getElementById('deliveryStatusNote');
+  if (!kpi) return;
+
+  let d = null;
+  try { d = await apiFetch('/api/sg/metrics/delivery'); } catch { d = null; }
+
+  const available = !!(d && d.available);
+  const f  = (d && d.funnel) || {};
+  const rb = (d && d.receivedBreakdown) || {};
+  const dash = v => (v == null ? '—' : Number(v).toLocaleString());
+
+  if (badge) {
+    badge.textContent = available ? 'Live' : 'No data source';
+    badge.className = 'badge ' + (available ? 'badge-green' : 'badge-gray');
+  }
+  if (note) note.textContent = available
+    ? `connected to ${d.source || 'messaging provider'}`
+    : 'awaiting messaging-provider data source — charts fill in automatically once connected';
+
+  kpi.innerHTML = [
+    { label: 'Sent',         value: dash(f.sent),        sub: 'magic-link messages sent',   color: '#2563eb' },
+    { label: 'Received',     value: dash(f.received),    sub: 'delivered to handset',       color: '#059669' },
+    { label: 'Not received', value: dash(f.notReceived), sub: 'undelivered / bounced',      color: '#d97706' },
+    { label: 'Opted out',    value: dash(f.optedOut),    sub: 'unsubscribed from messages', color: '#dc2626' },
+  ].map(k => `<div class="kpi" style="--kpi-accent:${k.color}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`).join('');
+
+  ['deliveryFunnel', 'receivedBreakdown'].forEach(id => {
+    if (state.charts[id]) { try { state.charts[id].destroy(); } catch {} delete state.charts[id]; }
+  });
+
+  if (!available) {
+    showChartEmpty('deliveryFunnelChart', 'Awaiting SMS delivery data source');
+    showChartEmpty('receivedBreakdownChart', 'Awaiting SMS delivery data source');
+    return;
+  }
+
+  state.charts.deliveryFunnel = new Chart(document.getElementById('deliveryFunnelChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: ['Sent', 'Received', 'Not received', 'Opted out'], datasets: [{
+      label: 'Messages', data: [f.sent || 0, f.received || 0, f.notReceived || 0, f.optedOut || 0],
+      backgroundColor: ['#2563eb', '#059669', '#d97706', '#dc2626'], borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } } }
+  });
+
+  state.charts.receivedBreakdown = new Chart(document.getElementById('receivedBreakdownChart').getContext('2d'), {
+    type: 'doughnut',
+    data: { labels: ['Started', 'Completed', 'Unfinished', 'Dropped out'], datasets: [{
+      data: [rb.started || 0, rb.completed || 0, rb.unfinished || 0, rb.droppedOut || 0],
+      backgroundColor: ['#f59e0b', '#059669', '#3b82f6', '#dc2626'] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } } }
+  });
 }
 
 function showChartEmpty(canvasId, msg) {

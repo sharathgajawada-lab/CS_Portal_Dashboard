@@ -3054,6 +3054,43 @@ async def sg_metrics_summary(max_pages: int = 200):
     }
 
 
+@app.get("/api/sg/metrics/delivery")
+async def sg_metrics_delivery():
+    """SMS delivery funnel for the Starter Guide.
+
+    PLACEHOLDER until the messaging-provider endpoint is available. The Starter
+    Guide service API does not expose SMS delivery receipts, so this returns a
+    stable shape with `available: false` and null counts. The dashboard renders
+    empty, clearly-labelled charts from it today.
+
+    TO WIRE REAL DATA LATER: fetch the provider's delivery stats here, set
+    `available = True`, fill `source` and the numeric fields below, and keep this
+    exact response shape — the frontend will light up with no further changes.
+
+        funnel.sent / received / notReceived / optedOut      -> top-of-funnel counts
+        receivedBreakdown.started / completed / unfinished /
+            droppedOut                                       -> what recipients did
+        sentByDay: [{date, count}]                           -> optional time series
+    """
+    return {
+        "available": False,
+        "source": None,
+        "funnel": {
+            "sent":        None,
+            "received":    None,
+            "notReceived": None,
+            "optedOut":    None,
+        },
+        "receivedBreakdown": {
+            "started":    None,
+            "completed":  None,
+            "unfinished": None,
+            "droppedOut": None,
+        },
+        "sentByDay": [],
+    }
+
+
 @app.get("/debug/sg")
 async def debug_sg(admin_ok: bool = Depends(require_admin_token)):
     """One-shot health check for all Starter Guide layers.
