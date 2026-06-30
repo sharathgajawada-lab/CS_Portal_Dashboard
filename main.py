@@ -2904,7 +2904,7 @@ async def sg_metrics_topn(event: str = "starter_guide.slide_viewed",
 
 
 @app.get("/api/sg/metrics/summary")
-async def sg_metrics_summary(max_pages: int = 200):
+async def sg_metrics_summary(max_pages: int = 200, from_date: str = "", to_date: str = ""):
     """API-derived Starter Guide metrics — computed from the journeys service
     itself rather than from CMS event tracking.
 
@@ -2915,6 +2915,11 @@ async def sg_metrics_summary(max_pages: int = 200):
       - funnel: how many journeys have 0,1,2,3,4+ guides completed
       - perGuide: completed vs expected count per guide template (with titles)
       - startsByDay: journeys started per calendar day (from startedOn)
+
+    from_date / to_date (YYYY-MM-DD, inclusive) restrict the aggregate to the
+    cohort of journeys whose trial started in that window (by startedOn), so the
+    funnel/engagement reflect a chosen date range. Customer count after filtering
+    is the number of distinct customers with a matching journey.
 
     This complements the CMS event charts (opens / answers) which can't be
     derived from the REST data.
@@ -2944,6 +2949,16 @@ async def sg_metrics_summary(max_pages: int = 200):
 
     # Flatten every active journey across customers.
     journeys = [j for c in customers for j in (c.get("journeys") or [])]
+
+    # Optional cohort filter by trial start date (startedOn), inclusive.
+    if from_date or to_date:
+        lo = (from_date or "")[:10]
+        hi = (to_date or "")[:10]
+        journeys = [j for j in journeys
+                    if (d := (j.get("startedOn") or "")[:10])
+                    and (not lo or d >= lo) and (not hi or d <= hi)]
+    # Distinct customers represented after filtering.
+    active_customers = len({j.get("customerGid") for j in journeys}) if (from_date or to_date) else len(customers)
 
     funnel = {"0": 0, "1": 0, "2": 0, "3": 0, "4+": 0}
     per_guide: dict = {}        # templateId -> {title, expected, completed}
@@ -3032,7 +3047,8 @@ async def sg_metrics_summary(max_pages: int = 200):
     return {
         "source": "starter-guide-service-api",
         "reachable": reachable,
-        "activeCustomers": len(customers),
+        "filter": {"from": from_date or None, "to": to_date or None},
+        "activeCustomers": active_customers,
         "activeJourneys":  n_journeys,
         "totalGuides":     total_guides,
         "completedGuides": completed_guides,

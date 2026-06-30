@@ -510,7 +510,17 @@ tr.clickable:hover td { background: var(--blue-dim); color: var(--text1) }
         <div class="section-title">Starter Guide Metrics</div>
         <div class="section-sub">28-day onboarding engagement & drop-off — computed live from the journeys API</div>
       </div>
-      <button class="apply-btn" onclick="loadMetrics()">↻ Refresh</button>
+    </div>
+
+    <!-- Date filter — cohort by trial start date -->
+    <div class="metrics-filters" style="margin-bottom:14px">
+      <label>Trial started from</label>
+      <input type="date" id="mFrom" style="color-scheme:light" onchange="loadMetrics()">
+      <label>to</label>
+      <input type="date" id="mTo" style="color-scheme:light" onchange="loadMetrics()">
+      <button class="apply-btn" onclick="loadMetrics()">Apply</button>
+      <button class="export-btn" onclick="clearMetricsDates()">Clear</button>
+      <span id="mFilterNote" style="font-size:11px;color:var(--text3);margin-left:auto"></span>
     </div>
 
     <!-- KPI row -->
@@ -1047,6 +1057,12 @@ async function openJourneyDetail(journeyId) {
 // Section 4 - Metrics (API-derived engagement & drop-off)
 let _metricsLoaded = false;
 
+function clearMetricsDates() {
+  const f = document.getElementById('mFrom'); const t = document.getElementById('mTo');
+  if (f) f.value = ''; if (t) t.value = '';
+  loadMetrics();
+}
+
 async function loadMetrics() {
   const kpiRow = document.getElementById('metricsKpiRow');
   kpiRow.innerHTML = [...Array(5)].map(() => '<div class="skeleton skeleton-kpi"></div>').join('');
@@ -1059,9 +1075,21 @@ async function loadMetrics() {
   // SMS delivery funnel (renders placeholders until the provider endpoint is wired).
   loadDelivery();
 
+  const mFrom = (document.getElementById('mFrom') || {}).value || '';
+  const mTo   = (document.getElementById('mTo')   || {}).value || '';
+  const note  = document.getElementById('mFilterNote');
+  if (note) note.textContent = (mFrom || mTo)
+    ? `Cohort: trials started ${mFrom || '…'} → ${mTo || '…'}`
+    : 'Showing all active customers';
+
   let s;
   try {
-    s = await apiFetch('/api/sg/metrics/summary');
+    let url = '/api/sg/metrics/summary';
+    const qs = [];
+    if (mFrom) qs.push('from_date=' + encodeURIComponent(mFrom));
+    if (mTo)   qs.push('to_date='   + encodeURIComponent(mTo));
+    if (qs.length) url += '?' + qs.join('&');
+    s = await apiFetch(url);
   } catch (e) {
     kpiRow.innerHTML = `<div class="card" style="grid-column:1/-1"><div class="error-state">
       <div class="err-icon">!</div><div class="err-msg">Could not load metrics</div>
