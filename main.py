@@ -3382,7 +3382,7 @@ async def dashboard_asset(asset_name: str):
 
 @app.get("/sw.js")
 async def service_worker():
-    with open("sw.js") as f: content = f.read()
+    with open("sw.js", encoding="utf-8") as f: content = f.read()
     return Response(content=content, media_type="application/javascript",
         headers={"Cache-Control":"no-store, no-cache, must-revalidate",
                  "Pragma":"no-cache"})
